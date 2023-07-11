@@ -203,7 +203,7 @@ void* vrtql_calloc(size_t nmemb, size_t size)
 
 void* vrtql_calloc_error(size_t nmemb, size_t size)
 {
-    vrtql.error(VE_MEM, "malloc()");
+    vrtql.error(VE_MEM, "calloc()");
 }
 
 void* vrtql_realloc(void* ptr, size_t size)
@@ -220,7 +220,7 @@ void* vrtql_realloc(void* ptr, size_t size)
 
 void* vrtql_realloc_error(void* ptr, size_t size)
 {
-    vrtql.error(VE_MEM, "malloc()");
+    vrtql.error(VE_MEM, "realloc()");
 }
 
 //------------------------------------------------------------------------------
