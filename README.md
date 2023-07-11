@@ -193,11 +193,11 @@ int main() {
 
     // Serialize and send
     vrtql_buffer* binary = vrtql_msg_serialize(m1, VM_MPACK_FORMAT);
-    vws_send_data(data->c, binary->data, binary->size, 0x2);
+    vws_send_binary(cnx, binary->data, binary->size);
     vrtql_buffer_free(binary);
 
     // Receive websocket message
-    vws_msg* reply = vws_recv_msg(data->c);
+    vws_msg* reply = vws_recv_msg(cnx);
 
     // Deserialize to VRTQL message
     vrtql_msg* m2 = vrtql_msg_new();
