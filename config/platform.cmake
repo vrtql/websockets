@@ -1,0 +1,32 @@
+#-------------------------------------------------------------------------------
+# Platform Options
+#-------------------------------------------------------------------------------
+
+string(TOLOWER ${CMAKE_SYSTEM_NAME} PLATFORM)
+string(TOLOWER ${CMAKE_SYSTEM} SYSTEM)
+
+if (UNIX AND NOT APPLE)
+  if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    add_definitions(-D__linux__)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+    add_definitions(-D__freebsd__)
+    add_definitions(-D__bsd__)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "SunOS")
+    add_definitions(-D__sunos__)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "NetBSD")
+    add_definitions(-D__netbsd__)
+    add_definitions(-D__bsd__)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "OpenBSD")
+    add_definitions(-D__openbsd__)
+    add_definitions(-D__bsd__)
+  else()
+    message(FATAL_ERROR "Unsupported UNIX system: ${CMAKE_SYSTEM_NAME}")
+  endif()
+elseif(APPLE)
+  add_definitions(-D__apple__)
+  add_definitions(-D__bsd__)
+elseif(WIN32)
+  add_definitions(-D__windows__)
+else()
+  message(FATAL_ERROR "Unsupported system: ${CMAKE_SYSTEM_NAME}")
+endif()

@@ -1,0 +1,13 @@
+#!/usr/bin/env ruby
+
+require 'minitest/autorun'
+#require 'byebug'
+
+$:.unshift "."
+
+require 'vrtql/ws'
+
+require 'tests/messaging'
+require 'tests/websocket'
+
+Minitest.autorun

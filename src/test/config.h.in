@@ -1,0 +1,8 @@
+#ifndef PKG_TEST_CONFIG_DECL
+#define PKG_TEST_CONFIG_DECL
+
+#define PKG_TEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+#define PKG_TEST_SCRIPTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/scripts"
+#define PKG_TEST_TMP_DIR "/tmp"
+
+#endif

@@ -1,0 +1,14 @@
+#ifndef VRTQL_PLATFORM_DECL
+#define VRTQL_PLATFORM_DECL
+
+#define RELEASE_VERSION "${RELEASE_VERSION}"
+#define RELEASE_DATE    "${RELEASE_DATE}"
+
+#define VERSION_MAJ     "${VERSION_MAJ}"
+#define VERSION_MIN     "${VERSION_MIN}"
+#define VERSION_CL      "${VERSION_CL}"
+#define VERSION_PL      "${VERSION_PL}"
+#define VERSION_BN      "${VERSION_BN}"
+#define VERSION         "${RELEASE_VERSION}"
+
+#endif

@@ -1,0 +1,5 @@
+module VRTQL
+  module WS
+    VERSION = '${VERSION}'
+  end
+end
