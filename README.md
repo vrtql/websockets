@@ -146,7 +146,8 @@ int main()
         vws_msg_free(reply);
     }
 
-    vws_disconnect(cnx);
+    // Disconnect and cleanup
+    vws_cnx_free(cnx);
 
     return 0;
 }
@@ -229,6 +230,9 @@ int main() {
     // Cleanup
     vrtql_msg_free(m1);
     vrtql_msg_free(m2);
+
+    // Disconnect and cleanup
+    vws_cnx_free(cnx);
 
     return 0;
 }
