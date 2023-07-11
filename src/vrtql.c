@@ -186,7 +186,12 @@ void* vrtql_malloc(size_t size)
 
 void* vrtql_malloc_error(size_t size)
 {
-    vrtql.error(VE_MEM, "malloc()");
+    // No error string since memory allocation has already failed and error
+    // handler uses malloc() for copying error string.
+    vrtql.error(VE_MEM, NULL);
+
+    // Default does not provide any recovery attempt.
+    return NULL;
 }
 
 void* vrtql_calloc(size_t nmemb, size_t size)
@@ -203,7 +208,12 @@ void* vrtql_calloc(size_t nmemb, size_t size)
 
 void* vrtql_calloc_error(size_t nmemb, size_t size)
 {
-    vrtql.error(VE_MEM, "calloc()");
+    // No error string since memory allocation has already failed and error
+    // handler uses malloc() for copying error string.
+    vrtql.error(VE_MEM, NULL);
+
+    // Default does not provide any recovery attempt.
+    return NULL;
 }
 
 void* vrtql_realloc(void* ptr, size_t size)
@@ -220,7 +230,12 @@ void* vrtql_realloc(void* ptr, size_t size)
 
 void* vrtql_realloc_error(void* ptr, size_t size)
 {
-    vrtql.error(VE_MEM, "realloc()");
+    // No error string since memory allocation has already failed and error
+    // handler uses malloc() for copying error string.
+    vrtql.error(VE_MEM, NULL);
+
+    // Default does not provide any recovery attempt.
+    return NULL;
 }
 
 //------------------------------------------------------------------------------
@@ -501,13 +516,7 @@ char* vrtql_base64_encode(const unsigned char* data, size_t length)
     BUF_MEM* ptr;
     BIO_get_mem_ptr(base64, &ptr);
     size_t output_length = ptr->length;
-    char* encoded_data   = (char*)malloc(output_length + 1);
-
-    if (encoded_data == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-        return NULL;
-    }
+    char* encoded_data   = (char*)vrtql.malloc(output_length + 1);
 
     memcpy(encoded_data, ptr->data, output_length);
     encoded_data[output_length] = '\0';
@@ -528,13 +537,7 @@ unsigned char* vrtql_base64_decode(const char* data, size_t* size)
     // Determine the size of the decoded data
     size_t encoded_length = strlen(data);
     size_t decoded_length = (encoded_length * 3) / 4;  // Rough estimate
-    unsigned char* decoded_data = (unsigned char*)malloc(decoded_length);
-
-    if (decoded_data == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-        return NULL;
-    }
+    unsigned char* decoded_data = (unsigned char*)vrtql.malloc(decoded_length);
 
     // Decode the base64 data
     *size = BIO_read(base64, decoded_data, encoded_length);
@@ -557,13 +560,7 @@ static char* url_extract_part(const char* url, const char* sep, char** rest)
     }
 
     size_t part_length = part_end - url;
-    char* part = malloc(part_length + 1);
-
-    if (part == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-        return NULL;
-    }
+    char* part = vrtql.malloc(part_length + 1);
 
     strncpy(part, url, part_length);
     part[part_length] = '\0';
@@ -588,7 +585,7 @@ char* strndup(const char* s, size_t n)
         len = n;
     }
 
-    char* new_str = (char*)malloc(len + 1);
+    char* new_str = (char*)vrtql.malloc(len + 1);
 
     if (new_str != NULL)
     {
@@ -708,12 +705,7 @@ vrtql_url vrtql_url_parse(const char* url)
     size_t path_len = strlen(url);
 
     // Allocate memory for '/' + url + '\0'
-    parts.path = (char*)malloc((path_len + 2) * sizeof(char));
-
-    if (parts.path == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-    }
+    parts.path = (char*)vrtql.malloc((path_len + 2) * sizeof(char));
 
     if (url[0] != '/')
     {
@@ -822,13 +814,7 @@ char* vrtql_url_build(const vrtql_url* parts)
     }
 
     // Allocate memory for the URL string
-    char* url = (char*)malloc(total_length);
-
-    if (url == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-        return NULL;
-    }
+    char* url = (char*)vrtql.malloc(total_length);
 
     url[0] = '\0'; // Start with an empty string
 
