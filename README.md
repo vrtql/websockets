@@ -8,10 +8,16 @@ features, including text and binary messages, ping/pong frames, and connection
 control frames. It supports both plain and encrypted connections (via
 OpenSSL).
 
-As this is a client-side library, connections are blocking with optional
-timeout. The API is threadsafe in so far as each connection must be maintained
-in its own thread. All global structures and common services (error-reporting
-and tracing) use thread-local variables.
+The motivation behind the project is to have a portable WebSockets client
+library under a permissive license (MIT) which feels like a traditional socket
+API (blocking with optional timeout) which can also provide a foundation for
+some additional messaging features similar to (but lighter weight than) AMQP and
+MQTT.
+
+As a client-side library, connections are blocking with optional timeout. The
+API is threadsafe in so far as each connection must be maintained in its own
+thread. All global structures and common services (error-reporting and tracing)
+use thread-local variables.
 
 The library compiles and runs on Linux, FreeBSD, NetBSD, OpenBSD, Mac, Solaris
 and Windows. The build system (CMake) includes built-in support to for
@@ -84,20 +90,26 @@ Websockets API:
 
 int main()
 {
+    cstr uri = "ws://localhost:8000/websocket";
+
     // vws_connect() will detect "wss" scheme and automatically use SSL
-    vws_cnx* cnx = vws_connect("wss://example.com/websocket");
+    vws_cnx* cnx = vws_cnx_new();
+
+    vws_connect(cnx, uri);
 
     // Check if the connection was successful
-    if (cnx == NULL) {
+    if (vws_connect(cnx, uri) == false)
+    {
         printf("Failed to connect to the WebSocket server\n");
+        vws_cnx_free(cnx);
         return 1;
     }
 
     // Check connection state. This should always be true here.
-    assert(vws_cnx_is_connected(c) == true);
+    assert(vws_cnx_is_connected(cnx) == true);
 
     // Set timeout to 60 seconds (default is 10)
-    vws_cnx_set_timeout(cnx, 60)
+    vws_cnx_set_timeout(cnx, 60);
 
     // Enable tracing. This will dump frames sent and received.
     cnx->trace = true;
@@ -176,14 +188,23 @@ WebSocket connection.
 
 int main() {
 
+    cstr uri = "ws://localhost:8000/websocket";
+
     // vws_connect() will detect "wss" scheme and automatically use SSL
-    vws_cnx* cnx = vws_connect("wss://example.com/websocket");
+    vws_cnx* cnx = vws_cnx_new();
+
+    vws_connect(cnx, uri);
 
     // Check if the connection was successful
-    if (cnx == NULL) {
+    if (vws_connect(cnx, uri) == false)
+    {
         printf("Failed to connect to the WebSocket server\n");
+        vws_cnx_free(cnx);
         return 1;
     }
+
+    // Check connection state. This should always be true here.
+    assert(vws_cnx_is_connected(cnx) == true);
 
     // Create
     vrtql_msg* m1 = vrtql_msg_new();
