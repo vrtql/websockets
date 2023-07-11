@@ -1536,30 +1536,6 @@ ssize_t socket_ingress(vws_cnx* c)
     return total_consumed;
 }
 
-/*
-void socket_close(vws_cnx* c)
-{
-    if (c->ssl != NULL)
-    {
-        SSL_shutdown(c->ssl);
-        SSL_free(c->ssl);
-        c->ssl = NULL;
-    }
-
-    if (c->ssl_ctx != NULL)
-    {
-        SSL_CTX_free(c->ssl_ctx);
-        c->ssl_ctx = NULL;
-    }
-
-    if (c->sockfd > 0)
-    {
-        close(c->sockfd);
-        c->sockfd = -1;
-    }
-}
-*/
-
 void socket_close(vws_cnx* c)
 {
     if (c->ssl != NULL)
@@ -1705,7 +1681,6 @@ void dump_websocket_frame(const uint8_t* frame, size_t size)
     if (size < 2)
     {
         printf("Invalid WebSocket frame\n");
-
         return;
     }
 
@@ -1743,7 +1718,8 @@ void dump_websocket_frame(const uint8_t* frame, size_t size)
             ((uint64_t)frame[5] << 32) |
             ((uint64_t)frame[6] << 24) |
             ((uint64_t)frame[7] << 16) |
-            ((uint64_t)frame[8] << 8)  | frame[9];
+            ((uint64_t)frame[8] << 8)  |
+            frame[9];
     }
 
     if (header.mask)
@@ -1754,7 +1730,7 @@ void dump_websocket_frame(const uint8_t* frame, size_t size)
             return;
         }
         header.masking_key =
-            ((uint32_t)frame[header_size] << 24)     |
+            ((uint32_t)frame[header_size]     << 24) |
             ((uint32_t)frame[header_size + 1] << 16) |
             ((uint32_t)frame[header_size + 2] << 8)  |
             frame[header_size + 3];
