@@ -742,7 +742,7 @@ vrtql_buffer* serialize(vws_frame* f)
         header[5] = (payload_length >> 32) & 0xFF;
         header[6] = (payload_length >> 24) & 0xFF;
         header[7] = (payload_length >> 16) & 0xFF;
-        header[8] = (payload_length >> 8) & 0xFF;
+        header[8] = (payload_length >> 8)  & 0xFF;
         header[9] = payload_length & 0xFF;
 
         // Additional bytes for payload length
@@ -818,9 +818,9 @@ vrtql_buffer* serialize(vws_frame* f)
     return buffer;
 }
 
-void process_frame(vws_cnx* c, vws_frame* frame)
+void process_frame(vws_cnx* c, vws_frame* f)
 {
-    switch (frame->opcode)
+    switch (f->opcode)
     {
         case CLOSE_FRAME:
         {
@@ -835,7 +835,7 @@ void process_frame(vws_cnx* c, vws_frame* frame)
 
             // Clean up
             vrtql_buffer_free(buffer);
-            vws_frame_free(frame);
+            vws_frame_free(f);
 
             break;
         }
@@ -845,7 +845,7 @@ void process_frame(vws_cnx* c, vws_frame* frame)
         case CONTINUATION_FRAME:
         {
             // Add to queue
-            sc_queue_add_first(&c->queue, frame);
+            sc_queue_add_first(&c->queue, f);
 
             break;
         }
@@ -853,14 +853,14 @@ void process_frame(vws_cnx* c, vws_frame* frame)
         case PING_FRAME:
         {
             // Generate the PONG response
-            vrtql_buffer* buffer = generate_pong_frame(frame->data, frame->size);
+            vrtql_buffer* buffer = generate_pong_frame(f->data, f->size);
 
             // Send the PONG response
             socket_write(c, buffer->data, buffer->size);
 
             // Clean up
             vrtql_buffer_free(buffer);
-            vws_frame_free(frame);
+            vws_frame_free(f);
 
             break;
         }
@@ -869,7 +869,7 @@ void process_frame(vws_cnx* c, vws_frame* frame)
         {
             // No need to send a response
 
-            vws_frame_free(frame);
+            vws_frame_free(f);
 
             break;
         }
@@ -877,7 +877,7 @@ void process_frame(vws_cnx* c, vws_frame* frame)
         default:
         {
             // Invalid frame type
-            vws_frame_free(frame);
+            vws_frame_free(f);
         }
     }
 }
