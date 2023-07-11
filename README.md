@@ -42,9 +42,9 @@ Websockets emerged in the late 2000s in response to the growing need for
 real-time, bidirectional communication in web applications. The goal was to
 provide a standardized way for web servers to send content to browsers without
 being prompted by the user, and vice versa. In December 2011 they were
-stardadized by the Internet Engineering Task Force (IETF) in RFC 6455. They now
+standardized by the Internet Engineering Task Force (IETF) in RFC 6455. They now
 enjoy wide support and integration in modern browsers, smartphones, IoT devices
-and server software and have become a fundamental technology in modern web
+and server software. They have become a fundamental technology in modern web
 applications.
 
 ### Concepts and Operation
@@ -76,13 +76,14 @@ There are two APIs in the library: the WebSockts API and the Messaging API.
 
 The WebSockets API is built solely upon WebSocket constructs: frames, messages
 and connections, as you would expect. It intuitively follows the concepts and
-structure laid out in the standard. The following is a basic example of using
-the websockets API:
+structure laid out in the standard. The following is a basic example of the
+Websockets API:
 
 ```c
 #include <vrtql/websocket.h>
 
-int main() {
+int main()
+{
     vws_cnx* cnx = vws_connect("wss://example.com/websocket");
 
     // Check if the connection was successful
@@ -91,13 +92,48 @@ int main() {
         return 1;
     }
 
+    // Check connection state. This should always be true here.
+    assert(vws_cnx_is_connected(c) == true);
+
+    // Set timeout to 60 seconds (default is 10)
+    vws_cnx_set_timeout(cnx, 60)
+
+    // Enable tracing. This will dump frames sent and received.
+    cnx->trace = true;
+
+    // Send a text message
     vws_send_text(cnx, "Hello, world!");
 
     // Receive websocket message
-    vws_msg* wsm = vws_recv_msg(cnx);
+    vws_msg* reply = vws_recv_msg(cnx);
+
+    if (reply == NULL)
+    {
+        // There was no message received and it resulted in timeout
+    }
+    else
+    {
+        // Free message
+        vws_msg_free(reply);
+    }
+
+    // Send a binary message
+    vws_send_binary(cnx, "Hello, world!", 14);
+
+    // Receive websocket message
+    reply = vws_recv_msg(cnx);
+
+    if (reply == NULL)
+    {
+        // There was no message received and it resulted in timeout
+    }
+    else
+    {
+        // Free message
+        vws_msg_free(reply);
+    }
 
     vws_disconnect(cnx);
-    vws_cnx_free(cnx);
 
     return 0;
 }
@@ -105,34 +141,31 @@ int main() {
 
 ### Messaging API
 
-The Messaging API, is built on top of the WebSockets API. While WebSockets
+The Messaging API is built on top of the WebSockets API. While WebSockets
 provide a mechanism for real-time bidirectional communication, it doesn't
 inherently offer things like you would see in more heavyweight message protocols
 like AMQP. The Messaging API provides a small step in that direction, but
-without the heft. It mainly provides a more a more structured message format
-with built-in serialization. The message structure includes two maps (hashtables
-of string key/value pairs) and a payload. One map, called `routing`, is designed
-to hold routing information for messaging applications. The other map, called
-`headers` is for application headers. The payload can hold both text and binary
+without the heft. It mainly provides a more structured message format with
+built-in serialization. The message structure includes two maps (hashtables of
+string key/value pairs) and a payload. One map, called `routing`, is designed to
+hold routing information for messaging applications. The other map, called
+`headers`, is for application use. The payload can hold both text and binary
 data.
 
 The message structure operates with a higher-level connection API which works
-atop the native WebSocket API. The message connection API mainly adds support to
-send and receive these messages, automatically handling serialization and
-deserialization on and off the wire. So it really just boils down to `send()`
-and `receive()` calls which operate with these messages.
+atop the native WebSocket API. The connection API mainly adds support to send
+and receive the messages, automatically handling serialization and
+deserialization on and off the wire. It really just boils down to `send()` and
+`receive()` calls which operate with these messages.
 
 Messages can be serialized in two formats: JSON and MessagePack. Both formats
-can be sent over the same connection on a message-by-message level. That is, the
+can be sent over the same connection on a message-by-message basis. That is, the
 connection is able to auto-detect each incoming message's format and deserialize
-it accordingly. Thus connections support mixed-content messages: JSON and
+accordingly. Thus connections support mixed-content messages: JSON and
 MessagePack.
 
-In conclusion, the message API provides a very basic foundation for messaging
-applications.
-
 The following is a basic example of using the high-level messaging API. Note:
-The connection API for the messaging is still underdevelopment so this example
+the connection API for the messaging is still under development so this example
 is essentially serializing/deserializing a message structure to/from a native
 WebSocket connection.
 
@@ -141,6 +174,8 @@ WebSocket connection.
 #include <vrtql/message.h>
 
 int main() {
+
+    // vws_connect() will detect "wss" scheme and automatically use SSL
     vws_cnx* cnx = vws_connect("wss://example.com/websocket");
 
     // Check if the connection was successful
@@ -188,23 +223,21 @@ and run `./server` which starts a simple websocket server. Then run
 
 - Written in C for maximum portability
 - Runs on all major operating systems
-- OpenSSL support built in (auto-detecting via URL and explicitly)
+- OpenSSL support built in
 - Thread safe
-- Liberal license allowing it to be used in closed-source applications
+- Liberal license allowing use in closed-source applications
 - Simple, intuitive API.
 - Handles complicated tasks like socket-upgrade on connection, PING requests,
-  proper shutdown, frame formatting and generation, message sending and
-  receiving.
+  proper shutdown, frame formatting/masking, message sending and receiving.
 - Well tested with extensive unit tests
-- Well documented
-- Provides a higher-level API for messaging
-- Include native Ruby C extension wraping entire API with RDoc documentaiton.
-- Provides optional higher level messaging protocol for AMQP like messaging
-  applications supporing both JSON and MessagePack serialization formats.
+- Well documented (well, soon to be)
+- Provides a high-level API for messaging applications supporing both JSON and
+  MessagePack serialization formats within same connection.
+- Includes native Ruby C extension with RDoc documentaiton.
 
 ## Installation
 
-In order to build to code, you need CMake version 3.0 or higher on your
+In order to build the code you need CMake version 3.0 or higher on your
 system.
 
 ### C Library
@@ -235,17 +268,17 @@ $ sudo gem install vrtql-ws*.gem
 ### Cross-Compiling for Windows
 
 You must have the requisite MinGW compiler and tools installed on your
-system. For Debian/Devuan you would install as follows:
+system. For Debian/Devuan you would install these as follows:
 
 ```bash
 $ apt-get install mingw-w64 mingw-w64-tools mingw-w64-common \
                   g++-mingw-w64-x86-64 mingw-w64-x86-64-dev
 ```
 
-You will need to have OpenSSL for Windows on your system. If you don't have it
-you can build as follows. First download the version you want to build. Here we
-will use `openssl-1.1.1u.tar.gz` as an example. Create the install directory you
-intend to put OpenSSL in. For example:
+You will need to have OpenSSL for Windows on your system as well. If you don't
+have it you can build as follows. First download the version you want to
+build. Here we will use `openssl-1.1.1u.tar.gz` as an example. Create the
+install directory you intend to put OpenSSL in. For example:
 
 ```bash
 $ mkdir ~/mingw
