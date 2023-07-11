@@ -84,6 +84,7 @@ Websockets API:
 
 int main()
 {
+    // vws_connect() will detect "wss" scheme and automatically use SSL
     vws_cnx* cnx = vws_connect("wss://example.com/websocket");
 
     // Check if the connection was successful
