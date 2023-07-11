@@ -79,7 +79,7 @@ and connections, as you would expect. It intuitively follows the concepts and
 structure laid out in the standard. The following is a basic example of using
 the websockets API:
 
-\```c
+```c
 #include <vrtql/websocket.h>
 
 int main() {
@@ -101,7 +101,7 @@ int main() {
 
     return 0;
 }
-\```
+```
 
 ### Messaging API
 
@@ -136,7 +136,7 @@ The connection API for the messaging is still underdevelopment so this example
 is essentially serializing/deserializing a message structure to/from a native
 WebSocket connection.
 
-\```c
+```c
 #include <vrtql/websocket.h>
 #include <vrtql/message.h>
 
@@ -175,7 +175,7 @@ int main() {
 
     return 0;
 }
-\```
+```
 
 ## Usage and Examples
 
