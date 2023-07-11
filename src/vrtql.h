@@ -37,6 +37,55 @@ typedef struct
 } vrtql_error;
 
 /**
+ * @brief Callback for memory allocation with malloc.
+ */
+typedef void* (*vrtql_malloc_cb)(size_t size);
+
+/**
+ * @brief Callback for malloc failure. This is called when vrtql.malloc() fails
+ * to allocate memory. This function is meant to handle, report and/or recover
+ * from the error. Whatever this function returns will be returned from the
+ * vrtql.malloc().
+ *
+ * @param size The size argument passed to vrtql.malloc()
+ */
+typedef void* (*vrtql_malloc_error_cb)(size_t size);
+
+/**
+ * @brief Callback for memory allocation with calloc.
+ */
+typedef void* (*vrtql_calloc_cb)(size_t nmemb, size_t size);
+
+/**
+ * @brief Callback for calloc failure. This is called when vrtql.calloc() fails
+ * to allocate memory. This function is meant to handle, report and/or recover
+ * from the error. Whatever this function returns will be returned from the
+ * vrtql.calloc().
+ *
+ * @param nmemb The nmemb argument passed to vrtql.calloc()
+ * @param size The size argument passed to vrtql.calloc()
+ */
+typedef void* (*vrtql_calloc_error_cb)(size_t nmemb, size_t size);
+
+/**
+ * @brief Callback for memory allocation with realloc.
+ *
+ * @param ptr The ptr argument passed to vrtql.realloc()
+ */
+typedef void* (*vrtql_realloc_cb)(void* ptr, size_t size);
+
+/**
+ * @brief Callback for realloc failure. This is called when vrtql.realloc()
+ * fails to allocate memory. This function is meant to handle, report and/or
+ * recover from the error. Whatever this function returns will be returned from
+ * the vrtql.realloc().
+ *
+ * @param ptr The ptr argument passed to vrtql.realloc()
+ * @param size The size argument passed to vrtql.realloc()
+ */
+typedef void* (*vrtql_realloc_error_cb)(void* ptr, size_t size);
+
+/**
  * @brief Callback for error submission.
  */
 typedef int (*vrtql_error_submit_cb)(int code, cstr message);
@@ -56,11 +105,17 @@ typedef void (*vrtql_error_clear_cb)();
  */
 typedef struct
 {
-    vrtql_error_submit_cb error;          /**< The error submission function */
-    vrtql_error_process_cb process_error; /**< The error processing function */
-    vrtql_error_clear_cb clear_error;     /**< The error clear function      */
-    uint8_t trace;                        /**< Turns on tracing              */
-    int state;                            /**< Contains global state flags   */
+    vrtql_malloc_cb malloc;               /**< malloc function             */
+    vrtql_malloc_error_cb malloc_error;   /**< malloc error hanlding       */
+    vrtql_calloc_cb calloc;               /**< calloc function             */
+    vrtql_calloc_error_cb calloc_error;   /**< calloc error hanlding       */
+    vrtql_realloc_cb realloc;             /**< realloc function            */
+    vrtql_realloc_error_cb realloc_error; /**< calloc error hanlding       */
+    vrtql_error_submit_cb error;          /**< Error submission function   */
+    vrtql_error_process_cb process_error; /**< Error processing function   */
+    vrtql_error_clear_cb clear_error;     /**< Error clear function        */
+    uint8_t trace;                        /**< Turns on tracing            */
+    int state;                            /**< Contains global state flags */
 } vrtql_env;
 
 /**

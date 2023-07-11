@@ -169,6 +169,61 @@ void vrtql_trace(vrtql_log_level level, const char* format, ...)
 }
 
 //------------------------------------------------------------------------------
+// Memory allocation
+//------------------------------------------------------------------------------
+
+void* vrtql_malloc(size_t size)
+{
+    void* ptr = malloc(size);
+
+    if (ptr == NULL)
+    {
+        return vrtql.malloc_error(size);
+    }
+
+    return ptr;
+}
+
+void* vrtql_malloc_error(size_t size)
+{
+    vrtql.error(VE_MEM, "malloc()");
+}
+
+void* vrtql_calloc(size_t nmemb, size_t size)
+{
+    void* ptr = calloc(nmemb, size);
+
+    if (ptr == NULL)
+    {
+        return vrtql.calloc_error(nmemb, size);
+    }
+
+    return ptr;
+}
+
+void* vrtql_calloc_error(size_t nmemb, size_t size)
+{
+    vrtql.error(VE_MEM, "malloc()");
+}
+
+void* vrtql_realloc(void* ptr, size_t size)
+{
+    ptr = realloc(ptr, size);
+
+    if (ptr == NULL)
+    {
+        return vrtql.realloc_error(ptr, size);
+    }
+
+    return ptr;
+}
+
+void* vrtql_realloc_error(void* ptr, size_t size)
+{
+    vrtql.error(VE_MEM, "malloc()");
+}
+
+//------------------------------------------------------------------------------
 // Error handling
 //------------------------------------------------------------------------------
 
@@ -245,7 +300,6 @@ int vrtql_error_default_process(int code, cstr message)
         case VE_MEM:
         {
             fprintf(stderr, "Out of memory error\n");
-            assert(true);
             break;
         }
 
@@ -287,6 +341,12 @@ void vrtql_error_clear_default()
 // default error handling functions and the trace flag is turned off
 __thread vrtql_env vrtql =
 {
+    .malloc        = vrtql_malloc,
+    .malloc_error  = vrtql_malloc_error,
+    .calloc        = vrtql_calloc,
+    .calloc_error  = vrtql_calloc_error,
+    .realloc       = vrtql_realloc,
+    .realloc_error = vrtql_realloc_error,
     .error         = vrtql_error_default_submit,
     .process_error = vrtql_error_default_process,
     .clear_error   = vrtql_error_clear_default,
@@ -300,12 +360,7 @@ __thread vrtql_env vrtql =
 
 vrtql_buffer* vrtql_buffer_new()
 {
-    vrtql_buffer* buffer = malloc(sizeof(vrtql_buffer));
-
-    if (buffer == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-    }
+    vrtql_buffer* buffer = vrtql.malloc(sizeof(vrtql_buffer));
 
     buffer->data      = NULL;
     buffer->allocated = 0;
@@ -351,22 +406,17 @@ void vrtql_buffer_append(vrtql_buffer* buffer, ucstr data, size_t size)
     {
         buffer->allocated = total_size * 1.5;
 
-        ucstr new_data;
+        ucstr mem;
         if (buffer->data == NULL)
         {
-            new_data = (ucstr)malloc(buffer->allocated);
+            mem = (ucstr)vrtql.malloc(buffer->allocated);
         }
         else
         {
-            new_data = (ucstr)realloc(buffer->data, buffer->allocated);
+            mem = (ucstr)vrtql.realloc(buffer->data, buffer->allocated);
         }
 
-        if (new_data == NULL)
-        {
-            vrtql.error(VE_MEM, "malloc()");
-        }
-
-        buffer->data = new_data;
+        buffer->data = mem;
     }
 
     memcpy(buffer->data + buffer->size, data, size);

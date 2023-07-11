@@ -37,12 +37,7 @@ static int32_t msg_parse_content(mpack_reader_t* reader, vrtql_buffer* buffer);
 
 vrtql_msg* vrtql_msg_new()
 {
-    vrtql_msg* msg = calloc(1, sizeof(vrtql_msg));
-
-    if (msg == NULL)
-    {
-        vrtql.error(VE_MEM, "calloc()");
-    }
+    vrtql_msg* msg = vrtql.calloc(1, sizeof(vrtql_msg));
 
     sc_map_init_str(&msg->routing, 0, 0);
     sc_map_init_str(&msg->headers, 0, 0);
@@ -553,12 +548,7 @@ static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map)
 
         length = mpack_tag_str_length(&tag);
         data   = mpack_read_bytes_inplace(reader, length);
-        key    = malloc(length + 1);
-
-        if (key == NULL)
-        {
-            vrtql.error(VE_MEM, "malloc()");
-        }
+        key    = vrtql.malloc(length + 1);
 
         memcpy(key, data, length);
         key[length] = 0;
@@ -576,12 +566,7 @@ static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map)
 
         length = mpack_tag_str_length(&tag);
         data   = mpack_read_bytes_inplace(reader, length);
-        value  = malloc(length + 1);
-
-        if (value == NULL)
-        {
-            vrtql.error(VE_MEM, "malloc()");
-        }
+        value  = vrtql.malloc(length + 1);
 
         memcpy(value, data, length);
         value[length] = 0;

@@ -238,12 +238,7 @@ static void dump_websocket_frame(const unsigned char* data, size_t size);
 
 vws_cnx* vws_cnx_new()
 {
-    vws_cnx* c = (vws_cnx*)malloc(sizeof(vws_cnx));
-
-    if (c == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-    }
+    vws_cnx* c = (vws_cnx*)vrtql.malloc(sizeof(vws_cnx));
 
     memset(c, 0, sizeof(vws_cnx));
     c->flags   = CLIENT_CLOSED;
@@ -307,7 +302,7 @@ bool vws_connect(vws_cnx* c, cstr uri)
     if (c == NULL)
     {
         // Return early if failed to create a connection.
-        vrtql.error(VE_MEM, "malloc()");
+        vrtql.error(VE_RT, "Invalid connection pointer()");
         return false;
     }
 
@@ -569,15 +564,9 @@ ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame)
 
 vws_msg* vws_msg_new()
 {
-    vws_msg* m = malloc(sizeof(vws_msg));
-    if (m == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-        return NULL;  // Exit function if malloc failed
-    }
-
-    m->opcode = 0;
-    m->data   = vrtql_buffer_new();
+    vws_msg* m = vrtql.malloc(sizeof(vws_msg));
+    m->opcode  = 0;
+    m->data    = vrtql_buffer_new();
 
     return m;
 }
@@ -623,12 +612,7 @@ vws_msg* vws_recv_msg(vws_cnx* c)
 
 vws_frame* vws_frame_new(ucstr data, size_t s, unsigned char oc)
 {
-    vws_frame* f = malloc(sizeof(vws_frame));
-
-    if (f == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-    }
+    vws_frame* f = vrtql.malloc(sizeof(vws_frame));
 
     // We must make our own copy of the data for deterministic memory management
 
@@ -641,13 +625,7 @@ vws_frame* vws_frame_new(ucstr data, size_t s, unsigned char oc)
 
     if (f->size > 0)
     {
-        f->data = malloc(f->size);
-
-        if (f->data == NULL)
-        {
-            vrtql.error(VE_MEM, "malloc()");
-        }
-
+        f->data = vrtql.malloc(f->size);
         memcpy(f->data, data, f->size);
     }
 
@@ -763,12 +741,7 @@ vrtql_buffer* serialize(vws_frame* f)
     }
 
     // Allocate memory for the frame
-    unsigned char* frame_data = (unsigned char*)malloc(frame_size);
-
-    if (frame_data == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-    }
+    unsigned char* frame_data = (unsigned char*)vrtql.malloc(frame_size);
 
     // Copy the header to the frame
     memcpy(frame_data, header, header_size);
@@ -1048,12 +1021,7 @@ char* extract_websocket_accept_key(const char* response)
     }
 
     size_t key_length = key_end - key_start;
-    char* accept_key  = (char*)malloc(key_length + 1);
-
-    if (accept_key == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-    }
+    char* accept_key  = (char*)vrtql.malloc(key_length + 1);
 
     strncpy(accept_key, key_start, key_length);
     accept_key[key_length] = '\0';
@@ -1068,12 +1036,7 @@ int verify_handshake(const char* key, const char* response)
     size_t key_length          = strlen(key);
     size_t guid_length         = strlen(websocket_guid);
     size_t input_length        = key_length + guid_length;
-    char* input                = (char*)malloc(input_length + 1);
-
-    if (input == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-    }
+    char* input                = (char*)vrtql.malloc(input_length + 1);
 
     strncpy(input, key, key_length);
     strncpy(input + key_length, websocket_guid, guid_length);
@@ -1175,12 +1138,7 @@ fs_t deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
         f->offset = 2 + size_bytes;
 
         // Allocate the frame data
-        f->data = malloc(f->size);
-
-        if (f->data == NULL)
-        {
-            vrtql.error(VE_MEM, "malloc()");
-        }
+        f->data = vrtql.malloc(f->size);
 
         // Copy the payload data
         memcpy(f->data, data + f->offset, f->size);
@@ -1585,12 +1543,7 @@ void socket_close(vws_cnx* c)
 vrtql_buffer* generate_close_frame()
 {
     size_t size   = sizeof(int16_t);
-    int16_t* data = malloc(size);
-
-    if (data == NULL)
-    {
-        vrtql.error(VE_MEM, "malloc()");
-    }
+    int16_t* data = vrtql.malloc(size);
 
     // Convert to network byte order before assignement
     *data        = htons(WS_CLOSE_NORMAL);
