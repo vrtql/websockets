@@ -90,11 +90,11 @@ Websockets API:
 
 int main()
 {
-    cstr uri = "ws://localhost:8000/websocket";
-
-    // vws_connect() will detect "wss" scheme and automatically use SSL
+    // Allocate a connection
     vws_cnx* cnx = vws_cnx_new();
 
+    // Connect: vws_connect() will detect "wss" scheme and automatically use SSL
+    cstr uri = "ws://localhost:8000/websocket";
     vws_connect(cnx, uri);
 
     // Check if the connection was successful
@@ -187,13 +187,13 @@ WebSocket connection.
 #include <vrtql/websocket.h>
 #include <vrtql/message.h>
 
-int main() {
-
-    cstr uri = "ws://localhost:8000/websocket";
-
-    // vws_connect() will detect "wss" scheme and automatically use SSL
+int main()
+{
+    // Allocate a connection
     vws_cnx* cnx = vws_cnx_new();
 
+    // Connect: vws_connect() will detect "wss" scheme and automatically use SSL
+    cstr uri = "ws://localhost:8000/websocket";
     vws_connect(cnx, uri);
 
     // Check if the connection was successful

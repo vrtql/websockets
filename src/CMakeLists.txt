@@ -29,6 +29,10 @@ include_directories(${OPENSSL_INCLUDE_DIR})
 
 set(OS_LIBS OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 
+if(${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
+  list(APPEND OS_LIBS socket)
+endif()
+
 #-------------------------------------------------------------------------------
 # Build Targets
 #-------------------------------------------------------------------------------

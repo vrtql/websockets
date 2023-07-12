@@ -9,7 +9,7 @@ CONFIGURE_FILE( ${CMAKE_CURRENT_SOURCE_DIR}/config.h.in
                 ${CMAKE_CURRENT_BINARY_DIR}/config.h )
 
 # Common code needed for tests
-SET(testlib_sources common.c util/mongoose.c)
+SET(testlib_sources common.c)
 
 # Static Library
 add_library(static_test_lib STATIC ${testlib_sources})
@@ -27,20 +27,12 @@ set(test_targets
   test_common
   test_json
   test_message
-  test_websocket
-  client
-  server)
+  test_websocket )
 
 foreach(x ${test_targets})
   add_executable(${x} ${x}.c)
-  target_include_directories(${x} PRIVATE
-    "${PROJECT_SOURCE_DIR}/include"
-    "${gtest_dir}/include"
-    ${PREFIX}/include)
-  target_link_libraries(${x} PRIVATE
-    static_test_lib
-    static_lib
-    ${OS_LIBS})
+  target_include_directories(${x} PRIVATE ${PREFIX}/include)
+  target_link_libraries(${x} PRIVATE static_test_lib static_lib ${OS_LIBS})
 
   if(WIN32)
     target_link_libraries(${x} PRIVATE ws2_32)
@@ -50,7 +42,22 @@ foreach(x ${test_targets})
 
   add_custom_target(${x}_leakcheck
     COMMAND valgrind --leak-check=full --show-reachable=yes ./${x} )
-
   add_dependencies(${x} static_test_lib)
   add_dependencies(${x} static_lib)
+endforeach(x)
+
+# client/server test programs
+set(test_utils client server)
+
+foreach(x ${test_utils})
+  add_executable(${x} ${x}.c util/mongoose.c)
+  target_link_libraries(${x} PRIVATE ${OS_LIBS})
+
+  if(WIN32)
+    target_link_libraries(${x} PRIVATE ws2_32)
+  elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+    target_compile_options(${x} PRIVATE -Wno-error=implicit-function-declaration)
+  endif()
+
+  add_test(NAME ${x} COMMAND ${x})
 endforeach(x)

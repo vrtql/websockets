@@ -447,6 +447,15 @@ bool vws_connect(vws_cnx* c, cstr uri)
     }
 
     cstr accept_key = extract_websocket_accept_key(buffer);
+
+    if (accept_key == NULL)
+    {
+        vrtql.error(VE_SYS, "connect failed: no accept key returned");
+
+        socket_close(c);
+        return false;
+    }
+
     if (verify_handshake(c->key, accept_key) == false)
     {
         vrtql.error(VE_RT, "Handshake verification failed");
@@ -1216,7 +1225,7 @@ bool socket_set_timeout(int fd, int sec)
 
 bool socket_set_nonblocking(int sockfd)
 {
-#if defined(__linux__) || defined(__bsd__)
+#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
     int flags = fcntl(sockfd, F_GETFL, 0);
 
@@ -1230,16 +1239,6 @@ bool socket_set_nonblocking(int sockfd)
     if (fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) == -1)
     {
         vrtql.error(VE_SYS, "fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) failed");
-
-        return false;
-    }
-
-#elif defined(__sunos__)
-
-    int arg = 1;
-    if (ioctl(sockfd, FIONBIO, &arg) == -1)
-    {
-        vrtql.error(VE_SYS, "ioctl(sockfd, FIONBIO, &arg)");
 
         return false;
     }

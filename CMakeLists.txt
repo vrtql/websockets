@@ -27,6 +27,9 @@ message(STATUS "VERSION:      ${VERSION}")
 configure_file( ${CMAKE_CURRENT_SOURCE_DIR}/src/common.h.in
                 ${CMAKE_CURRENT_BINARY_DIR}/src/common.h )
 
+configure_file( ${CMAKE_CURRENT_SOURCE_DIR}/doc/xml/doc.mod.in
+                ${CMAKE_CURRENT_BINARY_DIR}/doc/xml/doc.mod )
+
 configure_file( ${CMAKE_CURRENT_SOURCE_DIR}/src/ruby/config/version.rb.in
                 ${CMAKE_CURRENT_BINARY_DIR}/src/ruby/lib/vrtql/ws/version.rb )
 
