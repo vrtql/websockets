@@ -245,17 +245,17 @@ void* vrtql_realloc_error(void* ptr, size_t size)
 // Sets the last error for the current thread
 void vrtql_set_error(vrtql_error_code code, const char* message)
 {
-    if (vrtql.e.message != NULL)
+    if (vrtql.e.text != NULL)
     {
-        free(vrtql.e.message);
-        vrtql.e.message = NULL;
+        free(vrtql.e.text);
+        vrtql.e.text = NULL;
     }
 
     vrtql.e.code = code;
 
     if (message != NULL)
     {
-        vrtql.e.message = strdup(message);
+        vrtql.e.text = strdup(message);
     }
 }
 
@@ -265,7 +265,17 @@ vrtql_error_value vrtql_get_error()
     return vrtql.e;
 }
 
-// Default error processing function
+int vrtql_error_default_submit(int code, cstr message)
+{
+    // Set
+    vrtql_set_error(code, message);
+
+    // Process
+    vrtql.process_error(code, message);
+
+    return 0;
+}
+
 int vrtql_error_default_process(int code, cstr message)
 {
     if (vrtql.trace == 1)
@@ -326,18 +336,12 @@ int vrtql_error_default_process(int code, cstr message)
     return 0;
 }
 
-int vrtql_error_default_submit(int code, cstr message)
+void vrtql_error_clear_default()
 {
-    // Set
-    vrtql_set_error(code, message);
-
-    // Process
-    vrtql.process_error(code, message);
-
-    return 0;
+    vrtql_set_error(VE_SUCCESS, NULL);
 }
 
-void vrtql_error_clear_default()
+void vrtql_error_success_default()
 {
     vrtql_set_error(VE_SUCCESS, NULL);
 }
@@ -355,8 +359,8 @@ __thread vrtql_env vrtql =
     .error         = vrtql_error_default_submit,
     .process_error = vrtql_error_default_process,
     .clear_error   = vrtql_error_clear_default,
-    .success       = vrtql_error_clear_default,
-    .e             = {.code=VE_SUCCESS, .message=NULL},
+    .success       = vrtql_error_success_default,
+    .e             = {.code=VE_SUCCESS, .text=NULL},
     .trace         = false,
     .state         = 0
 };

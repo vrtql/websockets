@@ -33,7 +33,7 @@ typedef enum vrtql_error_code
 typedef struct
 {
     int code;       /**< Error code */
-    char* message;  /**< Error message */
+    char* text;     /**< Error text */
 } vrtql_error_value;
 
 /**
@@ -86,19 +86,29 @@ typedef void* (*vrtql_realloc_cb)(void* ptr, size_t size);
 typedef void* (*vrtql_realloc_error_cb)(void* ptr, size_t size);
 
 /**
- * @brief Callback for error submission.
+ * @brief Callback for error submission. Error submission function. Error
+ * submission takes care of recording the error in the vrtql.e member. The next
+ * step is the process the error.
  */
 typedef int (*vrtql_error_submit_cb)(int code, cstr message);
 
 /**
- * @brief Callback for error processing.
+ * @brief Callback for error processing. Error processing function. Error
+ * processing makes policy decisions, if any, on how to handle specific classes
+ * of errors, for example how to exit the process on fatal errors (VE_FATAL), or
+ * how to handle memory allocation errors (VE_MEM).
  */
 typedef int (*vrtql_error_process_cb)(int code, cstr message);
 
 /**
- * @brief Callback for error clearing.
+ * @brief Callback for error clearing. The default is to set VE_SUCESS.
  */
 typedef void (*vrtql_error_clear_cb)();
+
+/**
+ * @brief Callback for success conditions. The default is to set VE_SUCESS.
+ */
+typedef void (*vrtql_error_success_cb)();
 
 /**
  * @brief Defines the global vrtql environment.
