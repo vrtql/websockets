@@ -11,12 +11,10 @@ OpenSSL).
 The motivation behind the project is to have a portable WebSockets client
 library under a permissive license which can also provide a foundation for some
 additional messaging features similar to (but lighter weight than) AMQP and
-MQTT.
-
-As a client-side library, connections are blocking with optional timeout. The
-API is threadsafe in so far as each connection must be maintained in its own
-thread. All global structures and common services (error-reporting and tracing)
-use thread-local variables.
+MQTT. As a client-side library, connections are blocking with optional
+timeout. The API is threadsafe in so far as each connection must be maintained
+in its own thread. All global structures and common services (error-reporting
+and tracing) use thread-local variables.
 
 The code compiles and runs on Linux, FreeBSD, NetBSD, OpenBSD, OS X,
 Illumos/Solaris and Windows. It is fully commented and well-documented. Released
