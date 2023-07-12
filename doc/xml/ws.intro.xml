@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<chapter version="5.0"
+    xml:id="ws.intro"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>Introduction</title>
+
+<para>VRTQL WebSockets is a robust and performance-oriented WebSocket client
+library written in C. It provides a simple yet flexible API for building
+WebSocket clients and supports all standard WebSocket features including text
+and binary messages, ping/pong frames, control frames and includes built-in
+OpenSSL support.</para>
+
+<para>The motivation behind the project is to have a portable WebSockets client
+library under a permissive license (MIT) which feels like a traditional socket
+API (blocking with optional timeout) which can also provide a foundation for
+some additional messaging features similar to (but lighter weight than) AMQP and
+MQTT.</para>
+
+<para>As a client-side library, connections are blocking with optional
+timeout. The API is threadsafe in so far as each connection must be maintained
+in its own thread. All global structures and common services (error-reporting
+and tracing) use thread-local variables.</para>
+
+<para>The code compiles and runs on Linux, FreeBSD, NetBSD, OpenBSD, OS X,
+Illumos/Solaris and Windows. It is fully commented and well-documented.
+Furthermore, the code is under a permissive license (MIT) allowing its use in
+commercial (closed-source) applications. The build system (CMake) includes
+built-in support to for cross-compiling from Linux/BSD to Windows, provided
+MinGW compiler and tools are installed on the host system. Instructions on
+cross-compiling are covered in <xref linkend="ws.build.windows"/>.</para>
+
+<section id="ws.intro.ws"><title>WebSocket Overview</title>
+
+<para>WebSockets significantly enhance the capabilities of web applications
+compared to standard HTTP or raw TCP connections. They enable real-time data
+exchange with reduced latency due to the persistent connection, making them
+ideal for applications like live chat, gaming, real-time trading, and live
+sports updates.</para>
+
+<para>Several large-scale applications and platforms utilize WebSockets today,
+including Slack, WhatsApp, and Facebook for real-time messaging. WebSockets are
+also integral to the functionality of collaborative coding platforms like
+Microsoft's Visual Studio Code Live Share. On the server-side, many popular
+software systems support WebSocket, including Node.js, Apache, and Nginx.</para>
+
+<section id="ws.overview.ws.bg"><title>Background</title>
+
+<para>Websockets emerged in the late 2000s in response to the growing need for
+real-time, bidirectional communication in web applications. The goal was to
+provide a standardized way for web servers to send content to browsers without
+being prompted by the user, and vice versa. In December 2011 they were
+standardized by the Internet Engineering Task Force (IETF) in RFC 6455. They now
+enjoy wide support and integration in modern browsers, smartphones, IoT devices
+and server software. They have become a fundamental technology in modern web
+applications.</para>
+
+</section> <!-- ws.intro.ws.bg-->
+
+<section id="ws.overview.concepts"><title>Concepts and Operation</title>
+
+<para>Unlike traditional HTTP connections, which are stateless and
+unidirectional, WebSocket connections are stateful and bidirectional. The
+connection is established through an HTTP handshake (HTTP Upgrade request),
+which is then upgraded to a WebSocket connection if the server supports it. The
+connection remains open until explicitly closed, enabling low-latency data
+exchange.</para>
+
+<para>The WebSocket protocol communicates through a series of data units called
+frames. Each WebSocket frame has a maximum size of 2^64 bytes (but the actual
+size limit may be smaller due to network or system constraints). There are
+several types of frames, including text frames, binary frames, continuation
+frames, and control frames.</para>
+
+<para>Text frames contain Unicode text data, while binary frames carry binary
+data. Continuation frames allow for larger messages to be broken down into
+smaller chunks. Control frames handle protocol-level interactions and include
+close frames, ping frames, and pong frames. The close frame is used to terminate
+a connection, ping frames are for checking the liveness of the connection, and
+pong frames are responses to ping frames.</para>
+
+</section> <!-- ws.intro.ws.concepts-->
+
+</section> <!-- ws.intro.overview -->
+
+</chapter> <!-- ws.intro -->

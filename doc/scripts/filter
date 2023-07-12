@@ -1,0 +1,41 @@
+#!/usr/bin/env ruby
+
+found = false
+
+puts '<div>'
+buffer = ''
+
+$stdin.each { |line|
+  if found == false
+
+    if line.index('<span') == nil
+      
+      # Hack to include <% in RHTML file figures
+      puts line if line.index('&lt;%') != nil
+
+      next
+    else
+      found = true
+    end
+  end
+
+  if line.strip().size == 0
+    buffer += line
+    next
+  end
+
+  if line.index('</pre>') != nil
+    if line.index('</pre>') != 0
+      puts line[0..line.index('</pre>')-1]
+    end
+    puts '</div>'
+    exit(0)
+  end
+
+  if buffer.size > 0
+    puts buffer
+    buffer = ''
+  end
+
+  puts line
+}

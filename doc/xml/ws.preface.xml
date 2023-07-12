@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<preface version="5.0"
+    xml:id="ws.preface"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>Foreward</title>
+
+<para>The following typographical conventions are used in the online
+documentation:
+
+<itemizedlist>
+
+  <listitem>
+    <para>System commands and programs such as <command>grep</command>,
+    <command>awk</command> and <command>dmesg</command> are shown in this
+    manner.</para>
+  </listitem>
+
+  <listitem>
+    <para>Literal expressions such as <literal>select * from user;</literal> are
+    shown in this manner.</para>
+  </listitem>
+
+  <listitem>
+    <para>Files and paths such as <filename>/etc/shadow</filename> and
+    <filename>/var/log/apache</filename> are shown in this manner.</para>
+  </listitem>
+
+  <listitem>
+    <para>Variable names in code such as <varname>$pwd</varname> and
+    <varname>$SHELL</varname> are shown in this manner.</para>
+  </listitem>
+
+  <listitem>
+    <para>Constants such as <constant>PATH_MAX</constant> are shown in this
+    manner.</para>
+  </listitem>
+
+  <listitem>
+    <para>Functions such as <function>strlen</function> are shown in this
+    manner.</para>
+  </listitem>
+
+  <listitem>
+    <para>Function parameters such as <parameter class="command">len</parameter>
+    are shown in this manner.</para>
+  </listitem>
+
+  <listitem>
+    <para>Classes such as <classname>StringIO</classname> are shown in this
+    manner.
+    </para>
+  </listitem>
+
+  <listitem>
+    <para>Class methods such as <methodname>StringIO::read()</methodname> are
+    shown in this manner.</para>
+  </listitem>
+
+  <listitem>
+    <para>XML markup such as <markup role="XML">XInclude</markup> is shown in
+    this manner.</para>
+  </listitem>
+
+  <listitem>
+    <para>Links such as <xref linkend="web.js"/> are shown in this manner.
+    </para>
+  </listitem>
+
+</itemizedlist>
+
+</para>
+
+</preface>

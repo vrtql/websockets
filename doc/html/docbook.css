@@ -1,0 +1,861 @@
+@import url('https://fonts.googleapis.com/css?family=IBM+Plex+Mono|IBM+Plex+Sans|IBM+Plex+Sans+Condensed|IBM+Plex+Serif');
+
+@import url("https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css");
+
+/*----------------------------------------------------------------------------*/
+/* Core HTML Elements                                                         */
+/*----------------------------------------------------------------------------*/
+
+li ul, li ol {margin:0 1.5em;}
+ul, ol {margin:0 1.5em 1.5em 1.5em;}
+ul {list-style-type:disc;}
+ol {list-style-type:decimal;}
+dl {margin:0 0 1.5em 0;}
+dl dt {font-weight:bold; margin: 8px 0 0 0 }
+dd {margin-left:1.5em;}
+
+body
+{
+  background-color: white;
+  margin: 40px auto;
+  width: 960px;
+  font-family: "Roboto", sans-serif; "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+h1, h2, h3, h4
+{
+    font-family: "Roboto", serif;
+}
+
+h2
+{
+  font-size: 2em !important;
+  margin-bottom: 0.75em;
+}
+
+dl
+{
+  margin: 0em;
+}
+
+p
+{
+  text-align: justify;
+  font-size: 1em;
+  line-height: 1.5;
+  margin: 1em 0em 1em 0em;
+}
+
+pre, code, tt
+{
+    font: 1em 'dejavu sans mono', 'liberation sans mono', monospace;
+    line-height: 1;
+    font-size: 1em;
+}
+
+.sect1 p a {color: #09c; text-decoration: underline;}
+
+.informalfigure-float
+{
+    margin: auto;
+    text-align: center;
+}
+
+em
+{
+  color: #313334;
+  font-style: italic;
+}
+
+hr {
+  border: 0;
+  width: 100%;
+  color: #444;
+  background-color: #eee;
+  height: 1px;
+}
+
+.table
+{
+   background-color: #ffffff;
+   border-collapse: separate;
+   border-spacing: 0px;
+
+   cellpadding: 5px 5px 5px 5px;
+
+   padding: 2px 2px 2px 2px;
+   margin: 15px 15px 15px 15px;
+
+   empty-cells: show;
+
+   font: 100%
+}
+
+.table th
+{
+   text-align: center;
+   background-color: #eee;
+   border-bottom: #ababab 1px solid;
+   border-right: #ababab 1px solid;
+}
+
+.table tr
+{
+   text-align: left;
+   background-color: #ffffff;
+   border-bottom: black 1px solid;
+}
+
+.table td
+{
+   padding: 2px 10px 2px 10px;
+   border-bottom: #eee 1px solid;
+}
+
+thead
+{
+    padding:0px;
+    font-size: 9pt;
+}
+
+th
+{
+    text-align: center;
+}
+
+tr
+{
+    text-align: left;
+}
+
+tbody
+{
+    font-size: 9pt;
+}
+
+a
+{
+    color: #09c;
+    font:100%/160%
+    font-weight: 600;
+    text-decoration: none;
+}
+
+ol p, ul p
+{
+  padding: 0;
+  color: #313334;
+  margin: .4em;
+  font-weight: normal;
+}
+
+ol
+{
+  list-style-position: outside;
+  margin: 0.4em 0em 0.4em 3em;
+}
+
+ul
+{
+  list-style-type: square;
+  color: #aa0000;
+  margin: 0.4em 0em 0.4em 2em;
+}
+
+ol ol
+{
+  font: bold;
+  list-style-type: upper-alpha;
+}
+
+tt
+{
+
+}
+
+.blockquote .blockquote
+{
+    line-height: 1.3;
+    padding: 10px;
+    margin: auto;
+    border: 1px solid #0099CC;
+    border: 1px  solid #E1E1EE;
+    background-color: #EEEEEE;
+}
+
+.blockquote
+{
+    line-height: 1.3;
+    padding: 10px;
+    margin: auto;
+    border: 1px solid #0099CC;
+    border: 1px  solid #E1E1EE;
+    background-color: #ffffff;
+
+    font-family: "IBM Plex Sans", sans-serif; "Helvetica Neue", Helvetica, Arial, sans-serif;
+    width: 70%;
+    padding: 20px;
+    margin:  20px auto 20px auto;
+    border:  1px dashed #7389AE;
+}
+
+.blockquote .attribution
+{
+    text-align: right;
+}
+
+.preface .blockquote
+{
+    margin: 60px auto 100px;
+}
+
+.quote
+{
+  font-style: italic;
+}
+
+/*----------------------------------------------------------------------------*/
+/* Titlepage                                                                  */
+/*----------------------------------------------------------------------------*/
+
+.titlepage
+{
+  font: 1em;
+  text-align: center;
+}
+
+.book .titlepage .title
+{
+  color: #111111;
+  text-align: left;
+  font-size: 2em;
+  text-align: center;
+}
+
+.book .titlepage .subtitle
+{
+  margin: 2em 0em 2em 0em;
+}
+
+.titlepage p
+{
+  text-align: justify;
+  font-size: 1em;
+  line-height: 1.2;
+  margin: 0em 0em 0em 0em;
+  text-align: center;
+}
+
+.author,
+p.releaseinfo,
+p.copyright
+{
+  font-size: 1em;
+  margin: 20px;
+}
+
+.license
+{
+  width: 100%;
+  padding: 25px 0px;
+  text-align: center;
+}
+
+.license
+{
+  font-size: 0.8em;
+}
+
+.license img
+{
+  padding: 0.4em;
+}
+
+.navtable tbody
+{
+  font-size: .8em;
+}
+
+.toc
+{
+  font: 0.9em;
+  font-weight: normal;
+  margin: 0em 0em 1em 0em;
+}
+
+.toc a, .list-of-figures a, .list-of-tables a
+{
+  font-weight: normal;
+}
+
+.toc a:hover
+{
+  color: #aa0000;
+}
+
+.list-of-tables
+{
+  font: 0.9em;
+}
+
+.list-of-figures
+{
+  font: 0.9em;
+}
+
+.index
+{
+  font: 0.9em;
+}
+
+.indexdiv dt
+{
+  font-weight: normal;
+}
+
+.preface .blockquote
+{
+    border:  0px;
+}
+
+.preface .blockquote .blockquote
+{
+    line-height: 1.3;
+    padding: 10px;
+    margin: auto;
+    border:  0px;
+}
+
+.preface .blockquote .blockquote p
+{
+    font-family: Georgia, serif;
+    font-style: italic;
+}
+
+/*----------------------------------------------------------------------------*/
+/* Chapter and section                                                        */
+/*----------------------------------------------------------------------------*/
+
+.title
+{
+  margin: 30px 0px 30px 0px;
+  padding: 0px 0px 0px 0px;
+  text-align: left;
+  font-weight: 500;
+}
+
+.chapter
+{
+    position:relative;
+    width:auto;
+    margin:0px 0px 40px 0px;
+    padding:10px 10px 10px 10px;
+    z-index:3;
+}
+
+.chaptertitle
+{
+    font:bold 150%
+    margin:0px 0px 5px 0px;
+    padding:0px;
+    margin: 0px 0px 0px 5px;
+}
+
+.section
+{
+    position: relative;
+    width: auto;
+    margin: 0px 0px 2px 0px;
+    padding: 0px 0px 0px 0px;
+    font: 100%
+    line-height: 1.5;
+    vertical-align: middle;
+}
+
+.sect1 .title
+{
+  color: blue;
+  font-size: 1.5em;
+}
+
+.sect1
+{
+  margin: 0;
+  padding: 0;
+}
+
+.sect2 .title
+{
+  color: #313334;
+  font-size: 1.3em;
+}
+
+.sect3 .title
+{
+  color: #313334;
+  font-size: 1.1em;
+}
+
+.sect4 .title
+{
+  color: gray;
+}
+
+.sect1 h5
+{
+  background-color: #efefef;
+  padding: 7px 7px 7px 10px;
+  font-size: 1.2em;
+  color: black;
+  line-height: 1;
+  margin: 30px 0px 0px 0px;
+}
+
+.sect1 h6
+{
+  color: #000;
+}
+
+
+.refentry h2
+{
+  color: blue;
+  font-weight: bold;
+  font-size: 1.5em;
+  text-transform: uppercase;
+}
+
+.variablelist dd , .refsect3 dd
+{
+    font-weight: normal;
+}
+
+.refsect1, .refsynopsisdiv
+{
+    margin-bottom: 20px;
+}
+
+.refsect2
+{
+    margin-bottom: 20px;
+}
+
+
+.refsect2 h3 .literal
+{
+  font-weight: bold;
+  font-size: 1em;
+
+}
+
+.refsect3
+{
+  font-weight: bold;
+  font-size: 1em;
+  background: #eaeaea;
+  padding: 10px;
+}
+
+/*----------------------------------------------------------------------------*/
+/* Sidebars                                                                   */
+/*----------------------------------------------------------------------------*/
+
+.figure
+{
+  padding: 0px 0px 0px 0px;
+  margin: 25px 0px 0px 0px;
+}
+
+.figure .title
+{
+  color: #313334;
+  font-size: 1.2em;
+  text-align: left;
+}
+
+.table .title
+{
+  font-family: "IBM Plex Sans", serif;
+  color: #313334;
+  font-size: 1em;
+  text-align: left;
+}
+
+.figure-contents
+{
+  padding: 0px 0px 0px 0px;
+  margin:  0px 0px 0px 0px;
+}
+
+.mediaobject
+{
+  padding: 0px 0px 3px 20px;
+  background-color: #ffffff;
+}
+
+.programlisting
+{
+  background: #fafafa;
+  font-family: 'dejavu sans mono', 'liberation sans mono', monospace;
+  font-size: 0.8em;
+  line-height: 1.4em;
+  padding: 20px 0px 20px 20px;
+  margin:  15px 0px 15px 20px;
+  background-color: #F5F5F5;
+  border:1px solid #afe3f7;
+  border:1px solid #E1E1EE;
+  color: #444;
+
+  border-radius: 10px;
+  -moz-border-radius: 10px;
+  -webkit-border-radius: 10px;
+}
+
+.note .programlisting
+{
+  padding: 10px 0px 10px 20px;
+  background-color: #e1e1e1;
+  border:0px solid #E1E1EE;
+}
+
+.synopsis
+{
+  padding: 1em 0px 1em 1em;
+  margin: 0px 20px 0px 20px;
+  background-color: #E1E1EE;
+  border: 1px solid #afe3f7;
+  border: 1px solid #E1E1EE;
+}
+
+.screen
+{
+  font-size: 0.8em;
+  line-height: 1.4em;
+  background-color: #222222;
+  color: #ffffff;
+  padding: 20px 0px 20px 20px;
+  margin:  15px 0px 15px 20px;
+
+  border-radius: 10px;
+  -moz-border-radius: 10px;
+  -webkit-border-radius: 10px;
+}
+
+.msg
+{
+  text-align: center;
+}
+
+.prompt
+{
+  color: #aaaaff;
+  font-weight: bold;
+}
+
+.programlisting .prompt
+{
+  color: blue;
+}
+
+.note
+{
+  font-size: 0.9em;
+  padding: 15px 20px;
+  margin:  15px;
+  background-color: #E8EFFB;
+  border: 1px solid #d7ddea;
+
+  border-radius: 10px;
+  -moz-border-radius: 10px;
+  -webkit-border-radius: 10px;
+}
+
+.note .title
+{
+  font-size: 1.1em;
+  color: #313334;
+  font-weight: bold;
+  padding: .5em 0em 0em 0em;
+  margin: 0em 0em 1em 0em;
+}
+
+.warning
+{
+  font-size: 1em;
+  padding: 15px 20px;
+  margin:  15px;
+  border: red 1px solid;
+  float: center;
+
+  border-radius: 10px;
+  -moz-border-radius: 10px;
+  -webkit-border-radius: 10px;
+}
+
+.warning .title
+{
+  font: 1.2em;
+  font-weight: bold;
+  padding: 0px 0px 0px 0px;
+  margin: 0px 0px 10px 0px;
+  color: red;
+  text-transform: uppercase;
+}
+
+.important .title
+{
+  font: 1.2em;
+  font-weight: bold;
+  padding: 0px 0px 0px 0px;
+  margin: 0px 0px 10px 0px;
+  color: red;
+}
+
+.important
+{
+  font-size: 1em;
+  padding: 15px 20px;
+  margin:  15px;
+  background-color: #FFE695;
+  border-bottom: #ababab 1px solid;
+  border-right: #ababab 1px solid;
+  float: center;
+
+  border-radius: 10px;
+  -moz-border-radius: 10px;
+  -webkit-border-radius: 10px;
+}
+
+/*----------------------------------------------------------------------------*/
+/* Spans and parameters                                                       */
+/*----------------------------------------------------------------------------*/
+
+.abbrev
+{
+  font-weight: bold;
+  border-bottom: 0px;
+}
+
+.classname
+{
+  color: cornflowerblue;
+}
+
+.token
+{
+  font: 1 em "IBM Plex Mono", 'dejavu sans mono', 'liberation sans mono', monospace;
+  color: green;
+}
+
+.command
+{
+    color: #00CC66;
+    font-family: "IBM Plex Mono", 'dejavu sans mono', 'liberation sans mono', monospace;
+    font-weight: normal;
+}
+
+.constant
+{
+  color: navy;
+}
+
+.filename
+{
+  color: olive;
+}
+
+.function
+{
+  color: green;
+}
+
+.literal
+{
+  color: #313334;
+}
+
+.markup
+{
+  color: navy;
+}
+
+.methodname
+{
+  color: navy;
+}
+
+.methodparam
+{
+  color: #6b7b95;
+}
+
+.parameter
+{
+  color: navy;
+}
+
+.structname
+{
+  color: cornflowerblue;
+  font-weight: bold;
+}
+
+.systemitem
+{
+  font-weight: bold;
+  color: brown;
+}
+
+.userinput
+{
+  font-weight: medium;
+  color: navy;
+}
+
+.varname
+{
+  font-weight: medium;
+  color: green;
+}
+
+/*----------------------------------------------------------------------------*/
+/* Program listings                                                           */
+/*----------------------------------------------------------------------------*/
+
+
+.programlisting .builtin
+{
+  color: red;
+}
+
+.programlisting .symbols
+{
+  color: #0077dd;
+}
+
+.programlisting .preproc
+{
+  color: #a900a9;
+}
+
+.programlisting .integer
+{
+  color: #ff0032;
+}
+
+.programlisting .floatpt
+{
+  color: #ff23a6;
+}
+
+.programlisting .dblquot
+{
+  color: #00b800;
+}
+
+.programlisting .sinquot
+{
+  color: #00b86b;
+}
+
+.programlisting .keyword
+{
+  color: #7593F5;
+  font-weight: bold
+}
+
+.programlisting .type
+{
+  color: #5062C6;
+  font-weight: bold
+}
+
+.programlisting .constant
+{
+  color: #609575;
+  font-weight: bold
+}
+
+.programlisting .comment
+{
+  color: #888;
+}
+
+.programlisting .comment-delimiter
+{
+  color: #888;
+}
+
+.programlisting .string
+{
+  color: cornflowerblue;
+}
+
+.programlisting .variable-name
+{
+  color: green;
+}
+
+.programlisting .function-name
+{
+  color: #5062C6;
+  font-weight: bold;
+}
+
+.programlisting .local-name
+{
+  color: navy;
+}
+
+.programlisting .value
+{
+  color: #444;
+}
+
+.programlisting .value-delimiter
+{
+  color: #444;
+}
+
+.programlisting .nxml-element-local-name
+{
+  color: #444;
+  font-weight: bold;
+}
+
+.programlisting .nxml-entity-ref-delimiter
+{
+  color: green;
+  font-weight: bold;
+}
+
+.programlisting .nxml-entity-ref-name
+{
+  color: green;
+  font-weight: bold;
+}
+
+.programlisting .nxml-tag-delimiter
+{
+  color: black;
+}
+
+.programlisting .nxml-tag-slash
+{
+  color: black;
+}
+
+.programlisting .nxml-markup-declaration-delimiter
+{
+  color: #444;
+  font-weight: bold;
+}
+
+.verse
+{
+  font-family: Cambria,Georgia,Palatino,Palatino Linotype,Myriad Pro,Serif;
+  font-style:italic;
+  line-height:1.5;
+}
