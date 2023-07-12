@@ -475,6 +475,8 @@ bool vws_connect(vws_cnx* c, cstr uri)
         return false;
     }
 
+    vrtql.success();
+
     return true;
 }
 
@@ -513,6 +515,8 @@ void vws_disconnect(vws_cnx* c)
 
     vrtql_buffer_free(buffer);
     socket_close(c);
+
+    vrtql.success();
 }
 
 //------------------------------------------------------------------------------
@@ -564,6 +568,8 @@ ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame)
         vrtql_buffer_free(binary);
     }
 
+    vrtql.success();
+
     return n;
 }
 
@@ -591,6 +597,9 @@ void vws_msg_free(vws_msg* m)
 
 vws_msg* vws_recv_msg(vws_cnx* c)
 {
+    // Default success unless error
+    vrtql.success();
+
     if (vws_cnx_is_connected(c) == false)
     {
         vrtql.error(VE_RT, "Not connected");
@@ -659,6 +668,9 @@ void vws_frame_free(vws_frame* f)
 
 vws_frame* vws_recv_frame(vws_cnx* c)
 {
+    // Default success unless error
+    vrtql.success();
+
     if (vws_cnx_is_connected(c) == false)
     {
         vrtql.error(VE_RT, "Not connected");
@@ -689,6 +701,8 @@ vrtql_buffer* serialize(vws_frame* f)
 {
     if (f == NULL)
     {
+        vrtql.error(VE_RT, "empty frame");
+
         return NULL;
     }
 
@@ -766,6 +780,8 @@ vrtql_buffer* serialize(vws_frame* f)
         if (RAND_bytes(masking_key, sizeof(masking_key)) != 1)
         {
             vrtql.error(VE_RT, "RAND_bytes() failed");
+            free(frame_data);
+            return NULL;
         }
 
         // Copy the masking key to the frame
@@ -790,9 +806,11 @@ vrtql_buffer* serialize(vws_frame* f)
     if (buffer == NULL)
     {
         free(frame_data);
-        vrtql.error(VE_MEM, "vrtql_buffer_new()");
+        vrtql.error(VE_MEM, "vrtql_buffer_new() failed");
         return NULL;
     }
+
+    vrtql.success();
 
     buffer->data = frame_data;
     buffer->size = frame_size;
@@ -862,6 +880,8 @@ void process_frame(vws_cnx* c, vws_frame* f)
             vws_frame_free(f);
         }
     }
+
+    vrtql.success();
 }
 
 int connect_to_host(const char* host, const char* port)
@@ -985,6 +1005,8 @@ int connect_to_host(const char* host, const char* port)
 #else
     #error Platform not supported
 #endif
+
+    vrtql.success();
 
     return sockfd;
 }
@@ -1220,6 +1242,8 @@ bool socket_set_timeout(int fd, int sec)
     #error Platform not supported
 #endif
 
+    vrtql.success();
+
     return true;
 }
 
@@ -1257,11 +1281,16 @@ bool socket_set_nonblocking(int sockfd)
     #error Platform not supported
 #endif
 
+    vrtql.success();
+
     return true;
 }
 
 ssize_t socket_read(vws_cnx* c, ucstr data, size_t size)
 {
+    // Default success unless error
+    vrtql.success();
+
     // Validate input parameters
     if (c == NULL || data == NULL || size == 0)
     {
@@ -1328,6 +1357,9 @@ ssize_t socket_read(vws_cnx* c, ucstr data, size_t size)
 
 ssize_t socket_write(vws_cnx* c, const ucstr data, size_t size)
 {
+    // Default success unless error
+    vrtql.success();
+
     if (vws_cnx_is_connected(c) == false)
     {
         vrtql.error(VE_RT, "Not connected");
@@ -1400,6 +1432,9 @@ ssize_t socket_write(vws_cnx* c, const ucstr data, size_t size)
 
 ssize_t socket_wait_for_frame(vws_cnx* c)
 {
+    // Default success unless error
+    vrtql.success();
+
     if (vws_cnx_is_connected(c) == false)
     {
         vrtql.error(VE_RT, "Not connected");
@@ -1416,6 +1451,7 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
 
         if (n < 0)
         {
+            vrtql.error(VE_RT, "Connection closed");
             socket_close(c);
             return n;
         }
@@ -1489,6 +1525,8 @@ ssize_t socket_ingress(vws_cnx* c)
         // Drain the consumed frame data from buffer
         vrtql_buffer_drain(c->buffer, consumed);
     }
+
+    vrtql.success();
 
     return total_consumed;
 }

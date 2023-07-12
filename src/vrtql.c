@@ -355,6 +355,7 @@ __thread vrtql_env vrtql =
     .error         = vrtql_error_default_submit,
     .process_error = vrtql_error_default_process,
     .clear_error   = vrtql_error_clear_default,
+    .success       = vrtql_error_clear_default,
     .e             = {.code=VE_SUCCESS, .message=NULL},
     .trace         = false,
     .state         = 0

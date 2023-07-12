@@ -114,6 +114,7 @@ typedef struct
     vrtql_error_submit_cb error;          /**< Error submission function   */
     vrtql_error_process_cb process_error; /**< Error processing function   */
     vrtql_error_clear_cb clear_error;     /**< Error clear function        */
+    vrtql_error_clear_cb success;         /**< Error clear function        */
     vrtql_error_value e;                  /**< Last error value            */
     uint8_t trace;                        /**< Turns on tracing            */
     int state;                            /**< Contains global state flags */
