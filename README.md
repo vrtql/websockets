@@ -78,6 +78,11 @@ pong frames are responses to ping frames.
 
 There are two APIs in the library: the WebSockts API and the Messaging API.
 
+For working examples beyond that shown here, see the `test_websocket.c` file in
+the `src/test` directory. After building the project, stop into that directory
+and run `./server` which starts a simple websocket server. Then run
+`test_websocket`.
+
 ### Websockets API
 
 The WebSockets API is built solely upon WebSocket constructs: frames, messages
@@ -243,12 +248,9 @@ int main()
 }
 ```
 
-## Usage and Examples
+## Documentation
 
-For working examples beyond that shown here, see the `test_websocket.c` file in
-the `src/test` directory. After building the project, stop into that directory
-and run `./server` which starts a simple websocket server. Then run
-`test_websocket`. There will be an examples directory added in the near future.
+Full documentation is located [here](https://vrtql.github.io/ws/ws.html).
 
 ## Feature Summary
 
