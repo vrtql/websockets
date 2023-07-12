@@ -17,11 +17,115 @@
 
 <title>Building and Installing</title>
 
-<section id="ws.build"><title>Overview</title>
+<para> In order to build the code you need CMake version 3.0 or higher on your
+system. Build as follows:
 
-</section> <!-- ws.build.overview -->
+<screen>
+<prompt>$</prompt> git clone https://github.com/vrtql/websockets.git
+<prompt>$</prompt> cd websockets
+<prompt>$</prompt> cmake .
+<prompt>$</prompt> make
+<prompt>$</prompt> sudo make install
+</screen>
+
+</para>
+
+<para>Unit tests are located in <filename>test</filename>. As a basic test of
+operation, you can run the <filename>test_websockets</filename> test. To run it,
+first start the server as follows:
+
+<screen>
+<prompt>$</prompt> cd test
+<prompt>$</prompt> ./server
+</screen>
+
+Then run <filename>test_websockets</filename>:
+
+<screen>
+<prompt>$</prompt> ./test_websockets
+TEST 1/4 test:send_receive
+
++----------------------------------------------------+
+| Frame Sent                                         |
++----------------------------------------------------+
+  header:   6 bytes
+  fin:      1
+  opcode:   1
+  mask:     1 (0xb95d570f)
+  payload:  7 bytes
+
+da 32 39 7b dc 33 23
+------------------------------------------------------
+
++----------------------------------------------------+
+| Frame Received                                     |
++----------------------------------------------------+
+  header:   2 bytes
+  fin:      1
+  opcode:   1
+  mask:     0 (0x00000000)
+  payload:  7 bytes
+
+  .
+  .
+  .
+</screen>
+
+This will connect to the server and run various send/receive tests dumping the
+frames sent to and received from the server to the console.</para>
 
 <section id="ws.build.windows"><title>Cross-Compiling</title>
+
+<para>You must have the requisite MinGW compiler and tools installed on your
+system. For Debian/Devuan you would install these as follows:
+
+<screen>
+<prompt>$</prompt> sudo apt-get install mingw-w64 mingw-w64-tools mingw-w64-common \
+                  g++-mingw-w64-x86-64 mingw-w64-x86-64-dev
+</screen>
+
+</para>
+
+<para>You will need to have OpenSSL for Windows on your system as well. If you
+don't have it you can build as follows. First download the version you want to
+build. Here we will use <filename>openssl-1.1.1u.tar.gz</filename> as an
+example. Create the install directory you intend to put OpenSSL in. For example:
+
+<screen>
+<prompt>$</prompt> mkdir ~/mingw
+</screen>
+
+Build OpenSSL. You want to ensure you set the <literal>--prefix</literal> to the
+directory you specified above. This is where OpenSSL will install to.
+
+<screen>
+<prompt>$</prompt> cd /tmp
+<prompt>$</prompt> tar xzvf openssl-1.1.1u.tar.gz
+<prompt>$</prompt> cd openssl-1.1.1u
+<prompt>$</prompt> ./Configure --cross-compile-prefix=x86_64-w64-mingw32- \
+              --prefix=~/mingw shared mingw64 no-tests
+<prompt>$</prompt> make
+<prompt>$</prompt> make DESTDIR=~/mingw install
+</screen>
+
+Now within the <filename>websockets</filename> project. Modify the
+<varname>CMAKE_FIND_ROOT_PATH</varname> in the
+<filename>config/windows-toolchain.cmake</filename> file to point to where you
+installed OpenSSL. In this example it would be
+<filename>~/mingw/openssl</filename> (you might want to use full path). Then
+invoke CMake as follows:
+
+<screen>
+<prompt>$</prompt> cmake -DCMAKE_TOOLCHAIN_FILE=config/windows-toolchain.cmake
+</screen>
+
+Then build as normal:
+
+<screen>
+<prompt>$</prompt> make
+</screen>
+
+</para>
 
 </section> <!-- ws.build.windows -->
 

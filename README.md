@@ -280,7 +280,7 @@ Build as follows:
 ```bash
 $ git clone https://github.com/vrtql/websockets.git
 $ cd websockets
-$ cmake
+$ cmake .
 $ make
 $ sudo make install
 ```
@@ -292,7 +292,7 @@ The Ruby extension can be built as follows:
 ```bash
 $ git clone https://github.com/vrtql/websockets.git
 $ cd src/ruby
-$ cmake
+$ cmake .
 $ make
 $ make gem
 $ sudo gem install vrtql-ws*.gem
