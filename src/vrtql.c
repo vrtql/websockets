@@ -245,7 +245,7 @@ void* vrtql_realloc_error(void* ptr, size_t size)
 // Error struct
 __thread vrtql_error vrtql_last_error =
 {
-    .code    = VE_NONE,
+    .code    = VE_SUCCESS,
     .message = NULL
 };
 
@@ -255,6 +255,7 @@ void vrtql_set_error(vrtql_error_code code, const char* message)
     if (vrtql_last_error.message != NULL)
     {
         free(vrtql_last_error.message);
+        vrtql_last_error.message = NULL;
     }
 
     vrtql_last_error.code = code;
@@ -262,10 +263,6 @@ void vrtql_set_error(vrtql_error_code code, const char* message)
     if (message != NULL)
     {
         vrtql_last_error.message = strdup(message);
-    }
-    else
-    {
-        vrtql_last_error.message = NULL;
     }
 }
 
@@ -349,7 +346,7 @@ int vrtql_error_default_submit(int code, cstr message)
 
 void vrtql_error_clear_default()
 {
-    vrtql_set_error(VE_NONE, NULL);
+    vrtql_set_error(VE_SUCCESS, NULL);
 }
 
 // Initialization of the vrtql environment. The environment is initialized with

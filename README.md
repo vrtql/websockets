@@ -178,10 +178,7 @@ connection is able to auto-detect each incoming message's format and deserialize
 accordingly. Thus connections support mixed-content messages: JSON and
 MessagePack.
 
-The following is a basic example of using the high-level messaging API. Note:
-the connection API for the messaging is still under development so this example
-is essentially serializing/deserializing a message structure to/from a native
-WebSocket connection.
+The following is a basic example of using the high-level messaging API.
 
 ```c
 #include <vrtql/websocket.h>
@@ -208,28 +205,21 @@ int main()
     assert(vws_cnx_is_connected(cnx) == true);
 
     // Create
-    vrtql_msg* m1 = vrtql_msg_new();
+    vrtql_msg* request = vrtql_msg_new();
 
-    vrtql_msg_set_routing(m1, "key", "value");
-    vrtql_msg_set_header(m1, "key", "value");
-    vrtql_msg_set_content(m1, "payload");
+    vrtql_msg_set_routing(request, "key", "value");
+    vrtql_msg_set_header(request, "key", "value");
+    vrtql_msg_set_content(request, "payload");
 
-    // Serialize and send
-    vrtql_buffer* binary = vrtql_msg_serialize(m1, VM_MPACK_FORMAT);
-    vws_send_binary(cnx, binary->data, binary->size);
-    vrtql_buffer_free(binary);
+    // Send
+    ASSERT_TRUE(vrtql_msg_send(data->c, request) > 0);
 
-    // Receive websocket message
-    vws_msg* reply = vws_recv_msg(cnx);
-
-    // Deserialize to VRTQL message
-    vrtql_msg* m2 = vrtql_msg_new();
-    vrtql_msg_deserialize(m2, reply->data->data, reply->data->size);
-    vws_msg_free(reply);
+    // Receive
+    vrtql_msg* reply = vrtql_msg_receive(data->c);
 
     // Cleanup
-    vrtql_msg_free(m1);
-    vrtql_msg_free(m2);
+    vrtql_msg_free(request);
+    vrtql_msg_free(reply);
 
     // Disconnect and cleanup
     vws_cnx_free(cnx);

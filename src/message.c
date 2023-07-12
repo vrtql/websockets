@@ -454,6 +454,41 @@ void vrtql_map_clear(struct sc_map_str* map)
     sc_map_clear_str(map);
 }
 
+ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg)
+{
+    vrtql_buffer* binary = vrtql_msg_serialize(msg, VM_MPACK_FORMAT);
+    ssize_t bytes = vws_send_binary(c, binary->data, binary->size);
+    vrtql_buffer_free(binary);
+
+    return bytes;
+}
+
+vrtql_msg* vrtql_msg_receive(vws_cnx* c)
+{
+    vws_msg* wsm = vws_recv_msg(c);
+
+    if (wsm == NULL)
+    {
+        return NULL;
+    }
+
+    // Deserialize VRTQL message
+    vrtql_msg* m = vrtql_msg_new();
+    cstr data    = wsm->data->data;
+    size_t size  = wsm->data->size;
+    if (vrtql_msg_deserialize(m, data, size) == false)
+    {
+        // Error already set
+        vws_msg_free(wsm);
+        vrtql_msg_free(m);
+        return NULL;
+    }
+
+    vws_msg_free(wsm);
+
+    return m;
+}
+
 //------------------------------------------------------------------------------
 // Utility functions
 //------------------------------------------------------------------------------

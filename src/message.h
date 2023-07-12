@@ -1,7 +1,7 @@
 #ifndef VRTQL_MSG_DECLARE
 #define VRTQL_MSG_DECLARE
 
-#include "vrtql.h"
+#include "websocket.h"
 #include "util/sc_map.h"
 
 typedef enum
@@ -183,5 +183,27 @@ void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value);
  * @param map The map instance
  */
 void vrtql_map_clear(struct sc_map_str* map);
+
+/**
+ * @brief Sends a message via a websocket connection. Does not take ownership of
+ * message. Caller is still responsible for freeing message. This is to allow
+ * reuse of messages.
+ *
+ * @param c The connection.
+ * @param string The data to send.
+ * @param size The size of the data in bytes.
+ * @return Returns the number of bytes sent.
+ */
+ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg);
+
+/**
+ * @brief Receives a message from the connection.
+ *
+ * @param c The connection.
+ * @return Returns the most recent message or NULL if the socket timed out
+ *   without receiving a full message.
+ */
+vrtql_msg* vrtql_msg_receive(vws_cnx* c);
+
 
 #endif /* VRTQL_MSG_DECLARE */

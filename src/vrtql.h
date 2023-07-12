@@ -18,7 +18,7 @@ typedef const unsigned char* ucstr;
  */
 typedef enum vrtql_error_code
 {
-    VE_NONE    = 0,   /**< No error */
+    VE_SUCCESS = 0,   /**< No error */
     VE_TIMEOUT = 1,   /**< Socket timeout */
     VE_WARN    = 2,   /**< Warning */
     VE_SYS     = 10,  /**< System call error */

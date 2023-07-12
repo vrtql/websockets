@@ -33,7 +33,7 @@ CTEST_TEARDOWN(test)
 
 CTEST2(test, error_callbacks)
 {
-    vrtql.error(VE_NONE, "No error");
+    vrtql.error(VE_SUCCESS, "No error");
 }
 
 CTEST2(test, base64)
