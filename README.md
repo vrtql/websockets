@@ -9,9 +9,8 @@ control frames. It supports both plain and encrypted connections (via
 OpenSSL).
 
 The motivation behind the project is to have a portable WebSockets client
-library under a permissive license (MIT) which feels like a traditional socket
-API (blocking with optional timeout) which can also provide a foundation for
-some additional messaging features similar to (but lighter weight than) AMQP and
+library under a permissive license which can also provide a foundation for some
+additional messaging features similar to (but lighter weight than) AMQP and
 MQTT.
 
 As a client-side library, connections are blocking with optional timeout. The
