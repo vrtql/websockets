@@ -19,14 +19,12 @@ API is threadsafe in so far as each connection must be maintained in its own
 thread. All global structures and common services (error-reporting and tracing)
 use thread-local variables.
 
-The library compiles and runs on Linux, FreeBSD, NetBSD, OpenBSD, Mac, Solaris
-and Windows. The build system (CMake) includes built-in support to for
+The code compiles and runs on Linux, FreeBSD, NetBSD, OpenBSD, OS X,
+Illumos/Solaris and Windows. It is fully commented and well-documented. Released
+under the MIT license, the code can be freely used in commercial (closed-source)
+applications. The build system (CMake) includes built-in support to for
 cross-compiling from Linux/BSD to Windows, provided MinGW compiler and tools are
-installed on the host system. Instructions on cross-compiling are included in
-the documentation.
-
-The code is under a permissive license (MIT) allowing its use in commercial
-(closed-source) applications.
+installed on the host system.
 
 ## Webockets Overview
 
