@@ -242,34 +242,27 @@ void* vrtql_realloc_error(void* ptr, size_t size)
 // Error handling
 //------------------------------------------------------------------------------
 
-// Error struct
-__thread vrtql_error vrtql_last_error =
-{
-    .code    = VE_SUCCESS,
-    .message = NULL
-};
-
 // Sets the last error for the current thread
 void vrtql_set_error(vrtql_error_code code, const char* message)
 {
-    if (vrtql_last_error.message != NULL)
+    if (vrtql.e.message != NULL)
     {
-        free(vrtql_last_error.message);
-        vrtql_last_error.message = NULL;
+        free(vrtql.e.message);
+        vrtql.e.message = NULL;
     }
 
-    vrtql_last_error.code = code;
+    vrtql.e.code = code;
 
     if (message != NULL)
     {
-        vrtql_last_error.message = strdup(message);
+        vrtql.e.message = strdup(message);
     }
 }
 
 // Get the error value for the current thread
-vrtql_error vrtql_get_error()
+vrtql_error_value vrtql_get_error()
 {
-    return vrtql_last_error;
+    return vrtql.e;
 }
 
 // Default error processing function
@@ -362,6 +355,7 @@ __thread vrtql_env vrtql =
     .error         = vrtql_error_default_submit,
     .process_error = vrtql_error_default_process,
     .clear_error   = vrtql_error_clear_default,
+    .e             = {.code=VE_SUCCESS, .message=NULL},
     .trace         = false,
     .state         = 0
 };

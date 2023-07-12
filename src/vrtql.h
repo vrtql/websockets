@@ -34,7 +34,7 @@ typedef struct
 {
     int code;       /**< Error code */
     char* message;  /**< Error message */
-} vrtql_error;
+} vrtql_error_value;
 
 /**
  * @brief Callback for memory allocation with malloc.
@@ -114,6 +114,7 @@ typedef struct
     vrtql_error_submit_cb error;          /**< Error submission function   */
     vrtql_error_process_cb process_error; /**< Error processing function   */
     vrtql_error_clear_cb clear_error;     /**< Error clear function        */
+    vrtql_error_value e;                  /**< Last error value            */
     uint8_t trace;                        /**< Turns on tracing            */
     int state;                            /**< Contains global state flags */
 } vrtql_env;
