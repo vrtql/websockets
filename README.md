@@ -212,14 +212,29 @@ int main()
     vrtql_msg_set_content(request, "payload");
 
     // Send
-    ASSERT_TRUE(vrtql_msg_send(data->c, request) > 0);
+    if (vrtql_msg_send(cnx, request) < 0)
+    {
+        printf("Failed to send: %s\n", vrtql_last_error.message);
+        vrtql_msg_free(request);
+        vws_cnx_free(cnx);
+        return 1;
+    }
 
     // Receive
-    vrtql_msg* reply = vrtql_msg_receive(data->c);
+    vrtql_msg* reply = vrtql_msg_receive(cnx);
+
+    if (reply == NULL)
+    {
+        // There was no message received and it resulted in timeout
+    }
+    else
+    {
+        // Free message
+        vrtql_msg_free(reply);
+    }
 
     // Cleanup
     vrtql_msg_free(request);
-    vrtql_msg_free(reply);
 
     // Disconnect and cleanup
     vws_cnx_free(cnx);
