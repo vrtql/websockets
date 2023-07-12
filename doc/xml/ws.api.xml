@@ -18,40 +18,79 @@
 <title>C API</title>
 
 <para>There are two APIs in the library: the WebSockts API and the Messaging
-API.</para>
+API. The WebSockets API is built solely upon WebSocket constructs: frames,
+messages and connections, as you would expect. It intuitively follows the
+concepts and structure laid out in the standard. The Messaging API is built on
+top of the WebSockets API. While WebSockets provide a mechanism for real-time
+bidirectional communication, it doesn't inherently offer things like you would
+see in more heavyweight message protocols like AMQP. The Messaging API provides
+a small step in that direction, but without the heft.</para>
 
 <section id="ws.api.ws"><title>Websocket API</title>
 
-<para>The WebSockets API is built solely upon WebSocket constructs: frames,
-messages and connections, as you would expect. It intuitively follows the
-concepts and structure laid out in the standard. The following is a basic
-example of the Websockets API:
+<para>The following is a basic example of the Websockets API:
 
 <sourcecode href="ws.api.ws.example-1.cpp"/>
 
 </para>
 
+<section id="ws.api.ws.msg"><title>Messages and Frames</title>
+
+<para>The send and receive model works in terms of frames. You send one or more
+frames out and you receive one or more frames back. As frames come in they are
+put on a receive queue. The <function>vws_recv_frame()</function>
+function checks this queue. If the queue is empty it performs a socket read
+until the queue has at least one complete frame. If no frame arrives, it blocks
+until its set timeout and will return NULL.</para>
+
+<para>While frames are a concrete object in the standard, messages are
+not. Messages are expressed in terms of frames. A message is one or more frames,
+terminated by a frame with the FIN bit set. So I message can be a single frame,
+which would have its FIN bit set. Or a message can be multiple frames the last
+of which has the FIN bet set. In the latter case, the first frame contains the
+content type (text, binary, etc.). Subsequent frames in the chain or
+continuation frames (another frame type). The last of these continuation frames
+will have the FIN bit set, signifying the end of the message. The
+<function>vws_recv_msg()</function> handles this logic and continues to collect
+frames in the queue until there is at least one complete message. It works
+almost identically <function>vws_recv_frame()</function> but on a message
+level.</para>
+
+</section>
+
+<section id="ws.api.ws.errors"><title>Error Handling</title>
+
+<para>
+
+</para>
+
+</section>
+
+<section id="ws.api.ws.memory"><title>Memory Managements</title>
+
+<para>
+
+</para>
+
+</section>
+
 </section> <!-- ws.api.ws -->
 
-<section id="ws.api.ws"><title>Messaging API</title>
+<section id="ws.api.ws"><title>Message API</title>
 
-<para>The Messaging API is built on top of the WebSockets API. While WebSockets
-provide a mechanism for real-time bidirectional communication, it doesn't
-inherently offer things like you would see in more heavyweight message protocols
-like AMQP. The Messaging API provides a small step in that direction, but
-without the heft. It mainly provides a more structured message format with
-built-in serialization. The message structure includes two maps (hashtables of
-string key/value pairs) and a payload. One map, called
+<para>The message structure operates with a higher-level connection API which
+works atop the native WebSocket API. It mainly provides a more structured
+message format with built-in serialization. The message structure includes two
+maps (hashtables of string key/value pairs) and a payload. One map, called
 <varname>routing</varname>, is designed to hold routing information for
 messaging applications. The other map, called <varname>headers</varname>, is for
 application use. The payload can hold both text and binary data.</para>
 
-<para>The message structure operates with a higher-level connection API which
-works atop the native WebSocket API. The connection API mainly adds support to
-send and receive the messages, automatically handling serialization and
-deserialization on and off the wire. It really just boils down to
-<function>send()</function> and <function>receive()</function> calls which
-operate with these messages.</para>
+<para>The associated connection API is really just two functions:
+<function>vrtql_msg_send()</function> and
+<function>vrtql_msg_receive()</function> calls which operate with these
+messages. They send and receive the messages, automatically handling
+serialization and deserialization on and off the wire.</para>
 
 <para>Messages can be serialized in two formats: JSON and MessagePack. Both
 formats can be sent over the same connection on a message-by-message basis. That

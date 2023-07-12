@@ -298,6 +298,8 @@ $ make gem
 $ sudo gem install vrtql-ws*.gem
 ```
 
+The RDoc documentaton is located [here](https://vrtql.github.io/ws/ruby/).
+
 ### Cross-Compiling for Windows
 
 You must have the requisite MinGW compiler and tools installed on your
