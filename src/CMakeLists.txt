@@ -34,13 +34,13 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
 endif()
 
 #-------------------------------------------------------------------------------
-# Build Targets
+# Source Targets
 #-------------------------------------------------------------------------------
 
 file(GLOB mpack_files mpack/*.c)
 file(GLOB util_files util/*.c)
 
-set(library_sources
+set(core_sources
   message.c
   vrtql.c
   websocket.c
@@ -48,23 +48,34 @@ set(library_sources
   ${util_files}
 )
 
+# Server (optional)
+option(BUILD_SERVER "Build the server" OFF)
+
+if(BUILD_SERVER)
+  set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/config ${CMAKE_MODULE_PATH})
+  find_package(LibUV REQUIRED)
+  include_directories(${LIBUV_INCLUDE_DIRS})
+  list(APPEND OS_LIBS ${LIBUV_LIBRARIES})
+  list(APPEND core_sources server.c)
+endif()
+
+#-------------------------------------------------------------------------------
+# Build Targets
+#-------------------------------------------------------------------------------
+
 # Shared Library
-add_library(shared_lib SHARED ${library_sources})
+add_library(shared_lib SHARED ${core_sources})
 set_target_properties(shared_lib PROPERTIES
   CLEAN_DIRECT_OUTPUT 1
   OUTPUT_NAME ${PROJECT_NAME}
 )
 
 # Static Library: for unit tests
-add_library(static_lib STATIC ${library_sources})
+add_library(static_lib STATIC ${core_sources})
 set_target_properties(static_lib PROPERTIES
   COMPILE_FLAGS "-fPIC"
   OUTPUT_NAME ${PROJECT_NAME}
 )
-
-if(${release_build})
-  add_dependencies(static_lib third_party_libs)
-endif()
 
 # Link against required libraries
 target_link_libraries(static_lib PRIVATE ${OS_LIBS})

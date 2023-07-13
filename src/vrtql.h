@@ -127,7 +127,7 @@ typedef struct
     vrtql_error_clear_cb success;         /**< Error clear function        */
     vrtql_error_value e;                  /**< Last error value            */
     uint8_t trace;                        /**< Turns on tracing            */
-    int state;                            /**< Contains global state flags */
+    uint64_t state;                       /**< Contains global state flags */
 } vrtql_env;
 
 /**
@@ -262,6 +262,33 @@ void vrtql_url_free(vrtql_url parts);
 //------------------------------------------------------------------------------
 // Utilities
 //------------------------------------------------------------------------------
+
+/**
+ * @brief Checks if a specific flag is set.
+ *
+ * @param flags The flags to check
+ * @param flag  The flag to check for
+ * @return Returns true if the flag is set, false otherwise
+ */
+uint8_t vrtql_is_flag(const uint64_t* flags, uint64_t flag);
+
+/**
+ * @brief Sets a specific flag.
+ *
+ * @param flags The flags to modify
+ * @param flag  The flag to set
+ * @return None
+ */
+void vrtql_set_flag(uint64_t* flags, uint64_t flag);
+
+/**
+ * @brief Clears a specific flag.
+ *
+ * @param flags The flags to modify
+ * @param flag  The flag to clear
+ * @return None
+ */
+void vrtql_clear_flag(uint64_t* flags, uint64_t flag);
 
 /**
  * @brief Generates a UUID.

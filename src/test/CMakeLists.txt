@@ -29,6 +29,11 @@ set(test_targets
   test_message
   test_websocket )
 
+if(BUILD_SERVER)
+  list(APPEND test_targets test_server)
+endif()
+
+
 foreach(x ${test_targets})
   add_executable(${x} ${x}.c)
   target_include_directories(${x} PRIVATE ${PREFIX}/include)

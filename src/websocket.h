@@ -84,7 +84,7 @@ void vws_msg_free(vws_msg* msg);
  */
 typedef struct
 {
-    int flags;                 /**< Connection state flags.             */
+    uint64_t flags;            /**< Connection state flags.             */
     vrtql_url url;             /**< The URL of the websocket server.    */
     int sockfd;                /**< The socket file descriptor.         */
     SSL_CTX* ssl_ctx;          /**< The SSL context for the connection. */
@@ -141,6 +141,14 @@ bool vws_cnx_is_connected(vws_cnx* c);
  * @return Returns true if successful, false otherwise.
  */
 bool vws_cnx_set_timeout(vws_cnx* c, int t);
+
+/**
+ * @brief Sets the connection to server mode
+ *
+ * @param c The websocket connection.
+ * @return Returns void.
+ */
+void vws_cnx_set_server_mode(vws_cnx* c);
 
 //------------------------------------------------------------------------------
 // Messaging API

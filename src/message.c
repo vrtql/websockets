@@ -44,24 +44,9 @@ vrtql_msg* vrtql_msg_new()
     msg->content = vrtql_buffer_new();
     msg->flags   = 0;
 
-    vrtql_msg_set_flag(msg, VM_MSG_VALID);
+    vrtql_set_flag(&msg->flags, VM_MSG_VALID);
 
     return msg;
-}
-
-bool vrtql_msg_is_flag(vrtql_msg* msg, uint8_t flag)
-{
-    return (msg->flags & flag) == flag;
-}
-
-void vrtql_msg_set_flag(vrtql_msg* msg, uint8_t flag)
-{
-    msg->flags |= flag;
-}
-
-void vrtql_msg_clear_flag(vrtql_msg* msg, uint8_t flag)
-{
-    msg->flags &= ~flag;
 }
 
 void vrtql_msg_free(vrtql_msg* msg)

@@ -127,7 +127,7 @@ static VALUE m_is_valid(VALUE self)
 {
     vrtql_msg* msg = get_object(self);
 
-    if (vrtql_msg_is_flag(msg, VM_MSG_VALID))
+    if (vrtql_is_flag(&msg->flags, VM_MSG_VALID))
     {
         return Qtrue;
     }

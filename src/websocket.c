@@ -45,16 +45,19 @@ typedef enum
 typedef enum
 {
     // The connection with the client is closed.
-    CLIENT_CLOSED    = 0,
+    CNX_CLOSED    = 0,
 
     // The connection with the client is established and open.
-    CLIENT_CONNECTED = (1 << 1),
+    CNX_CONNECTED = (1 << 1),
 
     // The connection with the client is in the process of being closed.
-    CLIENT_CLOSING   = (1 << 2),
+    CNX_CLOSING   = (1 << 2),
 
     // The connection with the client is in the initial SSL handshake phase.
-    CLIENT_SSL_INIT  = (1 << 3)
+    CNX_SSL_INIT  = (1 << 3),
+
+    // The connection is in server mode
+    CNX_SERVER    = (1 << 4)
 } cnx_flags_t;
 
 // The frame_type_t enum represents the different types of WebSocket frames that
@@ -151,7 +154,7 @@ typedef enum
 } ws_close_code_t;
 
 //------------------------------------------------------------------------------
-// Utility function declarations
+// Internal functions
 //------------------------------------------------------------------------------
 
 // Creates and initializes a new vws_cnx object
@@ -241,7 +244,7 @@ vws_cnx* vws_cnx_new()
     vws_cnx* c = (vws_cnx*)vrtql.malloc(sizeof(vws_cnx));
 
     memset(c, 0, sizeof(vws_cnx));
-    c->flags   = CLIENT_CLOSED;
+    c->flags   = CNX_CLOSED;
     c->url     = vrtql_url_new();
     c->key     = generate_websocket_key();
     c->buffer  = vrtql_buffer_new();
@@ -297,6 +300,11 @@ bool vws_cnx_set_timeout(vws_cnx* c, int sec)
     return socket_set_timeout(c->sockfd, sec);
 }
 
+void vws_cnx_set_server_mode(vws_cnx* c)
+{
+    vrtql_set_flag(&c->flags, CNX_SERVER);
+}
+
 bool vws_connect(vws_cnx* c, cstr uri)
 {
     if (c == NULL)
@@ -319,30 +327,34 @@ bool vws_connect(vws_cnx* c, cstr uri)
     cstr default_port = strcmp(c->url.scheme, "wss") == 0 ? "443" : "80";
     cstr port = c->url.port != NULL ? c->url.port : default_port;
 
-    if (strcmp(c->url.scheme, "wss") == 0 && !(vrtql.state & CLIENT_SSL_INIT))
+    if (strcmp(c->url.scheme, "wss") == 0)
     {
-        SSL_library_init();
-        RAND_poll();
-        SSL_load_error_strings();
-        vrtql.state |= CLIENT_SSL_INIT;
-
-        c->ssl_ctx = SSL_CTX_new(TLS_method());
-
-        if (c->ssl_ctx == NULL)
+        if (vrtql_is_flag(&vrtql.state, CNX_SSL_INIT) == false)
         {
-            vrtql.error(VE_SYS, "Failed to create new SSL context");
-            return false;
-        }
+            SSL_library_init();
+            RAND_poll();
+            SSL_load_error_strings();
 
-        SSL_CTX_set_options(c->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+            c->ssl_ctx = SSL_CTX_new(TLS_method());
 
-        c->ssl = SSL_new(c->ssl_ctx);
+            if (c->ssl_ctx == NULL)
+            {
+                vrtql.error(VE_SYS, "Failed to create new SSL context");
+                return false;
+            }
 
-        if (c->ssl == NULL)
-        {
-            vrtql.error(VE_SYS, "Failed to create new SSL object");
-            socket_close(c);
-            return false;
+            SSL_CTX_set_options(c->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+
+            c->ssl = SSL_new(c->ssl_ctx);
+
+            if (c->ssl == NULL)
+            {
+                vrtql.error(VE_SYS, "Failed to create new SSL object");
+                socket_close(c);
+                return false;
+            }
+
+            vrtql_set_flag(&vrtql.state, CNX_SSL_INIT);
         }
     }
 
@@ -355,7 +367,7 @@ bool vws_connect(vws_cnx* c, cstr uri)
         return false;
     }
 
-    c->flags = CLIENT_CONNECTED;
+    c->flags = CNX_CONNECTED;
 
     // Set default timeout
 
@@ -497,7 +509,7 @@ void vws_disconnect(vws_cnx* c)
         return;
     }
 
-    c->flags = CLIENT_CLOSED;
+    c->flags = CNX_CLOSED;
 
     vrtql_buffer* buffer = generate_close_frame();
 
@@ -825,7 +837,7 @@ void process_frame(vws_cnx* c, vws_frame* f)
         case CLOSE_FRAME:
         {
             // Set closing state
-            c->flags |= CLIENT_CLOSING;
+            vrtql_set_flag(&c->flags, CNX_CLOSING);
 
             // Build the response frame
             vrtql_buffer* buffer = generate_close_frame();

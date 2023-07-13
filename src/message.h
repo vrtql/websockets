@@ -25,7 +25,7 @@ typedef struct vrtql_msg
     struct sc_map_str routing; /**< A map storing routing information. */
     struct sc_map_str headers; /**< A map storing header fields.       */
     vrtql_buffer* content;     /**< Buffer for the message content.    */
-    uint8_t flags;             /**< Message state flags                */
+    uint64_t flags;            /**< Message state flags                */
 } vrtql_msg;
 
 /**
@@ -139,27 +139,6 @@ vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg, vrtql_msg_format_t format);
  * @return true on success, false on failure.
  */
 bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length);
-
-/**
- * @brief Check is a message flag is set
- * @param msg The vrtql_msg instance.
- * @return true if message is valid, false otherwise
- */
-bool vrtql_msg_is_flag(vrtql_msg* msg, uint8_t flag);
-
-/**
- * @brief Set a message flag
- * @param msg The vrtql_msg instance.
- * @param flag The flag to set
- */
-void vrtql_msg_set_flag(vrtql_msg* msg, uint8_t flag);
-
-/**
- * @brief Clear a message flag
- * @param msg The vrtql_msg instance.
- * @param flag The flag to clear
- */
-void vrtql_msg_clear_flag(vrtql_msg* msg, uint8_t flag);
 
 /**
  * @brief Gets a routing key-value pair.

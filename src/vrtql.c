@@ -120,6 +120,8 @@ void vrtql_trace(vrtql_log_level level, const char* format, ...)
 
 #if defined(__windows__)
 
+    DWORD tid = GetCurrentThreadId();
+
     // Windows implementation using Windows API for thread synchronization
     if (WaitForSingleObject(log_mutex, INFINITE) != WAIT_OBJECT_0)
     {
@@ -128,6 +130,8 @@ void vrtql_trace(vrtql_log_level level, const char* format, ...)
     }
 
 #else
+
+    pthread_t tid = pthread_self();
 
     if (pthread_mutex_lock(&log_mutex) != 0)
     {
@@ -139,9 +143,14 @@ void vrtql_trace(vrtql_log_level level, const char* format, ...)
 
 #endif
 
-    fprintf(stderr, "%s[%s] [%s]%s ",
+    fprintf(stderr, "%s[%s] [%lu] [%s]%s ",
             color_code,
             stamp,
+#if defined(__windows__)
+            tid,
+#else
+            (unsigned long)tid,
+#endif
             level_name,
             ANSI_COLOR_RESET);
 
@@ -541,6 +550,25 @@ unsigned char* vrtql_base64_decode(const char* data, size_t* size)
     BIO_free_all(base64);
 
     return decoded_data;
+}
+
+//------------------------------------------------------------------------------
+// Utilities
+//------------------------------------------------------------------------------
+
+uint8_t vrtql_is_flag(const uint64_t* flags, uint64_t flag)
+{
+    return (*flags & flag) == flag;
+}
+
+void vrtql_set_flag(uint64_t* flags, uint64_t flag)
+{
+    *flags |= flag;
+}
+
+void vrtql_clear_flag(uint64_t* flags, uint64_t flag)
+{
+    *flags &= ~flag;
 }
 
 //------------------------------------------------------------------------------
