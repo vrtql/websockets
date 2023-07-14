@@ -31,11 +31,11 @@
  * networking thread.
  *
  * Worker threads pass data to it through a queue. The data is in the form of
- * vrtql_svr_task instances. When a worker sends a vrtql_svr_task instance, it
+ * vrtql_svr_data instances. When a worker sends a vrtql_svr_data instance, it
  * adds it to the queue (server->responses) and notifies (wakes up) the main UV
  * loop (uv_run() in vrtql_svr_run()) by calling uv_async_send(&server->wakeup)
  * which in turn calls this function to check the server->responses queue. This
- * function unloads all tasks in the queue and sends the data out to each
+ * function unloads all data in the queue and sends the data out to each
  * respective client. It then returns control back to the main UV loop which
  * resumes polling the network connections (blocking if there is no activity).
  *
@@ -49,11 +49,11 @@ static void uv_thread(uv_async_t* handle);
  * @brief The entry point for a worker thread.
  *
  * This function implements the worker thread pool. It is what each worker
- * thread runs. It loops continuously, handling incoming tasks from clients,
+ * thread runs. It loops continuously, handling incoming data from clients,
  * processing them and returning data back to them via the uv_thread(). It
- * processes data by taking tasks (requests) from the server->requests queue,
- * dispatching them to server->process(task) for processing, which in turn
- * generates tasks (responses), sending them back to the client by putting them
+ * processes data by taking data (requests) from the server->requests queue,
+ * dispatching them to server->process(data) for processing, which in turn
+ * generates data (responses), sending them back to the client by putting them
  * on the server->responses queue (processed by uv_thread()).
  *
  * @param arg A void pointer, typically to the server object,
@@ -73,8 +73,8 @@ static void worker_thread(void* arg);
 /**
  * @brief Initiates the server shutdown process.
  *
- * It signals all worker threads to stop processing new tasks and
- * to finish any tasks they are currently processing.
+ * It signals all worker threads to stop processing new data and
+ * to finish any requests they are currently processing.
  *
  * @param server The server that needs to be shutdown.
  *
@@ -217,18 +217,18 @@ static void svr_client_disconnect(vrtql_svr_cnx* c);
 static void svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* buf);
 
 /**
- * @brief Callback for worker thread task processing.
+ * @brief Callback for worker thread data processing.
  *
- * This function is triggered to process a task within a worker thread. It is
+ * This function is triggered to process data within a worker thread. It is
  * responsible for handling the actual computation or other work associated with
- * the task.
+ * the data.
  *
  * @param server The server instance
  * @param req The incoming request to process.
  *
  * @ingroup ServerFunctions
  */
-static void svr_client_process(vrtql_svr* server, vrtql_svr_task* req);
+static void svr_client_process(vrtql_svr* server, vrtql_svr_data* req);
 
 
 
@@ -295,14 +295,14 @@ static void svr_cnx_map_clear(vrtql_svr_cnx_map* map);
  * @brief Queue functions which bridge the network thread and workers
  *
  * The network thread and worker threads pass data via queues. These queues
- * contain vrtql_svr_task instances. There is a requests queue which passes
- * tasks from the network thread to workers for processing. There is a response
- * queue that passed tasks from worker queues to the network thread. When passed
- * from network thread to work, tasks take form of incoming data from the
- * client. When passed from the worker threads the the networking thread, tasks
+ * contain vrtql_svr_data instances. There is a requests queue which passes
+ * data from the network thread to workers for processing. There is a response
+ * queue that passed data from worker queues to the network thread. When passed
+ * from network thread to work, data take form of incoming data from the
+ * client. When passed from the worker threads the the networking thread, data
  * take the form of outgoing data to be sent back to the client.
  *
- * Queues have built-in synchronization mechanisms that allow the tasks to be
+ * Queues have built-in synchronization mechanisms that allow the data to be
  * safely passed between threads, as well as ways to gracefull put waiting
  * threads to sleep until data arrives for processing.
  */
@@ -333,30 +333,30 @@ void queue_init(vrtql_svr_queue* queue, int capacity);
 void queue_destroy(vrtql_svr_queue* queue);
 
 /**
- * @brief Pushes a task to the server queue.
+ * @brief Pushes data to the server queue.
  *
- * This function adds a task to the end of the provided queue. It also handles
+ * This function adds data to the end of the provided queue. It also handles
  * the necessary synchronization to ensure thread safety.
  *
  * @param queue Pointer to the server queue.
- * @param task Task to be added to the queue.
+ * @param data Data to be added to the queue.
  *
  * @ingroup QueueGroup
  */
-void queue_push(vrtql_svr_queue* queue, vrtql_svr_task* task);
+void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data);
 
 /**
- * @brief Pops a task from the server queue.
+ * @brief Pops data from the server queue.
  *
- * This function removes and returns a task from the front of the provided queue.
+ * This function removes and returns data from the front of the provided queue.
  * It also handles the necessary synchronization to ensure thread safety.
  *
  * @param queue Pointer to the server queue.
- * @return A task from the front of the queue.
+ * @return A data element from the front of the queue.
  *
  * @ingroup QueueGroup
  */
-vrtql_svr_task* queue_pop(vrtql_svr_queue* queue);
+vrtql_svr_data* queue_pop(vrtql_svr_queue* queue);
 
 /**
  * @brief Checks if the server queue is empty.
@@ -385,7 +385,7 @@ void worker_thread(void* arg)
 
         // This will put the thread to sleep on a condition variable until
         // something arrives in queue.
-        vrtql_svr_task* request = queue_pop(&server->requests);
+        vrtql_svr_data* request = queue_pop(&server->requests);
 
         // If there's no request (null request), check the server's state
         if (request == NULL)
@@ -395,7 +395,7 @@ void worker_thread(void* arg)
             {
                 if (server->trace)
                 {
-                    vrtql_trace(VL_INFO, "worker_thread shutdown");
+                    vrtql_trace(VL_INFO, "worker_thread(): stop");
                 }
 
                 return;
@@ -409,7 +409,7 @@ void worker_thread(void* arg)
 
         if (server->trace)
         {
-            vrtql_trace(VL_INFO, "worker_thread(enter) %p", request->client);
+            vrtql_trace(VL_INFO, "worker_thread(): process %p", request->client);
         }
 
         server->process(server, request);
@@ -440,14 +440,14 @@ void uv_thread(uv_async_t* handle)
         return;
     }
 
-    while (!queue_empty(&server->responses))
+    while (queue_empty(&server->responses) == false)
     {
-        vrtql_svr_task* task = queue_pop(&server->responses);
-        uv_buf_t buf         = uv_buf_init(task->data, strlen(task->data));
+        vrtql_svr_data* data = queue_pop(&server->responses);
+        uv_buf_t buf         = uv_buf_init(data->data, strlen(data->data));
         uv_write_t* req      = (uv_write_t*)vrtql.malloc(sizeof(uv_write_t));
+        req->data            = data;
 
-        req->data = task;
-        uv_write(req, task->client, &buf, 1, svr_on_write_complete);
+        uv_write(req, data->client, &buf, 1, svr_on_write_complete);
     }
 }
 
@@ -455,19 +455,19 @@ void uv_thread(uv_async_t* handle)
 // Server API
 //------------------------------------------------------------------------------
 
-vrtql_svr_task* vrtql_svr_task_new(uv_stream_t* c, size_t size, ucstr data)
+vrtql_svr_data* vrtql_svr_data_new(uv_stream_t* c, size_t size, ucstr data)
 {
-    vrtql_svr_task* task;
-    task = (vrtql_svr_task*)vrtql.malloc(sizeof(vrtql_svr_task));
+    vrtql_svr_data* item;
+    item = (vrtql_svr_data*)vrtql.malloc(sizeof(vrtql_svr_data));
 
-    task->client = c;
-    task->size   = size;
-    task->data   = data;
+    item->client = c;
+    item->size   = size;
+    item->data   = data;
 
-    return task;
+    return item;
 }
 
-void vrtql_svr_task_free(vrtql_svr_task* t)
+void vrtql_svr_data_free(vrtql_svr_data* t)
 {
     if (t != NULL)
     {
@@ -476,11 +476,11 @@ void vrtql_svr_task_free(vrtql_svr_task* t)
     }
 }
 
-vrtql_svr* vrtql_svr_new(int threads)
+vrtql_svr* vrtql_svr_new(int num_threads)
 {
     vrtql_svr* server     = vrtql.malloc(sizeof(vrtql_svr));
-    server->threads       = vrtql.malloc(sizeof(uv_thread_t) * threads);
-    server->pool_size     = threads;
+    server->threads       = vrtql.malloc(sizeof(uv_thread_t) * num_threads);
+    server->pool_size     = num_threads;
     server->trace         = 0;
     server->on_connect    = svr_client_connect;
     server->on_disconnect = svr_client_disconnect;
@@ -505,7 +505,7 @@ void on_uv_close(uv_handle_t* handle)
 {
     if (handle != NULL)
     {
-        if(handle->data != NULL)
+        if (handle->data != NULL)
         {
             vrtql_trace(VL_INFO, "on_uv_close(): freeing data %p", (void*)handle);
             free(handle->data);
@@ -563,9 +563,9 @@ void vrtql_svr_free(vrtql_svr* server)
     free(server);
 }
 
-int vrtql_svr_send(vrtql_svr* server, vrtql_svr_task* task)
+int vrtql_svr_send(vrtql_svr* server, vrtql_svr_data* data)
 {
-    queue_push(&server->responses, task);
+    queue_push(&server->responses, data);
 
     // Notify event loop about the new response
     uv_async_send(&server->wakeup);
@@ -678,12 +678,12 @@ void svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
         vrtql_trace(VL_INFO, "svr_client_read(%p)", c);
     }
 
-    // Queue task to worker pool for processing
-    vrtql_svr_task* task = vrtql_svr_task_new(c->client, size, buf->base);
-    queue_push(&server->requests, task);
+    // Queue data to worker pool for processing
+    vrtql_svr_data* data = vrtql_svr_data_new(c->client, size, buf->base);
+    queue_push(&server->requests, data);
 }
 
-void svr_client_process(vrtql_svr* server, vrtql_svr_task* req)
+void svr_client_process(vrtql_svr* server, vrtql_svr_data* req)
 {
     //> Prepare the response: echo the data back
 
@@ -694,10 +694,10 @@ void svr_client_process(vrtql_svr* server, vrtql_svr_task* req)
     strncpy(data, req->data, req->size);
 
     // Create response
-    vrtql_svr_task* reply = vrtql_svr_task_new(req->client, req->size, data);
+    vrtql_svr_data* reply = vrtql_svr_data_new(req->client, req->size, data);
 
     // Free request
-    vrtql_svr_task_free(req);
+    vrtql_svr_data_free(req);
 
     if (server->trace)
     {
@@ -883,7 +883,7 @@ void svr_on_read(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf)
 
 void svr_on_write_complete(uv_write_t* req, int status)
 {
-    vrtql_svr_task_free((vrtql_svr_task*)req->data);
+    vrtql_svr_data_free((vrtql_svr_data*)req->data);
     free(req);
 }
 
@@ -921,7 +921,7 @@ void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf)
 
 void queue_init(vrtql_svr_queue* queue, int size)
 {
-    queue->buffer   = (vrtql_svr_task**)vrtql.malloc(size * sizeof(vrtql_svr_task*));
+    queue->buffer   = (vrtql_svr_data**)vrtql.malloc(size * sizeof(vrtql_svr_data*));
     queue->size     = 0;
     queue->capacity = size;
     queue->head     = 0;
@@ -946,11 +946,11 @@ void queue_destroy(vrtql_svr_queue* queue)
     }
 }
 
-void queue_push(vrtql_svr_queue* queue, vrtql_svr_task* task)
+void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data)
 {
     if (queue->trace)
     {
-        vrtql_trace(VL_INFO, "queue_push(enter) %p", task->client);
+        vrtql_trace(VL_INFO, "queue_push(enter) %p", data->client);
     }
 
     uv_mutex_lock(&queue->mutex);
@@ -960,7 +960,7 @@ void queue_push(vrtql_svr_queue* queue, vrtql_svr_task* task)
         uv_cond_wait(&queue->cond, &queue->mutex);
     }
 
-    queue->buffer[queue->tail] = task;
+    queue->buffer[queue->tail] = data;
     queue->tail = (queue->tail + 1) % queue->capacity;
     queue->size++;
 
@@ -970,11 +970,11 @@ void queue_push(vrtql_svr_queue* queue, vrtql_svr_task* task)
 
     if (queue->trace)
     {
-        vrtql_trace(VL_INFO, "queue_push(leave) %p", task->client);
+        vrtql_trace(VL_INFO, "queue_push(leave) %p", data->client);
     }
 }
 
-vrtql_svr_task* queue_pop(vrtql_svr_queue* queue)
+vrtql_svr_data* queue_pop(vrtql_svr_queue* queue)
 {
     if (queue->trace)
     {
@@ -1001,14 +1001,14 @@ vrtql_svr_task* queue_pop(vrtql_svr_queue* queue)
         return NULL;
     }
 
-    vrtql_svr_task* task = queue->buffer[queue->head];
+    vrtql_svr_data* data = queue->buffer[queue->head];
     queue->head = (queue->head + 1) % queue->capacity;
     queue->size--;
     uv_cond_signal(&queue->cond);
     uv_cond_broadcast(&queue->cond);
     uv_mutex_unlock(&queue->mutex);
 
-    return task;
+    return data;
 }
 
 bool queue_empty(vrtql_svr_queue* queue)
@@ -1016,6 +1016,7 @@ bool queue_empty(vrtql_svr_queue* queue)
     uv_mutex_lock(&queue->mutex);
     bool empty = (queue->size == 0);
     uv_mutex_unlock(&queue->mutex);
+
     return empty;
 }
 

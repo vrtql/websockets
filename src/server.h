@@ -7,7 +7,7 @@
 #include "util/sc_map.h"
 
 /**
- * @brief Struct representing a server task for inter-thread communication
+ * @brief Struct representing a server data for inter-thread communication
  * between the main network thread and worker threads. This is the way data is
  * passed between them. When passed from network thread to work, these take form
  * of incoming data from the client. When passed from the worker thread the the
@@ -16,16 +16,16 @@
 
 typedef struct
 {
-    /**< The client associated with the task */
+    /**< The client associated with the data */
     uv_stream_t* client;
 
     /**< The number of bytes of data */
     size_t size;
 
-    /**< The data associated with the task */
+    /**< The data */
     char* data;
 
-} vrtql_svr_task;
+} vrtql_svr_data;
 
 /**
  * @brief Struct representing a server queue, including information about
@@ -33,8 +33,8 @@ typedef struct
  */
 typedef struct
 {
-    /**< The buffer holding tasks in the queue */
-    vrtql_svr_task** buffer;
+    /**< The buffer holding datas in the queue */
+    vrtql_svr_data** buffer;
 
     /**< Current size of the queue */
     int size;
@@ -101,11 +101,11 @@ typedef void (*vrtql_svr_disconnect)(vrtql_svr_cnx* c);
 typedef void (*vrtql_svr_read)(vrtql_svr_cnx* c, ssize_t n, const uv_buf_t* b);
 
 /**
- * @brief Callback for task processing within worker thread
+ * @brief Callback for data processing within worker thread
  * @param s The server instance
  * @param t The incoming request to process
  */
-typedef void (*vrtql_svr_process)(struct vrtql_svr* s, vrtql_svr_task* t);
+typedef void (*vrtql_svr_process)(struct vrtql_svr* s, vrtql_svr_data* t);
 
 /**
  * @brief Enumerates server state
@@ -173,22 +173,22 @@ typedef struct vrtql_svr
 } vrtql_svr;
 
 /**
- * @brief Creates a new thread task. This TAKES OWNERSHIP of the data. The
+ * @brief Creates a new thread data. This TAKES OWNERSHIP of the data. The
  * called is not to free this data.
  *
  * @param c The connection structure
  * @param size The number of bytes of data
  * @param data The data
- * @return A new thread task.
+ * @return A new thread data.
  */
-vrtql_svr_task* vrtql_svr_task_new(uv_stream_t* c, size_t size, ucstr data);
+vrtql_svr_data* vrtql_svr_data_new(uv_stream_t* c, size_t size, ucstr data);
 
 /**
- * @brief Frees the resources allocated to a thread task
+ * @brief Frees the resources allocated to a thread data
  *
- * @param t The task
+ * @param t The data
  */
-void vrtql_svr_task_free(vrtql_svr_task* t);
+void vrtql_svr_data_free(vrtql_svr_data* t);
 
 /**
  * @brief Creates a new VRTQL server.
@@ -216,13 +216,13 @@ void vrtql_svr_free(vrtql_svr* s);
 int vrtql_svr_run(vrtql_svr* server, cstr host, int port);
 
 /**
- * @brief Sends a task from a VRTQL server.
+ * @brief Sends data from a VRTQL server.
  *
- * @param server The server to send the task.
- * @param task The task to be sent.
+ * @param server The server to send the data.
+ * @param data The data to be sent.
  * @return 0 if successful, an error code otherwise.
  */
-int vrtql_svr_send(vrtql_svr* server, vrtql_svr_task* task);
+int vrtql_svr_send(vrtql_svr* server, vrtql_svr_data* data);
 
 /**
  * @brief Stops a VRTQL server.
