@@ -1,13 +1,14 @@
 #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <poll.h>
 #endif
 
 #if defined(__windows__)
@@ -19,7 +20,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 
 #include <openssl/rand.h>
 

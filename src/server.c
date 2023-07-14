@@ -1,11 +1,11 @@
 #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-#include <uv.h>
+#include <unistd.h>
+#endif
+
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <unistd.h>
-#endif
 
 #include "server.h"
 
@@ -23,10 +23,38 @@
  */
 
 /**
+ * @brief Callback function executed by the main thread in response to async signals.
+ *
+ * This function handles asynchronous events in the main thread, specifically
+ * managing outgoing network I/O from worker threads back to clients. It runs
+ * within the main UV loop, within the main thread, also referred to as the
+ * networking thread.
+ *
+ * Worker threads pass data to it through a queue. The data is in the form of
+ * vrtql_svr_task instances. When a worker sends a vrtql_svr_task instance, it
+ * adds it to the queue (server.responses) and notifies (wakes up) the main UV
+ * loop (uv_run() in vrtql_svr_run()) by calling uv_async_send(&server->wakeup)
+ * which in turn calls this function to check the server.responses queue. This
+ * function unloads all tasks in the queue and sends the data out to each
+ * respective client. It then returns control back to the main UV loop which
+ * resumes polling the network connections (blocking if there is no activity).
+ *
+ * @param handle A pointer to the uv_async_t handle that triggered the callback.
+ *
+ * @ingroup ThreadFunctions
+ */
+static void uv_thread(uv_async_t* handle);
+
+/**
  * @brief The entry point for a worker thread.
  *
- * This function handles the processing of tasks by worker threads.
- * It loops continuously, taking tasks from the queue and processing them.
+ * This function implements the worker thread pool. It is what each worker
+ * thread runs. It loops continuously, handling incoming tasks from clients,
+ * processing them and returning data back to them via the uv_thread(). It
+ * processes data by taking tasks (requests) from the server->requests queue,
+ * dispatching them to server->process(task) for processing, which in turn
+ * generates tasks (responses), sending them back to the client by putting them
+ * on the server->responses queue (processed by uv_thread()).
  *
  * @param arg A void pointer, typically to the server object,
  *        used to pass data into the thread.
@@ -34,21 +62,6 @@
  * @ingroup ThreadFunctions
  */
 static void worker_thread(void* arg);
-
-/**
- * @brief Callback function executed by the main thread in response to async signals.
- *
- * This function is responsible for handling asynchronous events in the main thread,
- * such as sending out responses prepared by the worker threads.
- *
- * @param handle A pointer to the uv_async_t handle that triggered the callback.
- *
- * @ingroup ThreadFunctions
- */
-static void main_thread(uv_async_t* handle);
-
-
-
 
 /**
  * @defgroup ServerFunctions
@@ -360,13 +373,6 @@ bool queue_empty(vrtql_svr_queue* queue);
 // Threads
 //------------------------------------------------------------------------------
 
-/**
- * The worker_thread() implements the work pool. It is what each worker thread
- * runs. It handles incoming tasks from clients, processes them and returns data
- * back to the main network thread to be send back to the client.
- *
- * @param arg The server structure as void pointer.
- */
 void worker_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
@@ -408,15 +414,7 @@ void worker_thread(void* arg)
     }
 }
 
-/**
- * The main_thread() function that handles outgoing network I/O from worker
- * threads back to clients. It runs within the main UV loop. Data is passed in
- * the form of vrtql_svr_task instances. Worker threads wake up the main UV loop
- * by calling uv_async_send(&server->wakeup) which in turn calls this loop to
- * check the server.responses queue. It drains this queue and returns control
- * back to the main UV loop which sleeps on client connections.
- */
-void main_thread(uv_async_t* handle)
+void uv_thread(uv_async_t* handle)
 {
     vrtql_svr* server = (vrtql_svr*)handle->data;
 
@@ -424,17 +422,17 @@ void main_thread(uv_async_t* handle)
     {
         if (server->trace)
         {
-            vrtql_trace(VL_INFO, "main_thread(): stop");
+            vrtql_trace(VL_INFO, "uv_thread(): stop");
         }
 
-        // Join worker threads before cleaning up libuv as they must exit their
-        // respective mutexes and condition variables.
+        // Join worker threads. Worker threads must all exit before we can
+        // shutdown libuv as they must release their mutexes and condition
+        // variables first, otherwise uv_stop() will not actually stop the loop.
         for (int i = 0; i < server->pool_size; i++)
         {
             uv_thread_join(&server->threads[i]);
         }
 
-        // Cleanup libuv and stop the loop
         svr_shutdown(server);
 
         return;
@@ -502,7 +500,7 @@ vrtql_svr* vrtql_svr_new(int threads)
     uv_mutex_init(&server->mutex);
 
     server->wakeup.data = server;
-    uv_async_init(server->loop, &server->wakeup, main_thread);
+    uv_async_init(server->loop, &server->wakeup, uv_thread);
 
     return server;
 }
@@ -539,8 +537,6 @@ int vrtql_svr_send(vrtql_svr* server, vrtql_svr_task* task)
 
 int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 {
-    // Array to hold the thread ids
-
     for (int i = 0; i < server->pool_size; i++)
     {
         uv_thread_create(&server->threads[i], worker_thread, server);
@@ -762,8 +758,12 @@ void svr_cnx_free(vrtql_svr_cnx* c)
 
 void svr_shutdown(vrtql_svr* server)
 {
+    // Cleanup libuv
     queue_destroy(&server->requests);
     queue_destroy(&server->responses);
+
+    // Stop the loop. This will cause uv_run() to return in vrtql_svr_run()
+    // which will also return.
     uv_stop(server->loop);
 }
 
