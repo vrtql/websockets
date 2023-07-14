@@ -30,7 +30,7 @@
 //------------------------------------------------------------------------------
 
 // Function to handle the submission of an error by default
-static int vrtql_error_default_submit(int code, cstr message);
+static int vrtql_error_default_submit(int code, cstr message, ...);
 
 // Function to clear an error by default
 static void vrtql_error_clear_default();
@@ -274,13 +274,32 @@ vrtql_error_value vrtql_get_error()
     return vrtql.e;
 }
 
-int vrtql_error_default_submit(int code, cstr message)
+int vrtql_error_default_submit(int code, cstr format, ...)
 {
+    va_list args;
+    va_start(args, format);
+
+    // Determine the length of the formatted string
+    int length = vsnprintf(NULL, 0, format, args);
+
+    // Allocate a buffer for the formatted string
+    char* buffer = malloc(length + 1);
+
+    // Format the string into the buffer
+    vsnprintf(buffer, length + 1, format, args);
+
     // Set
-    vrtql_set_error(code, message);
+    vrtql_set_error(code, buffer);
 
     // Process
-    vrtql.process_error(code, message);
+    vrtql.process_error(code, buffer);
+
+    // Print the formatted string to stderr
+    fprintf(stderr, "%s", buffer);
+
+    // Cleanup
+    free(buffer);
+    va_end(args);
 
     return 0;
 }

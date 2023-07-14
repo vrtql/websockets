@@ -119,9 +119,11 @@ int main()
 
     }
 
-    vrtql_svr_free(server);
+    vrtql_svr_stop(server);
 
     uv_thread_join(&server_tid);
+
+    vrtql_svr_free(server);
 
     return 0;
 }

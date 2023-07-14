@@ -23,7 +23,7 @@
  */
 
 /**
- * @brief Callback function executed by the main thread in response to async signals.
+ * @brief UV callback executed in response to (server->wakeup) async signal.
  *
  * This function handles asynchronous events in the main thread, specifically
  * managing outgoing network I/O from worker threads back to clients. It runs
@@ -32,9 +32,9 @@
  *
  * Worker threads pass data to it through a queue. The data is in the form of
  * vrtql_svr_task instances. When a worker sends a vrtql_svr_task instance, it
- * adds it to the queue (server.responses) and notifies (wakes up) the main UV
+ * adds it to the queue (server->responses) and notifies (wakes up) the main UV
  * loop (uv_run() in vrtql_svr_run()) by calling uv_async_send(&server->wakeup)
- * which in turn calls this function to check the server.responses queue. This
+ * which in turn calls this function to check the server->responses queue. This
  * function unloads all tasks in the queue and sends the data out to each
  * respective client. It then returns control back to the main UV loop which
  * resumes polling the network connections (blocking if there is no activity).
@@ -85,7 +85,8 @@ static void svr_shutdown(vrtql_svr* server);
 /**
  * @brief Callback for new client connection.
  *
- * This function is invoked when a new client successfully connects to the server.
+ * This function is invoked when a new client successfully connects to the
+ * server.
  *
  * @param server The server to which the client connected.
  * @param status The status of the connection.
@@ -178,8 +179,9 @@ static void svr_cnx_free(vrtql_svr_cnx* c);
 /**
  * @brief Callback for client connection.
  *
- * This function is triggered when a new client connection is established.
- * It is responsible for processing any steps necessary at the start of a connection.
+ * This function is triggered when a new client connection is established.  It
+ * is responsible for processing any steps necessary at the start of a
+ * connection.
  *
  * @param c The connection structure representing the client that has connected.
  *
@@ -206,7 +208,7 @@ static void svr_client_disconnect(vrtql_svr_cnx* c);
  * This function is triggered when data is read from a client connection. It is
  * responsible for processing the received data.
  *
- * @param c The connection structure representing the client that has sent the data.
+ * @param c The connection that sent the data.
  * @param size The size of the data that was read.
  * @param buf The buffer containing the data that was read.
  *
@@ -221,7 +223,7 @@ static void svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
  * responsible for handling the actual computation or other work associated with
  * the task.
  *
- * @param server The server instance where the task processing is happening.
+ * @param server The server instance
  * @param req The incoming request to process.
  *
  * @ingroup ServerFunctions
@@ -333,8 +335,8 @@ void queue_destroy(vrtql_svr_queue* queue);
 /**
  * @brief Pushes a task to the server queue.
  *
- * This function adds a task to the end of the provided queue.
- * It also handles the necessary synchronization to ensure thread safety.
+ * This function adds a task to the end of the provided queue. It also handles
+ * the necessary synchronization to ensure thread safety.
  *
  * @param queue Pointer to the server queue.
  * @param task Task to be added to the queue.
@@ -442,13 +444,7 @@ void uv_thread(uv_async_t* handle)
     {
         vrtql_svr_task* task = queue_pop(&server->responses);
         uv_buf_t buf         = uv_buf_init(task->data, strlen(task->data));
-        uv_write_t* req      = (uv_write_t*)malloc(sizeof(uv_write_t));
-
-        if(req == NULL)
-        {
-            fprintf(stderr, "Failed to allocate memory for write data\n");
-            exit(EXIT_FAILURE);
-        }
+        uv_write_t* req      = (uv_write_t*)vrtql.malloc(sizeof(uv_write_t));
 
         req->data = task;
         uv_write(req, task->client, &buf, 1, svr_on_write_complete);
@@ -482,8 +478,8 @@ void vrtql_svr_task_free(vrtql_svr_task* t)
 
 vrtql_svr* vrtql_svr_new(int threads)
 {
-    vrtql_svr* server     = malloc(sizeof(vrtql_svr));
-    server->threads       = malloc(sizeof(uv_thread_t) * threads);
+    vrtql_svr* server     = vrtql.malloc(sizeof(vrtql_svr));
+    server->threads       = vrtql.malloc(sizeof(uv_thread_t) * threads);
     server->pool_size     = threads;
     server->trace         = 0;
     server->on_connect    = svr_client_connect;
@@ -491,7 +487,7 @@ vrtql_svr* vrtql_svr_new(int threads)
     server->on_read       = svr_client_read;
     server->process       = svr_client_process;
     server->backlog       = 128;
-    server->loop          = (uv_loop_t*)malloc(sizeof(uv_loop_t));
+    server->loop          = (uv_loop_t*)vrtql.malloc(sizeof(uv_loop_t));
 
     uv_loop_init(server->loop);
     sc_map_init_64v(&server->cnxs, 0, 0);
@@ -503,6 +499,27 @@ vrtql_svr* vrtql_svr_new(int threads)
     uv_async_init(server->loop, &server->wakeup, uv_thread);
 
     return server;
+}
+
+void on_uv_close(uv_handle_t* handle)
+{
+    if (handle != NULL)
+    {
+        if(handle->data != NULL)
+        {
+            vrtql_trace(VL_INFO, "on_uv_close(): freeing data %p", (void*)handle);
+            free(handle->data);
+        }
+    }
+}
+
+void on_uv_walk(uv_handle_t* handle, void* arg)
+{
+    if (uv_is_closing(handle) == false)
+    {
+        vrtql_trace(VL_INFO, "on_uv_walk(): closing %p", (void*)handle);
+        uv_close(handle, (uv_close_cb)on_uv_close);
+    }
 }
 
 void vrtql_svr_free(vrtql_svr* server)
@@ -519,6 +536,25 @@ void vrtql_svr_free(vrtql_svr* server)
 
     svr_shutdown(server);
     free(server->threads);
+
+    // Close the async handle
+    server->wakeup.data = NULL;
+    uv_close((uv_handle_t*)&server->wakeup, NULL);
+
+    // If uv_loop_close() does not return 0, it is because there are active
+    // handles preventing it. So we need to deal with them.
+    while (uv_loop_close(server->loop))
+    {
+        // Stop the loop to deactivate the handles
+        uv_stop(server->loop);
+
+        // Walk loop and free everything
+        uv_walk(server->loop, on_uv_walk, server->loop);
+
+        // Run until no active handles left
+        while (uv_run(server->loop, UV_RUN_DEFAULT)) { }
+    }
+
     free(server->loop);
 
     svr_cnx_map_clear(&server->cnxs);
@@ -560,6 +596,10 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     }
 
     uv_run(server->loop, UV_RUN_DEFAULT);
+
+    // Close the listening socket handle
+    socket.data = NULL;
+    uv_close((uv_handle_t*)&socket, NULL);
 
     if (server->trace)
     {
@@ -740,7 +780,7 @@ void svr_cnx_map_clear(vrtql_svr_cnx_map* map)
 
 vrtql_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* c)
 {
-    vrtql_svr_cnx* cnx = malloc(sizeof(vrtql_svr_cnx));
+    vrtql_svr_cnx* cnx = vrtql.malloc(sizeof(vrtql_svr_cnx));
     cnx->server        = s;
     cnx->client        = c;
     cnx->data          = NULL;
@@ -773,17 +813,16 @@ void svr_on_connect(uv_stream_t* socket, int status)
 
     if (status < 0)
     {
-        fprintf( stderr,
-                 "Error in connection callback: %s\n",
-                 uv_strerror(status) );
+        cstr e = uv_strerror(status);
+        vrtql.error(VE_RT, "Error in connection callback: %s", e);
         return;
     }
 
-    uv_tcp_t* client = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
+    uv_tcp_t* client = (uv_tcp_t*)vrtql.malloc(sizeof(uv_tcp_t));
 
     if (client == NULL)
     {
-        fprintf(stderr, "Failed to allocate memory for client\n");
+        vrtql.error(VE_RT, "Failed to allocate memory for client");
         return;
     }
 
@@ -791,7 +830,7 @@ void svr_on_connect(uv_stream_t* socket, int status)
 
     if (uv_tcp_init(server->loop, client) != 0)
     {
-        fprintf(stderr, "Failed to initialize client\n");
+        vrtql.error(VE_RT, "Failed to initialize client");
         return;
     }
 
@@ -799,7 +838,7 @@ void svr_on_connect(uv_stream_t* socket, int status)
     {
         if (uv_read_start((uv_stream_t*)client, svr_on_realloc, svr_on_read) != 0)
         {
-            fprintf(stderr, "Failed to start reading from client\n");
+            vrtql.error(VE_RT, "Failed to start reading from client");
             return;
         }
     }
@@ -872,7 +911,7 @@ void svr_on_close(uv_handle_t* handle)
 
 void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf)
 {
-    buf->base = (char*)malloc(size);
+    buf->base = (char*)vrtql.realloc(buf->base, size);
     buf->len  = size;
 }
 
@@ -880,11 +919,11 @@ void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf)
 // Queue API
 //------------------------------------------------------------------------------
 
-void queue_init(vrtql_svr_queue* queue, int capacity)
+void queue_init(vrtql_svr_queue* queue, int size)
 {
-    queue->buffer   = (vrtql_svr_task**)malloc(capacity * sizeof(vrtql_svr_task*));
+    queue->buffer   = (vrtql_svr_task**)vrtql.malloc(size * sizeof(vrtql_svr_task*));
     queue->size     = 0;
-    queue->capacity = capacity;
+    queue->capacity = size;
     queue->head     = 0;
     queue->tail     = 0;
     queue->state    = VS_RUNNING;

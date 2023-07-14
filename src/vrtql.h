@@ -90,7 +90,7 @@ typedef void* (*vrtql_realloc_error_cb)(void* ptr, size_t size);
  * submission takes care of recording the error in the vrtql.e member. The next
  * step is the process the error.
  */
-typedef int (*vrtql_error_submit_cb)(int code, cstr message);
+typedef int (*vrtql_error_submit_cb)(int code, cstr message, ...);
 
 /**
  * @brief Callback for error processing. Error processing function. Error
