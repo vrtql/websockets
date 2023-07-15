@@ -27,6 +27,7 @@ set(test_targets
   test_common
   test_json
   test_message
+  test_rpc
   test_websocket )
 
 if(BUILD_SERVER)

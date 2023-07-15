@@ -2,6 +2,7 @@
 #define VRTQL_COMMON_DECLARE
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "common.h"
 

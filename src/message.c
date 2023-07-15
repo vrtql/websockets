@@ -9,26 +9,58 @@
 // Utility function declarations
 //------------------------------------------------------------------------------
 
-// Retrieves a value from the map using a string key. Returns a constant string
-// pointer to the value associated with the key.
+/**
+ * @brief Retrieves a value from the map using a string key.
+ *
+ * Returns a constant string pointer to the value associated with the key.
+ *
+ * @param map The map from which to retrieve the value.
+ * @param key The string key to use for retrieval.
+ * @return A constant string pointer to the value associated with the key.
+ */
 static cstr msg_map_get(struct sc_map_str* map, cstr key);
 
-// Sets a value in the map using a string key and value. It will create a new
-// key-value pair or update the value if the key already exists.
+/**
+ * @brief Sets a value in the map using a string key and value.
+ *
+ * It will create a new key-value pair or update the value if the key already exists.
+ *
+ * @param map The map in which to set the value.
+ * @param key The string key to use for setting.
+ * @param value The string value to set.
+ */
 static void msg_map_set(struct sc_map_str* map, cstr key, cstr value);
 
-// Removes a key-value pair from the map using a string key. If the key exists
-// in the map, it will be removed along with its associated value.
+/**
+ * @brief Removes a key-value pair from the map using a string key.
+ *
+ * If the key exists in the map, it will be removed along with its associated value.
+ *
+ * @param map The map from which to remove the key-value pair.
+ * @param key The string key to use for removal.
+ */
 static void msg_map_clear(struct sc_map_str* map, cstr key);
 
-// Parses a map from a MessagePack reader. The function reads from the reader
-// and populates the provided map. Returns true if the parsing was successful,
-// false otherwise.
+/**
+ * @brief Parses a map from a MessagePack reader.
+ *
+ * The function reads from the reader and populates the provided map.
+ *
+ * @param reader The MessagePack reader from which to parse the map.
+ * @param map The map to populate with parsed key-value pairs.
+ * @return True if the parsing was successful, false otherwise.
+ */
 static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map);
 
-// Parses content from a MessagePack reader into a buffer. The function reads
-// from the reader and appends the data into the buffer. Returns an integer
-// which indicates the status of the operation.
+/**
+ * @brief Parses content from a MessagePack reader into a buffer.
+ *
+ * The function reads from the reader and appends the data into the buffer.
+ *
+ * @param reader The MessagePack reader from which to parse the content.
+ * @param buffer The buffer to which the parsed content will be appended.
+ * @return An integer indicating the status of the operation.
+ */
 static int32_t msg_parse_content(mpack_reader_t* reader, vrtql_buffer* buffer);
 
 //------------------------------------------------------------------------------

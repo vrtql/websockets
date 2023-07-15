@@ -302,7 +302,7 @@ void vrtql_svr_trace(vrtql_svr* server, int flag);
 /**
  * @brief Callback for data processing a message
  * @param s The server instance
- * @param t The incoming message to process
+ * @param m The incoming message to process
  */
 typedef void (*vrtql_svr_process_msg)(vrtql_svr_cnx* s, vrtql_msg* m);
 
