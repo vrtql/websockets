@@ -105,7 +105,7 @@ typedef void (*vrtql_svr_read)(vrtql_svr_cnx* c, ssize_t n, const uv_buf_t* b);
  * @param s The server instance
  * @param t The incoming request to process
  */
-typedef void (*vrtql_svr_process)(struct vrtql_svr* s, vrtql_svr_data* t);
+typedef void (*vrtql_svr_process_data)(struct vrtql_svr* s, vrtql_svr_data* t);
 
 /**
  * @brief Enumerates server state
@@ -164,8 +164,11 @@ typedef struct vrtql_svr
     /**< Callback function for reading incoming data */
     vrtql_svr_read on_read;
 
-    /**< Function for request processing */
-    vrtql_svr_process process;
+    /**< Function for processing data in from client */
+    vrtql_svr_process_data on_data_in;
+
+    /**< Function for processing data from worker back to client */
+    vrtql_svr_process_data on_data_out;
 
     /**< Debugging trace flag */
     uint8_t trace;
@@ -193,10 +196,14 @@ void vrtql_svr_data_free(vrtql_svr_data* t);
 /**
  * @brief Creates a new VRTQL server.
  *
- * @param threads The number of threads for the server.
+ * @param pool_size The number of threads to run in worker pool
+ * @param backlog The connection backlog for listen(). If this is set to 0 it
+ *   will use default (128)
+ * @param queue_size The maximum queue size for requests and responses. If this
+ *   is set to 0 it will use the default (1024).
  * @return A new VRTQL server.
  */
-vrtql_svr* vrtql_svr_new(int threads);
+vrtql_svr* vrtql_svr_new(int pool_size, int backlog, int queue_size);
 
 /**
  * @brief Frees the resources allocated to a VRTQL server.

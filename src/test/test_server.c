@@ -87,7 +87,7 @@ void server_thread(void* arg)
 
 int main()
 {
-    vrtql_svr* server = vrtql_svr_new(1);
+    vrtql_svr* server = vrtql_svr_new(10, 0, 0);
 
     server->trace = 1;
 

@@ -313,7 +313,7 @@ int vrtql_error_default_process(int code, cstr message)
             case VE_TIMEOUT:
             case VE_WARN:
             {
-                vrtql_trace(VL_WARNING, "Error %i: %s", code, message);
+                vrtql_trace(VL_WARN, "Error %i: %s", code, message);
                 break;
             }
 

@@ -156,7 +156,7 @@ typedef enum
 {
     VL_DEBUG,         /**< Debug level log       */
     VL_INFO,          /**< Information level log */
-    VL_WARNING,       /**< Warning level log     */
+    VL_WARN,          /**< Warning level log     */
     VL_ERROR,         /**< Error level log       */
     VL_LEVEL_COUNT    /**< Count of log levels   */
 } vrtql_log_level;

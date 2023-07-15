@@ -110,7 +110,7 @@ CTEST(test, trace)
 
     vrtql_trace(VL_DEBUG,   "vrtql_trace(%s)",   "DEBUG");
     vrtql_trace(VL_INFO,    "vrtql_trace(%s)",    "INFO");
-    vrtql_trace(VL_WARNING, "vrtql_trace(%s)", "WARNING");
+    vrtql_trace(VL_WARN,    "vrtql_trace(%s)", "WARNING");
     vrtql_trace(VL_ERROR,   "vrtql_trace(%s)",   "ERROR");
 }
 
