@@ -261,8 +261,8 @@ typedef void (*vrtql_svr_process_msg)(vrtql_svr_cnx* s, vrtql_msg* m);
 
 typedef struct vrtql_msg_svr
 {
-    /**< Base server */
-    struct vrtql_svr svr;
+    /**< Base class */
+    struct vrtql_svr base;
 
     /**< Function for processing data in from client */
     vrtql_svr_process_data on_data_in;

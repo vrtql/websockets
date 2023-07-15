@@ -1271,7 +1271,7 @@ void msg_svr_client_connect(vrtql_svr_cnx* c)
 {
     if (c->server->trace)
     {
-        vrtql_trace(VL_INFO, "svr_client_connect(%p)", c->handle);
+        vrtql_trace(VL_INFO, "msg_svr_client_connect(%p)", c->handle);
     }
 
     // Create a new vws_cnx
@@ -1285,7 +1285,7 @@ void msg_svr_client_disconnect(vrtql_svr_cnx* c)
 {
     if (c->server->trace)
     {
-        vrtql_trace(VL_INFO, "svr_client_disconnect(%p)", c->handle);
+        vrtql_trace(VL_INFO, "msg_svr_client_disconnect(%p)", c->handle);
     }
 
     if (c->data != NULL)
@@ -1361,6 +1361,11 @@ void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* m)
 {
     vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
 
+    if (server->base.trace)
+    {
+        vrtql_trace(VL_INFO, "msg_svr_process(%p) %s", cnx, m);
+    }
+
     // Default: Do nothing
 
     // Could echo back (then we don't free message as reply() does it)
@@ -1398,17 +1403,17 @@ vrtql_msg_svr* vrtql_msg_svr_new(int num_threads, int backlog, int queue_size)
     svr_ctor((vrtql_svr*)server, num_threads, backlog, queue_size);
 
     // Server base function overrides
-    server->svr.on_connect    = msg_svr_client_connect;
-    server->svr.on_disconnect = msg_svr_client_disconnect;
-    server->svr.on_data_in    = msg_svr_client_data_in;
+    server->base.on_connect    = msg_svr_client_connect;
+    server->base.on_disconnect = msg_svr_client_disconnect;
+    server->base.on_data_in    = msg_svr_client_data_in;
 
     // Message handling
-    server->on_msg_in         = msg_svr_client_msg_in;
-    server->on_msg_out        = msg_svr_client_msg_out;
+    server->on_msg_in          = msg_svr_client_msg_in;
+    server->on_msg_out         = msg_svr_client_msg_out;
 
     // Application functions
-    server->process           = msg_svr_client_process;
-    server->send              = msg_svr_client_msg_out;
+    server->process            = msg_svr_client_process;
+    server->send               = msg_svr_client_msg_out;
 
     return server;
 }
