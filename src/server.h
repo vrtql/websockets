@@ -79,6 +79,11 @@ typedef struct vrtql_svr_cnx
     /**< User-defined data associated with the connection */
     char* data;
 
+    /**< The format to serialize. If VM_MPACK_FORMAT, serialize into MessagePack
+     *   binary format. If VM_JSON_FORMAT, then serialize into JSON format.
+     */
+    vrtql_msg_format_t format;
+
 } vrtql_svr_cnx;
 
 /**
@@ -273,10 +278,10 @@ typedef struct vrtql_msg_svr
     /**< Function for sending message to client */
     vrtql_svr_process_msg on_msg_out;
 
-    /**< Function for application processing */
+    /**< Derived: for processing incoming message (called by on_msg_in()) */
     vrtql_svr_process_msg process;
 
-    /**< Function application sending message to client */
+    /**< Derived: for sending message to client (calls on_msg_out())*/
     vrtql_svr_process_msg send;
 
 } vrtql_msg_svr;

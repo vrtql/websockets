@@ -949,6 +949,7 @@ vrtql_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* handle)
     cnx->server        = s;
     cnx->handle        = handle;
     cnx->data          = NULL;
+    cnx->format        = VM_MPACK_FORMAT;
 
     return cnx;
 }
@@ -1338,6 +1339,11 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
             {
                 // Deserialized succeeded.
 
+                // We send back the format we get. More than that, a request
+                // with different format effectively changes the entire
+                // connection default format setting.
+                cnx->format = m->format;
+
                 // Free websocket message
                 vws_msg_free(wsm);
 
@@ -1356,31 +1362,35 @@ void msg_svr_client_msg_in(vrtql_svr_cnx* cnx, vrtql_msg* m)
     server->process(cnx, m);
 }
 
-void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* m)
+void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req)
 {
     vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
 
     if (server->base.trace)
     {
-        vrtql_trace(VL_INFO, "msg_svr_process(%p) %s", cnx, m);
+        vrtql_trace(VL_INFO, "msg_svr_process(%p) %s", cnx, req);
     }
 
     // Default: Do nothing
-
-    // Could echo back (then we don't free message as reply() does it)
-    // server->send(cnx, m);
+    //
+    // Note: You should always set reply messages format to the format of the
+    // connection. For example, when creating reply messages:
+    //
+    //    vrtql_msg* reply = vrtql_msg_new();
+    //    reply->format    = cnx->format;
+    //
+    // We Could echo back (then we don't free message as reply() does it)
+    // server->send(cnx, reply);
 
     // Clean up message.
-    vrtql_msg_free(m);
+    vrtql_msg_free(req);
 }
 
 void msg_svr_client_msg_out(vrtql_svr_cnx* cnx, vrtql_msg* m)
 {
-    // TODO: Need to have some connection-level format setting (MPACK/JSON)
-
     // Serialize to WebSocket message
     vrtql_buffer* buffer;
-    buffer = vrtql_msg_serialize(m, VM_MPACK_FORMAT);
+    buffer = vrtql_msg_serialize(m);
 
     // Pack message binary into queue data
     vrtql_svr_data* response;

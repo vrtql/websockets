@@ -26,6 +26,7 @@ typedef struct vrtql_msg
     struct sc_map_str headers; /**< A map storing header fields.       */
     vrtql_buffer* content;     /**< Buffer for the message content.    */
     uint64_t flags;            /**< Message state flags                */
+    vrtql_msg_format_t format; /**< Message format                     */
 } vrtql_msg;
 
 /**
@@ -124,12 +125,9 @@ void vrtql_msg_clear_content(vrtql_msg* msg);
 /**
  * @brief Serializes a vrtql_msg instance to a buffer.
  * @param msg The vrtql_msg instance.
- * @param format The format to serialize. If VM_MPACK_FORMAT, serialize into
- *   MessagePack binary format. If VM_JSON_FORMAT, then serialize into JSON
- *   format.
  * @return A buffer containing the serialized message.
  */
-vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg, vrtql_msg_format_t format);
+vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg);
 
 /**
  * @brief Deserializes a buffer to a vrtql_msg instance.

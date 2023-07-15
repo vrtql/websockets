@@ -43,6 +43,7 @@ vrtql_msg* vrtql_msg_new()
     sc_map_init_str(&msg->headers, 0, 0);
     msg->content = vrtql_buffer_new();
     msg->flags   = 0;
+    msg->format  = VM_MPACK_FORMAT;
 
     vrtql_set_flag(&msg->flags, VM_MSG_VALID);
 
@@ -69,14 +70,14 @@ void vrtql_msg_free(vrtql_msg* msg)
     msg = NULL;
 }
 
-vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg, vrtql_msg_format_t format)
+vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg)
 {
     if (msg == NULL)
     {
         return false;
     }
 
-    if (format == VM_MPACK_FORMAT)
+    if (msg->format == VM_MPACK_FORMAT)
     {
         // Serialize MessagePack
 
@@ -139,7 +140,7 @@ vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg, vrtql_msg_format_t format)
         return buffer;
     }
 
-    if (format == VM_JSON_FORMAT)
+    if (msg->format == VM_JSON_FORMAT)
     {
         // Serialize JSON
 
@@ -283,6 +284,9 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
 
             return false;
         }
+
+        // Record format
+        msg->format = VM_MPACK_FORMAT;
     }
     else
     {
@@ -360,6 +364,9 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
         }
 
         yyjson_doc_free(doc);
+
+        // Record format
+        msg->format = VM_JSON_FORMAT;
     }
 
     return true;
@@ -441,7 +448,7 @@ void vrtql_map_clear(struct sc_map_str* map)
 
 ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg)
 {
-    vrtql_buffer* binary = vrtql_msg_serialize(msg, VM_MPACK_FORMAT);
+    vrtql_buffer* binary = vrtql_msg_serialize(msg);
     ssize_t bytes = vws_send_binary(c, binary->data, binary->size);
     vrtql_buffer_free(binary);
 
