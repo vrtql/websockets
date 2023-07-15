@@ -1276,9 +1276,9 @@ void msg_svr_client_connect(vrtql_svr_cnx* c)
 
     // Create a new vws_cnx
     vws_cnx* cnx = (void*)vws_cnx_new();
-    cnx->data    = (void*)c; // Link to c
     cnx->process = msg_svr_process_frame;
-    c->data      = (void*)cnx; // Link to cnx
+    cnx->data    = (void*)c;   // Link cnx -> c
+    c->data      = (void*)cnx; // Link c -> cnx
 }
 
 void msg_svr_client_disconnect(vrtql_svr_cnx* c)
@@ -1299,8 +1299,9 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
 {
     //> Append data to connection buffer
 
-    vrtql_svr_cnx* cnx = data->cnx;
-    vws_cnx* c         = (vws_cnx*)cnx->data;
+    vrtql_svr_cnx* cnx    = data->cnx;
+    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
+    vws_cnx* c            = (vws_cnx*)cnx->data;
     vrtql_buffer_append(c->buffer, data->data, data->size);
 
     //> Process connection buffer data for complete messages
@@ -1330,8 +1331,6 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
                 vws_msg_free(wsm);
                 vrtql_msg_free(m);
 
-                vrtql.error(VE_RT, "Failed to deserialize message");
-
                 // Try for more messages
                 continue;
             }
@@ -1343,7 +1342,7 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
                 vws_msg_free(wsm);
 
                 // Process message
-                msg_svr_client_msg_in(cnx, m);
+                server->on_msg_in(cnx, m);
             }
         }
     }
@@ -1369,7 +1368,7 @@ void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* m)
     // Default: Do nothing
 
     // Could echo back (then we don't free message as reply() does it)
-    // server->reply(cnx, m);
+    // server->send(cnx, m);
 
     // Clean up message.
     vrtql_msg_free(m);
