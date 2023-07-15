@@ -2,6 +2,7 @@
 
 #include "rpc.h"
 
+// RPC Call: session.login
 vrtql_msg* session_login(vrtql_rpc_env* e, vrtql_msg* m)
 {
     vrtql_msg* reply = vrtql_msg_new();
@@ -10,6 +11,7 @@ vrtql_msg* session_login(vrtql_rpc_env* e, vrtql_msg* m)
     return reply;
 }
 
+// RPC Call: session.logout
 vrtql_msg* session_logout(vrtql_rpc_env* e, vrtql_msg* m)
 {
     vrtql_msg* reply = vrtql_msg_new();
@@ -18,6 +20,7 @@ vrtql_msg* session_logout(vrtql_rpc_env* e, vrtql_msg* m)
     return reply;
 }
 
+// RPC Call: session.info
 vrtql_msg* session_info(vrtql_rpc_env* e, vrtql_msg* m)
 {
     vrtql_msg* reply = vrtql_msg_new();
