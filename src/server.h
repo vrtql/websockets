@@ -6,6 +6,48 @@
 #include "vrtql.h"
 #include "message.h"
 
+/**
+ * @file server.h
+ * @brief WebSocket server implementation
+ *
+ * This file implements a non-blocking, multiplexing, multithreaded WebSocket
+ * server using the libuv library. The server consists of a main networking
+ * thread that runs the libuv loop to handle socket I/O, and a pool of worker
+ * threads that process the data.
+ *
+ * The networking thread evenly distributes incoming data from clients to the
+ * worker threads using a synchronized queue. The worker threads process the
+ * data and may send back replies. The server maintains two queues: a request
+ * queue that transfers incoming client data to the worker threads for
+ * processing, and a response queue that transfers data from the worker threads
+ * back to the network thread for sending it back to the client.
+ *
+ * The data items are stored in a generic structure called vrtql_svr_data, which
+ * holds the data and the associated connection. The worker threads retrieve
+ * data from the request queue, perform the following steps:
+ *
+ *     1. Assemble data into WebSocket frames
+ *     2. Assemble frames into WebSocket messages
+ *     3. Assemble WebSocket messages into VRTQL messages
+ *     4. Pass the messages to a user-defined processing function
+ *
+ * The processing function can optionally produce data to send back to the
+ * client.
+ *
+ * From a programming standpoint, the server architecture simplifies to
+ * implementing two functions that run in the context of a worker thread:
+ *
+ *     - process(request message): Process incoming messages.
+ *     - send(reply message): Send back reply messages.
+ *
+ * The server takes care of all the serialization, handling the communication
+ * between the network thread and worker threads. Developers only need to focus
+ * on the processing logic.
+ *
+ * The number of worker threads is configurable, allowing you to adjust it based
+ * on workload or system requirements.
+ */
+
 struct vrtql_svr_cnx;
 
 /**
