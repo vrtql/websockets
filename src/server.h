@@ -4,7 +4,9 @@
 #include <uv.h>
 
 #include "vrtql.h"
-#include "util/sc_map.h"
+#include "message.h"
+
+struct vrtql_svr_cnx;
 
 /**
  * @brief Struct representing a server data for inter-thread communication
@@ -13,11 +15,10 @@
  * of incoming data from the client. When passed from the worker thread the the
  * networking thread, outgoing data to the client.
  */
-
 typedef struct
 {
-    /**< The client associated with the data */
-    uv_stream_t* client;
+    /**< The client connection associated with the data */
+    struct vrtql_svr_cnx* cnx;
 
     /**< The number of bytes of data */
     size_t size;
@@ -67,13 +68,13 @@ struct vrtql_svr;
 /**
  * @brief Represents a client connection.
  */
-typedef struct
+typedef struct vrtql_svr_cnx
 {
     /**< The server associated with the connection */
     struct vrtql_svr* server;
 
     /**< The client associated with the connection */
-    uv_stream_t* client;
+    uv_stream_t* handle;
 
     /**< User-defined data associated with the connection */
     char* data;
@@ -105,7 +106,7 @@ typedef void (*vrtql_svr_read)(vrtql_svr_cnx* c, ssize_t n, const uv_buf_t* b);
  * @param s The server instance
  * @param t The incoming request to process
  */
-typedef void (*vrtql_svr_process_data)(struct vrtql_svr* s, vrtql_svr_data* t);
+typedef void (*vrtql_svr_process_data)(vrtql_svr_data* t);
 
 /**
  * @brief Enumerates server state
@@ -179,12 +180,12 @@ typedef struct vrtql_svr
  * @brief Creates a new thread data. This TAKES OWNERSHIP of the data. The
  * called is not to free this data.
  *
- * @param c The connection structure
+ * @param c The connection
  * @param size The number of bytes of data
  * @param data The data
  * @return A new thread data.
  */
-vrtql_svr_data* vrtql_svr_data_new(uv_stream_t* c, size_t size, ucstr data);
+vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, size_t size, ucstr data);
 
 /**
  * @brief Frees the resources allocated to a thread data
@@ -246,5 +247,67 @@ void vrtql_svr_stop(vrtql_svr* server);
  *   zero disables.
  */
 void vrtql_svr_trace(vrtql_svr* server, int flag);
+
+//------------------------------------------------------------------------------
+// Messaging Server
+//------------------------------------------------------------------------------
+
+/**
+ * @brief Callback for data processing a message
+ * @param s The server instance
+ * @param t The incoming message to process
+ */
+typedef void (*vrtql_svr_process_msg)(vrtql_svr_cnx* s, vrtql_msg* m);
+
+typedef struct vrtql_msg_svr
+{
+    /**< Base server */
+    struct vrtql_svr svr;
+
+    /**< Function for processing data in from client */
+    vrtql_svr_process_data on_data_in;
+
+    /**< Function for processing message from client */
+    vrtql_svr_process_msg on_msg_in;
+
+    /**< Function for sending message to client */
+    vrtql_svr_process_msg on_msg_out;
+
+    /**< Function for application processing */
+    vrtql_svr_process_msg process;
+
+    /**< Function application sending message to client */
+    vrtql_svr_process_msg send;
+
+} vrtql_msg_svr;
+
+/**
+ * @brief Creates a new VRTQL message server.
+ *
+ * @param pool_size The number of threads to run in worker pool
+ * @param backlog The connection backlog for listen(). If this is set to 0 it
+ *   will use default (128)
+ * @param queue_size The maximum queue size for requests and responses. If this
+ *   is set to 0 it will use the default (1024).
+ * @return A new VRTQL server.
+ */
+vrtql_msg_svr* vrtql_msg_svr_new(int pool_size, int backlog, int queue_size);
+
+/**
+ * @brief Frees the resources allocated to a VRTQL server.
+ *
+ * @param s The server to free.
+ */
+void vrtql_msg_svr_free(vrtql_msg_svr* s);
+
+/**
+ * @brief Starts a VRTQL message server.
+ *
+ * @param server The server to run.
+ * @param host The host to bind the server.
+ * @param port The port to bind the server.
+ * @return 0 if successful, an error code otherwise.
+ */
+int vrtql_msg_svr_run(vrtql_msg_svr* server, cstr host, int port);
 
 #endif /* VRTQL_SVR_DECLARE */

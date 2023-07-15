@@ -27,212 +27,371 @@
 
 #define MAX_BUFFER_SIZE 1024
 
-// The fs_t enum describes the state of a WebSocket frame being processed.
+/** @brief Defines the states of a WebSocket frame. */
 typedef enum
 {
-    // Not all of the frame data has been received or processed.
+    /** Not all of the frame data has been received or processed. */
     FRAME_INCOMPLETE,
 
-    // All of the frame data has been received and processed.
+    /** All of the frame data has been received and processed. */
     FRAME_COMPLETE,
 
-    // There was an error in processing the frame data.
+    /** There was an error in processing the frame data. */
     FRAME_ERROR
+
 } fs_t;
 
-// The cnx_flags_t enum defines the various states that a WebSocket client
-// connection can be in.
+/** @brief Defines the various states of a WebSocket connection */
 typedef enum
 {
-    // The connection with the client is closed.
-    CNX_CLOSED    = 0,
+    /** The connection with the client is closed. */
+    CNX_CLOSED = 0,
 
-    // The connection with the client is established and open.
+    /** The connection with the client is established and open. */
     CNX_CONNECTED = (1 << 1),
 
-    // The connection with the client is in the process of being closed.
-    CNX_CLOSING   = (1 << 2),
+    /** The connection with the client is in the process of being closed. */
+    CNX_CLOSING = (1 << 2),
 
-    // The connection with the client is in the initial SSL handshake phase.
-    CNX_SSL_INIT  = (1 << 3),
+    /** The connection with the client is in the initial SSL handshake phase. */
+    CNX_SSL_INIT = (1 << 3),
 
-    // The connection is in server mode
-    CNX_SERVER    = (1 << 4)
+    /** The connection is in server mode. */
+    CNX_SERVER = (1 << 4)
+
 } cnx_flags_t;
 
-// The frame_type_t enum represents the different types of WebSocket frames that
-// can be received or sent.
+/** @brief Defines WebSocket close reason codes for CLOSE frames */
 typedef enum
 {
-    // A continuation frame, part of a data message split across multiple frames.
-    CONTINUATION_FRAME = 0x0,
-
-    // A text data frame.
-    TEXT_FRAME         = 0x1,
-
-    // A binary data frame.
-    BINARY_FRAME       = 0x2,
-
-    // A close control frame.
-    CLOSE_FRAME        = 0x8,
-
-    // A ping control frame.
-    PING_FRAME         = 0x9,
-
-    // A pong control frame, in response to a ping.
-    PONG_FRAME         = 0xA
-} frame_type_t;
-
-typedef enum
-{
-    // Normal Closure. This means that the purpose for which the connection was
-    // established has been fulfilled.
+    /** Normal Closure. This means that the purpose for which the connection was
+     * established has been fulfilled. */
     WS_CLOSE_NORMAL = 1000,
 
-    // Going Away. A server is going down, a browser has navigated away from a
-    // page, etc.
+    /** Going Away. A server is going down, a browser has navigated away from a
+     * page, etc. */
     WS_CLOSE_GOING_AWAY = 1001,
 
-    // Protocol Error. The endpoint is terminating the connection due to a
-    // protocol error.
+    /** Protocol Error. The endpoint is terminating the connection due to a
+     * protocol error. */
     WS_CLOSE_PROTOCOL_ERROR = 1002,
 
-    // Unsupported Data. The connection is being terminated because an
-    // endpoint received a type of data it cannot accept.
+    /** Unsupported Data. The connection is being terminated because an endpoint
+     * received a type of data it cannot accept. */
     WS_CLOSE_UNSUPPORTED = 1003,
 
-    // Reserved. The specific meaning might be defined in the future.
+    /** Reserved. The specific meaning might be defined in the future. */
     WS_CLOSE_RESERVED = 1004,
 
-    // No Status Received. Reserved value. The connection is closed with
-    // no status code.
+    /** No Status Received. Reserved value. The connection is closed with no
+     * status code. */
     WS_CLOSE_NO_STATUS = 1005,
 
-    // Abnormal Closure. Reserved value. The connection is closed with
-    // no status code.
+    /** Abnormal Closure. Reserved value. The connection is closed with no
+     * status code. */
     WS_CLOSE_ABNORMAL = 1006,
 
-    // Invalid frame payload data. The endpoint is terminating the connection
-    // because a message was received that contains inconsistent data.
+    /** Invalid frame payload data. The endpoint is terminating the connection
+     * because a message was received that contains inconsistent data. */
     WS_CLOSE_INVALID_PAYLOAD = 1007,
 
-    // Policy Violation. The endpoint is terminating the connection because
-    // it received a message that violates its policy.
+    /** Policy Violation. The endpoint is terminating the connection because it
+     * received a message that violates its policy. */
     WS_CLOSE_POLICY_VIOLATION = 1008,
 
-    // Message Too Big. The endpoint is terminating the connection because a
-    // data frame was received that is too large.
+    /** Message Too Big. The endpoint is terminating the connection because a
+     * data frame was received that is too large. */
     WS_CLOSE_TOO_BIG = 1009,
 
-    // Missing Extension. The client is terminating the connection because it
-    // wanted the server to negotiate one or more extension, but the server
-    // didn't.
+    /** Missing Extension. The client is terminating the connection because it
+     * wanted the server to negotiate one or more extension, but the server
+     * didn't. */
     WS_CLOSE_MISSING_EXTENSION = 1010,
 
-    // Internal Error. The server is terminating the connection because it
-    // encountered an unexpected condition that prevented it from fulfilling the
-    // request.
+    /** Internal Error. The server is terminating the connection because it
+     * encountered an unexpected condition that prevented it from fulfilling the
+     * request. */
     WS_CLOSE_INTERNAL_ERROR = 1011,
 
-    // Service Restart. The server is terminating the connection because
-    // it is restarting.
+    /** Service Restart. The server is terminating the connection because it is
+     * restarting. */
     WS_CLOSE_SERVICE_RESTART = 1012,
 
-    // Try Again Later. The server is terminating the connection due to a
-    // temporary condition, e.g. it is overloaded and is casting off some of its
-    // clients.
+    /** Try Again Later. The server is terminating the connection due to a
+     * temporary condition, e.g. it is overloaded and is casting off some of its
+     * clients. */
     WS_CLOSE_TRY_AGAIN_LATER = 1013,
 
-    // Bad Gateway. The server was acting as a gateway or proxy and received an
-    // invalid response from the upstream server. This is similar to 502 HTTP
-    // Status Code.
+    /** Bad Gateway. The server was acting as a gateway or proxy and received an
+     * invalid response from the upstream server. This is similar to 502 HTTP
+     * Status Code. */
     WS_CLOSE_BAD_GATEWAY = 1014,
 
-    // TLS handshake. Reserved value. The connection is closed due to a failure
-    // to perform a TLS handshake.
+    /** TLS handshake. Reserved value. The connection is closed due to a failure
+     * to perform a TLS handshake. */
     WS_CLOSE_TLS_HANDSHAKE = 1015
+
 } ws_close_code_t;
 
 //------------------------------------------------------------------------------
 // Internal functions
 //------------------------------------------------------------------------------
 
-// Creates and initializes a new vws_cnx object
+/**
+ * @defgroup ConnectionFunctions
+ *
+ * @brief Functions that manage WebSocket connections
+ *
+ */
+
+/**
+ * @brief Creates and initializes a new vws_cnx object.
+ *
+ * @return A pointer to the newly created vws_cnx object.
+ *
+ * @ingroup ConnectionFunctions
+ */
 static vws_cnx* cnx_new();
 
-// Connects to a host at a specific port and returns the connection status
+/**
+ * @brief Connects to a host at a specific port and returns the connection
+ *        status.
+ *
+ * @param host The host to connect to.
+ * @param port The port to connect to.
+ * @return The connection status, 0 if successful, an error code otherwise.
+ *
+ * @ingroup ConnectionFunctions
+ */
 static int connect_to_host(const char* host, const char* port);
 
-// Generates a new, random WebSocket key for handshake process
+/**
+ * @brief Generates a new, random WebSocket key for the handshake process.
+ *
+ * @return A pointer to the generated WebSocket key.
+ *
+ * @ingroup ConnectionFunctions
+ */
 static char* generate_websocket_key();
 
-// Extracts the WebSocket accept key from a server's handshake response
+/**
+ * @brief Extracts the WebSocket accept key from a server's handshake response.
+ *
+ * @param  response The server's handshake response.
+ * @return A pointer to the extracted WebSocket accept key.
+ *
+ * @ingroup ConnectionFunctions
+ */
 static char* extract_websocket_accept_key(const char* response);
 
-// Verifies the server's handshake response using the client's original key
+/**
+ * @brief Verifies the server's handshake response using the client's original
+ *        key.
+ *
+ * @param key The client's original key.
+ * @param response The server's handshake response.
+ * @return 0 if the handshake is verified successfully, an error code otherwise.
+ *
+ * @ingroup ConnectionFunctions
+ */
 static int verify_handshake(const char* key, const char* response);
 
-// Serializes a vws_frame into a buffer that can be sent over the network
-static vrtql_buffer* serialize(vws_frame* f);
 
-// Deserializes raw network data into a vws_frame, updating consumed with the
-// number of bytes processed
-static fs_t deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed);
 
-// Processes a single frame from a WebSocket connection
-static void process_frame(vws_cnx* c, vws_frame* frame);
 
-// Generates a close frame for a WebSocket connection
-static vrtql_buffer* generate_close_frame();
+/**
+ * @defgroup SocketFunctions
+ *
+ * @brief Functions that manage sockets
+ *
+ */
 
-// Generates a pong frame in response to a received ping frame
-static vrtql_buffer* generate_pong_frame(ucstr ping_data, size_t s);
-
-// Reads data from a WebSocket connection into a buffer
+/**
+ * @brief Reads data from a WebSocket connection into a buffer.
+ *
+ * @param c The vws_cnx representing the WebSocket connection.
+ * @param data The buffer to read data into.
+ * @param size The size of the buffer.
+ * @return The number of bytes read, or an error code if an error occurred.
+ *
+ * @ingroup SocketFunctions
+ */
 static ssize_t socket_read(vws_cnx* c, ucstr data, size_t size);
 
-// Writes data from a buffer to a WebSocket connection
+/**
+ * @brief  Writes data from a buffer to a WebSocket connection.
+ *
+ * @param c The vws_cnx representing the WebSocket connection.
+ * @param data The buffer containing the data to write.
+ * @param size The size of the data to write.
+ * @return The number of bytes written, or an error code if an error occurred.
+ *
+ * @ingroup SocketFunctions
+ */
 static ssize_t socket_write(vws_cnx* c, ucstr data, size_t size);
 
-// Reads data from a WebSocket connection and deserializes it into a frame
-static ssize_t socket_ingress(vws_cnx* c);
-
-// Waits for a complete frame to be available from a WebSocket connection
+/**
+ * @brief Waits for a complete frame to be available from a WebSocket
+ *        connection.
+ *
+ * @param c The vws_cnx representing the WebSocket connection.
+ * @return The number of bytes read and processed, or an error code if an error
+ *         occurred.
+ *
+ * @ingroup SocketFunctions
+ */
 static ssize_t socket_wait_for_frame(vws_cnx* c);
 
-// Closes a WebSocket connection
+/**
+ * @brief Closes a WebSocket connection.
+ *
+ * @param c The vws_cnx representing the WebSocket connection to close.
+ *
+ * @ingroup SocketFunctions
+ */
 static void socket_close(vws_cnx* c);
 
-// Sets a socket to non-blocking mode
+/**
+ * @brief Sets a socket to non-blocking mode.
+ *
+ * @param sockfd The socket file descriptor.
+ * @return True if successful, false otherwise.
+ *
+ * @ingroup SocketFunctions
+ */
 static bool socket_set_nonblocking(int sockfd);
 
-// Sets a timeout on a socket read/write operations
+/**
+ * @brief  Sets a timeout on a socket read/write operations.
+ *
+ * @param fd The socket file descriptor.
+ * @param sec The timeout value in seconds.
+ * @return True if successful, false otherwise.
+ *
+ * @ingroup SocketFunctions
+ */
 static bool socket_set_timeout(int fd, int sec);
 
-// Frees memory associated with a vws_frame object
+
+
+
+/**
+ * @defgroup FrameFunctions
+ *
+ * @brief Functions that manage websocket frames
+ *
+ */
+
+/**
+ * @brief Frees memory associated with a vws_frame object.
+ *
+ * @param frame The vws_frame object to free.
+ * @return void
+ *
+ * @ingroup FrameFunctions
+ */
 static void frame_free(vws_frame* frame);
 
-// Checks if a complete message is available in the connection's message queue
+/**
+ * @brief Serializes a vws_frame into a buffer that can be sent over the
+ *        network.
+ *
+ * @param f The vws_frame to serialize.
+ * @return A pointer to the serialized buffer.
+ *
+ * @ingroup FrameFunctions
+ */
+static vrtql_buffer* serialize(vws_frame* f);
+
+/**
+ * @brief Deserializes raw network data into a vws_frame, updating consumed
+ *        with the number of bytes processed.
+ *
+ * @param data The raw network data.
+ * @param size The size of the data.
+ * @param f The vws_frame to deserialize into.
+ * @param consumed Pointer to the number of bytes consumed during
+ *        deserialization.
+ * @return The status of the deserialization process, 0 if successful, an error
+ *         code otherwise.
+ *
+ * @ingroup FrameFunctions
+ */
+static fs_t deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed);
+
+/**
+ * @brief Processes a single frame from a WebSocket connection.
+ *
+ * @param c The vws_cnx representing the WebSocket connection.
+ * @param frame The vws_frame to process.
+ * @return void
+ *
+ * @ingroup FrameFunctions
+ */
+static void process_frame(vws_cnx* c, vws_frame* frame);
+
+
+
+
+/**
+ * @defgroup MessageFunctions
+ *
+ * @brief Functions that manage websocket messages
+ *
+ */
+
+/**
+ * @brief Checks if a complete message is available in the connection's message
+ *        queue.
+ *
+ * @param c The vws_cnx representing the WebSocket connection.
+ * @return True if a complete message is available, false otherwise.
+ *
+ * @ingroup MessageFunctions
+ */
 static bool has_complete_message(vws_cnx* c);
 
-// Removes and returns the first complete message from the connection's message
-// queue
-static vws_msg* pop_message(vws_cnx* c);
 
-// Structure representing a WebSocket header
+
+
+/**
+ * @defgroup TraceFunctions
+ *
+ * @brief Functions that provide tracing and debugging
+ *
+ */
+
+/**
+ * @brief Structure representing a WebSocket header.
+ *
+ * @ingroup TraceFunctions
+ */
 typedef struct
 {
-    uint8_t fin;          // Indicates the final frame of a message
-    uint8_t opcode;       // Identifies the frame type
-    uint8_t mask;         // Indicates if the frame payload is masked
-    uint64_t payload_len; // Length of the payload data
-    uint32_t masking_key; // Key used for payload data masking
+    uint8_t fin;          /**< Indicates the final frame of a message */
+    uint8_t opcode;       /**< Identifies the frame type */
+    uint8_t mask;         /**< Indicates if the frame payload is masked */
+    uint64_t payload_len; /**< Length of the payload data */
+    uint32_t masking_key; /**< Key used for payload data masking */
 } ws_header;
 
-// Dumps the contents of a WebSocket header for debugging purposes
+/**
+ * @brief Dumps the contents of a WebSocket header for debugging purposes.
+ *
+ * @param header The WebSocket header to dump.
+ *
+ * @ingroup TraceFunctions
+ */
 static void dump_websocket_header(const ws_header* header);
 
-// Dumps the contents of a WebSocket frame for debugging purposes
+/**
+ * @brief Dumps the contents of a WebSocket frame for debugging purposes.
+ *
+ * @param data The data of the WebSocket frame.
+ * @param size The size of the WebSocket frame.
+ *
+ * @ingroup TraceFunctions
+ */
 static void dump_websocket_frame(const unsigned char* data, size_t size);
 
 //------------------------------------------------------------------------------
@@ -251,7 +410,9 @@ vws_cnx* vws_cnx_new()
     c->ssl     = NULL;
     c->ssl_ctx = NULL;
     c->timeout = 10000;
+    c->process = process_frame;
     c->trace   = 0;
+    c->data    = NULL;
 
     sc_queue_init(&c->queue);
 
@@ -511,7 +672,7 @@ void vws_disconnect(vws_cnx* c)
 
     c->flags = CNX_CLOSED;
 
-    vrtql_buffer* buffer = generate_close_frame();
+    vrtql_buffer* buffer = vws_generate_close_frame();
 
     for (size_t i = 0; i < buffer->size;)
     {
@@ -620,7 +781,7 @@ vws_msg* vws_recv_msg(vws_cnx* c)
 
     while (true)
     {
-        vws_msg* msg = pop_message(c);
+        vws_msg* msg = vws_pop_message(c);
 
         if (msg != NULL)
         {
@@ -840,7 +1001,7 @@ void process_frame(vws_cnx* c, vws_frame* f)
             vrtql_set_flag(&c->flags, CNX_CLOSING);
 
             // Build the response frame
-            vrtql_buffer* buffer = generate_close_frame();
+            vrtql_buffer* buffer = vws_generate_close_frame();
 
             // Send the response frame
             socket_write(c, buffer->data, buffer->size);
@@ -865,7 +1026,7 @@ void process_frame(vws_cnx* c, vws_frame* f)
         case PING_FRAME:
         {
             // Generate the PONG response
-            vrtql_buffer* buffer = generate_pong_frame(f->data, f->size);
+            vrtql_buffer* buffer = vws_generate_pong_frame(f->data, f->size);
 
             // Send the PONG response
             socket_write(c, buffer->data, buffer->size);
@@ -1475,7 +1636,7 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
 
         vrtql_buffer_append(c->buffer, &buf[0], n);
 
-        if (socket_ingress(c) > 0)
+        if (vws_socket_ingress(c) > 0)
         {
             break;
         }
@@ -1484,10 +1645,11 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
     return n;
 }
 
-ssize_t socket_ingress(vws_cnx* c)
+ssize_t vws_socket_ingress(vws_cnx* c)
 {
     size_t total_consumed = 0;
 
+    // Process as many frames as possible
     while (true)
     {
         // If there is no more data in socket buffer
@@ -1532,7 +1694,7 @@ ssize_t socket_ingress(vws_cnx* c)
         total_consumed += consumed;
 
         // We have a frame. Process it.
-        process_frame(c, frame);
+        c->process(c, frame);
 
         // Drain the consumed frame data from buffer
         vrtql_buffer_drain(c->buffer, consumed);
@@ -1589,7 +1751,7 @@ void socket_close(vws_cnx* c)
     }
 }
 
-vrtql_buffer* generate_close_frame()
+vrtql_buffer* vws_generate_close_frame()
 {
     size_t size   = sizeof(int16_t);
     int16_t* data = vrtql.malloc(size);
@@ -1603,7 +1765,7 @@ vrtql_buffer* generate_close_frame()
     return serialize(f);
 }
 
-vrtql_buffer* generate_pong_frame(ucstr ping_data, size_t s)
+vrtql_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s)
 {
     // We create a new frame with the same data as the received ping frame
     vws_frame* f = vws_frame_new(ping_data, s, PONG_FRAME);
@@ -1612,7 +1774,7 @@ vrtql_buffer* generate_pong_frame(ucstr ping_data, size_t s)
     return serialize(f);
 }
 
-vws_msg* pop_message(vws_cnx* c)
+vws_msg* vws_pop_message(vws_cnx* c)
 {
     if (has_complete_message(c) == false)
     {

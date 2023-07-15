@@ -17,17 +17,52 @@
 // Frame
 //------------------------------------------------------------------------------
 
+/** @brief Defines the types of WebSocket frames */
+typedef enum
+{
+    /** A continuation frame, data message split across multiple frames. */
+    CONTINUATION_FRAME = 0x0,
+
+    /** A text data frame. */
+    TEXT_FRAME = 0x1,
+
+    /** A binary data frame. */
+    BINARY_FRAME = 0x2,
+
+    /** A close control frame. */
+    CLOSE_FRAME = 0x8,
+
+    /** A ping control frame. */
+    PING_FRAME = 0x9,
+
+    /** A pong control frame, in response to a ping. */
+    PONG_FRAME = 0xA
+
+} frame_type_t;
+
 /**
  * @brief Represents a Websocket frame.
  */
 typedef struct vws_frame
 {
-    unsigned char fin;       /**< Final frame in the message (1) or not (0). */
-    unsigned char opcode;    /**< Defines the interpretation of the payload data. */
-    unsigned char mask;      /**< Defines whether the payload is masked. */
-    unsigned int offset;     /**< Position of the data in the frame. */
-    unsigned long long size; /**< The size of the payload data. */
-    unsigned char* data;     /**< The payload data for the frame. */
+    /**< Final frame in the message (1) or not (0). */
+    unsigned char fin;
+
+    /**< Defines the interpretation of the payload data. */
+    unsigned char opcode;
+
+    /**< Defines whether the payload is masked. */
+    unsigned char mask;
+
+    /**< Position of the data in the frame. */
+    unsigned int offset;
+
+    /**< The size of the payload data. */
+    unsigned long long size;
+
+    /**< The payload data for the frame. */
+    unsigned char* data;
+
 } vws_frame;
 
 /**
@@ -47,6 +82,26 @@ vws_frame* vws_frame_new(ucstr data, size_t s, unsigned char oc);
  */
 void vws_frame_free(vws_frame* frame);
 
+/**
+ * @brief Generates a close frame for a WebSocket connection.
+ *
+ * @return A pointer to the generated close frame.
+ *
+ * @ingroup FrameFunctions
+ */
+vrtql_buffer* vws_generate_close_frame();
+
+/**
+ * @brief Generates a pong frame in response to a received ping frame.
+ *
+ * @param ping_data The data from the received ping frame.
+ * @param s The size of the ping data.
+ * @return A pointer to the generated pong frame.
+ *
+ * @ingroup FrameFunctions
+ */
+vrtql_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s);
+
 //------------------------------------------------------------------------------
 // Message
 //------------------------------------------------------------------------------
@@ -56,8 +111,11 @@ void vws_frame_free(vws_frame* frame);
  */
 typedef struct
 {
-    unsigned char opcode; /**< Defines the interpretation of the payload data. */
-    vrtql_buffer* data;   /**< The payload data for the message. */
+    /**< Defines the interpretation of the payload data. */
+    unsigned char opcode;
+
+    /**< The payload data for the message. */
+    vrtql_buffer* data;
 } vws_msg;
 
 /**
@@ -78,22 +136,56 @@ void vws_msg_free(vws_msg* msg);
 // Connection
 //------------------------------------------------------------------------------
 
+struct vws_cnx;
+
 /**
- * @brief Represents a websocket connection. Includes various connection details
- * and state flags.
+ * @brief Callback for frame processing
+ * @param s The server instance
+ * @param t The incoming request to process
  */
-typedef struct
+typedef void (*vws_process_frame)(struct vws_cnx* cnx, vws_frame* frame);
+
+/**
+ * @brief A WebSocket connection.
+ */
+typedef struct vws_cnx
 {
-    uint64_t flags;            /**< Connection state flags.             */
-    vrtql_url url;             /**< The URL of the websocket server.    */
-    int sockfd;                /**< The socket file descriptor.         */
-    SSL_CTX* ssl_ctx;          /**< The SSL context for the connection. */
-    SSL* ssl;                  /**< The SSL connection instance.        */
-    char* key;                 /**< The websocket key.                  */
-    vrtql_buffer* buffer;      /**< Socket receive buffer.              */
-    struct sc_queue_ptr queue; /**< Queue for incoming frames.          */
-    int timeout;               /**< Socket timeout in milliseconds.     */
-    uint8_t trace;             /**< Enable tracing.                     */
+    /**< Connection state flags. */
+    uint64_t flags;
+
+    /**< The URL of the websocket server. */
+    vrtql_url url;
+
+    /**< The socket file descriptor. */
+    int sockfd;
+
+    /**< The SSL context for the connection. */
+    SSL_CTX* ssl_ctx;
+
+    /**< The SSL connection instance. */
+    SSL* ssl;
+
+    /**< The websocket key. */
+    char* key;
+
+    /**< Socket receive buffer. */
+    vrtql_buffer* buffer;
+
+    /**< Queue for incoming frames. */
+    struct sc_queue_ptr queue;
+
+    /**< Socket timeout in milliseconds. */
+    int timeout;
+
+    /**< Frame processing callback. */
+    vws_process_frame process;
+
+    /**< Enable tracing. */
+    uint8_t trace;
+
+    /**< User-defined data associated with the connection */
+    char* data;
+
 } vws_cnx;
 
 /**
@@ -150,6 +242,18 @@ bool vws_cnx_set_timeout(vws_cnx* c, int t);
  */
 void vws_cnx_set_server_mode(vws_cnx* c);
 
+/**
+ * @brief Reads data from a WebSocket connection and deserializes it into a
+ *        frame.
+ *
+ * @param c The vws_cnx representing the WebSocket connection.
+ * @return The number of bytes read and deserialized, or an error code if an
+ *         error occurred.
+ *
+ * @ingroup SocketFunctions
+ */
+ssize_t vws_socket_ingress(vws_cnx* c);
+
 //------------------------------------------------------------------------------
 // Messaging API
 //------------------------------------------------------------------------------
@@ -203,6 +307,18 @@ ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame);
  *   timed out without receiving a full message.
  */
 vws_msg* vws_recv_msg(vws_cnx* c);
+
+/**
+ * @brief Removes and returns the first complete message from the connection's
+ *         message queue.
+ *
+ * @param c The vws_cnx representing the WebSocket connection.
+ * @return A pointer to the popped vws_msg object, or NULL if the queue is
+ * empty.
+ *
+ * @ingroup MessageFunctions
+ */
+vws_msg* vws_pop_message(vws_cnx* c);
 
 /**
  * @brief Receives a websocket frame from the connection.
