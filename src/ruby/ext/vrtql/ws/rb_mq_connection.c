@@ -88,7 +88,7 @@ static VALUE m_send(int argc, VALUE* argv, VALUE self)
     vr_mq_cnx* handle;
     Data_Get_Struct(self, vr_mq_cnx, handle);
 
-    vrtql_msg_format_t format;
+    vrtql_msg_format format;
 
     // Rest of your implementation...
 
@@ -194,7 +194,7 @@ static VALUE m_set_format(VALUE self, VALUE format_value)
     vr_mq_cnx* handle;
     Data_Get_Struct(self, vr_mq_cnx, handle);
 
-    vrtql_msg_format_t format;
+    vrtql_msg_format format;
 
     if (SYM2ID(format_value) == rb_intern("json"))
     {

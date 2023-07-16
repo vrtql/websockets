@@ -5,6 +5,7 @@
 
 #include "vrtql.h"
 #include "message.h"
+#include "http_request.h"
 
 /**
  * @file server.h
@@ -50,6 +51,13 @@
 
 struct vrtql_svr_cnx;
 
+typedef enum
+{
+    /* uv_thread() is to close connection */
+    VM_SVR_DATA_CLOSE  = (1 << 1)
+
+} vrtql_svr_data_state;
+
 /**
  * @brief Struct representing a server data for inter-thread communication
  * between the main network thread and worker threads. This is the way data is
@@ -67,6 +75,9 @@ typedef struct
 
     /**< The data */
     char* data;
+
+    /**< Message state flags */
+    uint64_t flags;
 
 } vrtql_svr_data;
 
@@ -124,7 +135,7 @@ typedef struct vrtql_svr_cnx
     /**< The format to serialize. If VM_MPACK_FORMAT, serialize into MessagePack
      *   binary format. If VM_JSON_FORMAT, then serialize into JSON format.
      */
-    vrtql_msg_format_t format;
+    vrtql_msg_format format;
 
 } vrtql_svr_cnx;
 
@@ -160,9 +171,15 @@ typedef void (*vrtql_svr_process_data)(vrtql_svr_data* t);
  */
 typedef enum vrtql_svr_state
 {
-    VS_RUNNING = 0,  /**< Server is running       */
-    VS_HALTING = 1,  /**< Server is shutting down */
-    VS_HALTED  = 2,  /**< Server is no running    */
+    /**< Server is running */
+    VS_RUNNING = 0,
+
+    /**< Server is shutting down */
+    VS_HALTING = 1,
+
+    /**< Server is no running */
+    VS_HALTED  = 2,
+
 } vrtql_svr_state;
 
 /** Abbreviation for connection map */
@@ -194,7 +211,7 @@ typedef struct vrtql_svr
     /**< Maximum connections allowed */
     int backlog;
 
-    /**< Number of threads in worker pool*/
+    /**< Number of threads in worker pool */
     int pool_size;
 
     /**< Thread handles */
@@ -232,7 +249,7 @@ typedef struct vrtql_svr
  * @param data The data
  * @return A new thread data.
  */
-vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, size_t size, ucstr data);
+vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, ucstr data, size_t size);
 
 /**
  * @brief Frees the resources allocated to a thread data
@@ -311,6 +328,13 @@ typedef struct vrtql_msg_svr
     /**< Base class */
     struct vrtql_svr base;
 
+    /** Flag that holds whether we have upgraded connection from HTTP to
+     *  WebSockets */
+    bool upgraded;
+
+    /* Flag holds the HTTP request that started connection. */
+    vrtql_http_req* http;
+
     /**< Function for processing data in from client */
     vrtql_svr_process_data on_data_in;
 
@@ -323,7 +347,7 @@ typedef struct vrtql_msg_svr
     /**< Derived: for processing incoming message (called by on_msg_in()) */
     vrtql_svr_process_msg process;
 
-    /**< Derived: for sending message to client (calls on_msg_out())*/
+    /**< Derived: for sending message to client (calls on_msg_out()) */
     vrtql_svr_process_msg send;
 
 } vrtql_msg_svr;

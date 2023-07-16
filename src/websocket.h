@@ -189,6 +189,16 @@ typedef struct vws_cnx
 } vws_cnx;
 
 /**
+ * @brief Generates a WebSocket accept key from input.
+ *
+ * @param key The input key
+ * @return Returns the accept key on the heap. Caller MUST call free() on return
+ * value
+ */
+
+cstr vws_accept_key(cstr key);
+
+/**
  * @brief Connects to a specified host URL.
  *
  * @param uri The URL of the host to connect to.

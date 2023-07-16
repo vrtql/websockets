@@ -432,6 +432,27 @@ void vrtql_buffer_free(vrtql_buffer* buffer)
     }
 }
 
+void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...)
+{
+    va_list args;
+    va_start(args, format);
+
+    // Determine the length of the formatted string
+    int length = vsnprintf(NULL, 0, format, args);
+
+    // Allocate a buffer for the formatted string
+    char* data = malloc(length + 1);
+
+    // Format the string into the buffer
+    vsnprintf(data, length + 1, format, args);
+
+    vrtql_buffer_append(buffer, data, length);
+
+    // Cleanup
+    free(data);
+    va_end(args);
+}
+
 void vrtql_buffer_append(vrtql_buffer* buffer, ucstr data, size_t size)
 {
     if (buffer == NULL || data == NULL)
@@ -480,6 +501,67 @@ void vrtql_buffer_drain(vrtql_buffer* buffer, size_t size)
         buffer->size -= size;
         buffer->data[buffer->size] = 0;
     }
+}
+
+//------------------------------------------------------------------------------
+// Map
+//------------------------------------------------------------------------------
+
+cstr vrtql_map_get(struct sc_map_str* map, cstr key)
+{
+    // See if we have an existing entry
+    cstr v = sc_map_get_str(map, key);
+
+    if (sc_map_found(map) == false)
+    {
+        return NULL;
+    }
+
+    return v;
+}
+
+void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value)
+{
+    // See if we have an existing entry
+    sc_map_get_str(map, key);
+
+    if (sc_map_found(map) == false)
+    {
+        // We don't. Therefore we need to allocate new key.
+        key = strdup(key);
+    }
+
+    cstr v = sc_map_put_str(map, key, strdup(value));
+
+    if (sc_map_found(map) == true)
+    {
+        free(v);
+    }
+}
+
+void vrtql_map_remove(struct sc_map_str* map, cstr key)
+{
+    // See if we have an existing entry
+    cstr v = sc_map_get_str(map, key);
+
+    if (sc_map_found(map) == true)
+    {
+        free(v);
+    }
+
+    sc_map_del_str(map, key);
+}
+
+void vrtql_map_clear(struct sc_map_str* map)
+{
+    cstr key; cstr value;
+    sc_map_foreach(map, key, value)
+    {
+        free(key);
+        free(value);
+    }
+
+    sc_map_clear_str(map);
 }
 
 //------------------------------------------------------------------------------

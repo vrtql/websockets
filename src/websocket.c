@@ -1233,7 +1233,7 @@ char* extract_websocket_accept_key(const char* response)
     return accept_key;
 }
 
-int verify_handshake(const char* key, const char* response)
+cstr vws_accept_key(cstr key)
 {
     // Concatenate the key and WebSocket GUID
     const char* websocket_guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -1253,11 +1253,16 @@ int verify_handshake(const char* key, const char* response)
     // Base64-encode the hash
     char* encoded_hash = vrtql_base64_encode(hash, sizeof(hash));
 
-    // Compare the encoded hash with the expected response
-    int result = strcmp(encoded_hash, response);
-
     free(input);
-    free(encoded_hash);
+
+    return encoded_hash;
+}
+
+int verify_handshake(const char* key, const char* response)
+{
+    char* hash = vws_accept_key(key);
+    int result = strcmp(hash, response);
+    free(hash);
 
     return result == 0;
 }

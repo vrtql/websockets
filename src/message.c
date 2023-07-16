@@ -10,38 +10,6 @@
 //------------------------------------------------------------------------------
 
 /**
- * @brief Retrieves a value from the map using a string key.
- *
- * Returns a constant string pointer to the value associated with the key.
- *
- * @param map The map from which to retrieve the value.
- * @param key The string key to use for retrieval.
- * @return A constant string pointer to the value associated with the key.
- */
-static cstr msg_map_get(struct sc_map_str* map, cstr key);
-
-/**
- * @brief Sets a value in the map using a string key and value.
- *
- * It will create a new key-value pair or update the value if the key already exists.
- *
- * @param map The map in which to set the value.
- * @param key The string key to use for setting.
- * @param value The string value to set.
- */
-static void msg_map_set(struct sc_map_str* map, cstr key, cstr value);
-
-/**
- * @brief Removes a key-value pair from the map using a string key.
- *
- * If the key exists in the map, it will be removed along with its associated value.
- *
- * @param map The map from which to remove the key-value pair.
- * @param key The string key to use for removal.
- */
-static void msg_map_clear(struct sc_map_str* map, cstr key);
-
-/**
  * @brief Parses a map from a MessagePack reader.
  *
  * The function reads from the reader and populates the provided map.
@@ -351,7 +319,7 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             while ((key = yyjson_obj_iter_next(&iter)))
             {
                 value = yyjson_obj_iter_get_val(key);
-                msg_map_set( &msg->routing,
+                vrtql_map_set( &msg->routing,
                              yyjson_get_str(key),
                              yyjson_get_str(value) );
             }
@@ -370,7 +338,7 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             while ((key = yyjson_obj_iter_next(&iter)))
             {
                 value = yyjson_obj_iter_get_val(key);
-                msg_map_set( &msg->headers,
+                vrtql_map_set( &msg->headers,
                              yyjson_get_str(key),
                              yyjson_get_str(value) );
             }
@@ -406,32 +374,32 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
 
 cstr vrtql_msg_get_header(vrtql_msg* msg, cstr key)
 {
-    return msg_map_get(&msg->headers, key);
+    return vrtql_map_get(&msg->headers, key);
 }
 
 void vrtql_msg_set_header(vrtql_msg* msg, cstr key, cstr value)
 {
-    msg_map_set(&msg->headers, key, value);
+    vrtql_map_set(&msg->headers, key, value);
 }
 
 void vrtql_msg_clear_header(vrtql_msg* msg, cstr key)
 {
-    msg_map_clear(&msg->headers, key);
+    vrtql_map_remove(&msg->headers, key);
 }
 
 cstr vrtql_msg_get_routing(vrtql_msg* msg, cstr key)
 {
-    return msg_map_get(&msg->routing, key);
+    return vrtql_map_get(&msg->routing, key);
 }
 
 void vrtql_msg_set_routing(vrtql_msg* msg, cstr key, cstr value)
 {
-    msg_map_set(&msg->routing, key, value);
+    vrtql_map_set(&msg->routing, key, value);
 }
 
 void vrtql_msg_clear_routing(vrtql_msg* msg, cstr key)
 {
-    msg_map_clear(&msg->routing, key);
+    vrtql_map_remove(&msg->routing, key);
 }
 
 void vrtql_msg_clear_content(vrtql_msg* msg)
@@ -459,23 +427,6 @@ void vrtql_msg_set_content_binary(vrtql_msg* msg, cstr value, size_t size)
 {
     vrtql_buffer_clear(msg->content);
     vrtql_buffer_append(msg->content, (ucstr)value, size);
-}
-
-void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value)
-{
-    return msg_map_set(map, key, value);
-}
-
-void vrtql_map_clear(struct sc_map_str* map)
-{
-    cstr key; cstr value;
-    sc_map_foreach(map, key, value)
-    {
-        free(key);
-        free(value);
-    }
-
-    sc_map_clear_str(map);
 }
 
 ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg)
@@ -516,56 +467,6 @@ vrtql_msg* vrtql_msg_receive(vws_cnx* c)
 //------------------------------------------------------------------------------
 // Utility functions
 //------------------------------------------------------------------------------
-
-cstr vrtql_map_get(struct sc_map_str* map, cstr key)
-{
-    return msg_map_get(map, key);
-}
-
-cstr msg_map_get(struct sc_map_str* map, cstr key)
-{
-    // See if we have an existing entry
-    cstr v = sc_map_get_str(map, key);
-
-    if (sc_map_found(map) == false)
-    {
-        return NULL;
-    }
-
-    return v;
-}
-
-void msg_map_set(struct sc_map_str* map, cstr key, cstr value)
-{
-    // See if we have an existing entry
-    sc_map_get_str(map, key);
-
-    if (sc_map_found(map) == false)
-    {
-        // We don't. Therefore we need to allocate new key.
-        key = strdup(key);
-    }
-
-    cstr v = sc_map_put_str(map, key, strdup(value));
-
-    if (sc_map_found(map) == true)
-    {
-        free(v);
-    }
-}
-
-void msg_map_clear(struct sc_map_str* map, cstr key)
-{
-    // See if we have an existing entry
-    cstr v = sc_map_get_str(map, key);
-
-    if (sc_map_found(map) == true)
-    {
-        free(v);
-    }
-
-    sc_map_del_str(map, key);
-}
 
 static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map)
 {

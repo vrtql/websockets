@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "common.h"
+#include "util/sc_map.h"
 
 // Typedefs for brevity
 typedef const char* cstr;
@@ -197,6 +198,37 @@ void vrtql_buffer_free(vrtql_buffer* buffer);
 void vrtql_buffer_clear(vrtql_buffer* buffer);
 
 /**
+ * @brief Appends formatted data to a vrtql_buffer using printf() format.
+ *
+ * This function appends formatted data to the specified vrtql_buffer using a
+ * printf()-style format string and variable arguments. The formatted data is
+ * appended to the existing content of the buffer.
+ *
+ * @param buffer The vrtql_buffer to append the formatted data to.
+ * @param format The printf() format string specifying the format of the data to
+ *        be appended.
+ * @param ... Variable arguments corresponding to the format specifier in the
+ *        format string.
+ *
+ * @note The behavior of this function is similar to the standard printf()
+ *       function, where the format string specifies the expected format of the
+ *       data and the variable arguments provide the values to be formatted and
+ *       appended to the buffer.
+ *
+ * @note The vrtql_buffer must be initialized and have sufficient capacity to
+ *       hold the appended data. If the buffer capacity is exceeded, the
+ *       behavior is undefined.
+ *
+ * @warning Take care to ensure the format string and variable arguments are
+ *          consistent, as mismatches can lead to undefined behavior or security
+ *          vulnerabilities (e.g., format string vulnerabilities).
+ *
+ * @see vrtql_buffer_init
+ * @see vrtql_buffer_append
+ */
+void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...);
+
+/**
  * @brief Appends data to a vrtql buffer.
  *
  * @param buffer The buffer to append to
@@ -212,6 +244,49 @@ void vrtql_buffer_append(vrtql_buffer* buffer, ucstr data, size_t size);
  * @param size The size to drain from the buffer
  */
 void vrtql_buffer_drain(vrtql_buffer* buffer, size_t size);
+
+//------------------------------------------------------------------------------
+// Map
+//------------------------------------------------------------------------------
+
+/**
+ * @brief Retrieves a value from the map using a string key.
+ *
+ * Returns a constant string pointer to the value associated with the key.
+ *
+ * @param map The map from which to retrieve the value.
+ * @param key The string key to use for retrieval.
+ * @return A constant string pointer to the value associated with the key.
+ */
+cstr vrtql_map_get(struct sc_map_str* map, cstr key);
+
+/**
+ * @brief Sets a value in the map using a string key and value.
+ *
+ * It will create a new key-value pair or update the value if the key already exists.
+ *
+ * @param map The map in which to set the value.
+ * @param key The string key to use for setting.
+ * @param value The string value to set.
+ */
+void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value);
+
+/**
+ * @brief Removes a key-value pair from the map using a string key.
+ *
+ * If the key exists in the map, it will be removed along with its associated value.
+ *
+ * @param map The map from which to remove the key-value pair.
+ * @param key The string key to use for removal.
+ */
+void vrtql_map_remove(struct sc_map_str* map, cstr key);
+
+/**
+ * @brief Removes all key-value pair from the map, calling free() on them
+ *
+ * @param map The map to clear
+ */
+void vrtql_map_clear(struct sc_map_str* map);
 
 //------------------------------------------------------------------------------
 // URL

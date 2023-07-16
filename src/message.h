@@ -2,20 +2,19 @@
 #define VRTQL_MSG_DECLARE
 
 #include "websocket.h"
-#include "util/sc_map.h"
 
 typedef enum
 {
     VM_MPACK_FORMAT,
     VM_JSON_FORMAT
-} vrtql_msg_format_t;
+} vrtql_msg_format;
 
 typedef enum
 {
     VM_MSG_VALID       = (1 << 1),
     VM_MSG_PRIORITY    = (1 << 2),
     VM_MSG_OUT_OF_BAND = (1 << 3)
-} vrtql_msg_state_t;
+} vrtql_msg_state;
 
 /**
  * @brief Represents a message with routing, headers, and content.
@@ -26,7 +25,7 @@ typedef struct vrtql_msg
     struct sc_map_str headers; /**< A map storing header fields.       */
     vrtql_buffer* content;     /**< Buffer for the message content.    */
     uint64_t flags;            /**< Message state flags                */
-    vrtql_msg_format_t format; /**< Message format                     */
+    vrtql_msg_format format;   /**< Message format                     */
 } vrtql_msg;
 
 /**
@@ -137,29 +136,6 @@ vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg);
  * @return true on success, false on failure.
  */
 bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length);
-
-/**
- * @brief Gets a routing key-value pair.
- * @param map The map instance
- * @param msg The vrtql_msg instance.
- * @param key The routing key.
- */
-cstr vrtql_map_get(struct sc_map_str* map, cstr key);
-
-/**
- * @brief Sets a routing key-value pair.
- * @param map The map instance
- * @param msg The vrtql_msg instance.
- * @param key The routing key.
- * @param value The routing value.
- */
-void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value);
-
-/**
- * @brief Clears map
- * @param map The map instance
- */
-void vrtql_map_clear(struct sc_map_str* map);
 
 /**
  * @brief Sends a message via a websocket connection. Does not take ownership of

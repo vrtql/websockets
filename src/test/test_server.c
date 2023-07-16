@@ -13,19 +13,20 @@ cstr server_host = "127.0.0.1";
 int  server_port = 8181;
 #define TEST_DATA "Hello, Server!"
 
-static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
+static void alloc_buffer(uv_handle_t* h, size_t n, uv_buf_t *buf)
 {
-    buf->base = (char*) malloc(suggested_size);
-    buf->len  = suggested_size;
+    buf->base = (char*) malloc(n);
+    buf->len  = n;
 }
 
-static void on_client_write(uv_write_t *req, int status)
+static void on_client_write(uv_write_t* req, int status)
 {
     if (status < 0)
     {
         fprintf(stderr, "uv_write error: %s\n", uv_strerror(status));
         return;
     }
+
     printf("Message sent!\n");
     free(req);
 }
@@ -35,22 +36,22 @@ static void on_client_close(uv_handle_t* handle)
     printf("Closed connection.\n");
 }
 
-static void on_client_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
+static void on_client_read(uv_stream_t* s, ssize_t n, const uv_buf_t *buf)
 {
-    if (nread < 0)
+    if (n < 0)
     {
-        if (nread == UV_EOF)
+        if (n == UV_EOF)
         {
             // The other side closed the connection. Let's do the same.
-            uv_close((uv_handle_t*) stream, NULL);
+            uv_close((uv_handle_t*) s, NULL);
         }
     }
-    else if (nread > 0)
+    else if (n > 0)
     {
-        printf("Received data: %.*s\n", (int)nread, buf->base);
+        printf("Received data: %.*s\n", (int)n, buf->base);
 
         // Close the connection after receiving the data
-        uv_close((uv_handle_t*) stream, on_client_close);
+        uv_close((uv_handle_t*) s, on_client_close);
     }
 
     // OK to free buffer as write_data copies it.
@@ -60,9 +61,10 @@ static void on_client_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *b
     }
 }
 
-static void on_client_connect(uv_connect_t *req, int status)
+static void on_client_connect(uv_connect_t* req, int status)
 {
-    if (status < 0) {
+    if (status < 0)
+    {
         fprintf(stderr, "Connection error: %s\n", uv_strerror(status));
         return;
     }

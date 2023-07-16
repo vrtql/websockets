@@ -31,7 +31,7 @@ set(test_targets
   test_websocket )
 
 if(BUILD_SERVER)
-  list(APPEND test_targets test_server)
+  list(APPEND test_targets test_server test_http_parser)
 endif()
 
 

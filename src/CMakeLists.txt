@@ -57,7 +57,7 @@ if(BUILD_SERVER)
   find_package(LibUV REQUIRED)
   include_directories(${LIBUV_INCLUDE_DIRS})
   list(APPEND OS_LIBS ${LIBUV_LIBRARIES})
-  list(APPEND core_sources server.c)
+  list(APPEND core_sources server.c http_parser.c http_request.c)
 endif()
 
 #-------------------------------------------------------------------------------
