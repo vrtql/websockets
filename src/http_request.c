@@ -3,13 +3,74 @@
 
 #include "http_request.h"
 
+//------------------------------------------------------------------------------
+// Internal functions
+//------------------------------------------------------------------------------
+
+/**
+ * @brief Callback for HTTP parser's on_message_begin event.
+ * @param p The HTTP parser instance.
+ * @return 0 to continue parsing.
+ */
 static int on_message_begin(http_parser* p);
+
+/**
+ * @brief Callback for HTTP parser's on_headers_complete event.
+ * @param p The HTTP parser instance.
+ * @return 0 to continue parsing.
+ */
 static int on_headers_complete(http_parser* p);
+
+/**
+ * @brief Callback for HTTP parser's on_message_complete event.
+ * @param p The HTTP parser instance.
+ * @return 0 to continue parsing.
+ */
 static int on_message_complete(http_parser* p);
+
+/**
+ * @brief Callback for HTTP parser's on_url event.
+ * @param p The HTTP parser instance.
+ * @param at Pointer to the URL data.
+ * @param l Length of the URL data.
+ * @param intr Flag indicating if the URL data is incomplete.
+ * @return 0 to continue parsing.
+ */
 static int on_url(http_parser* p, cstr at, size_t l, int intr);
+
+/**
+ * @brief Callback for HTTP parser's on_header_field event.
+ * @param p The HTTP parser instance.
+ * @param at Pointer to the header field data.
+ * @param l Length of the header field data.
+ * @param intr Flag indicating if the header field data is incomplete.
+ * @return 0 to continue parsing.
+ */
 static int on_header_field(http_parser* p, cstr at, size_t l, int intr);
+
+/**
+ * @brief Callback for HTTP parser's on_header_value event.
+ * @param p The HTTP parser instance.
+ * @param at Pointer to the header value data.
+ * @param l Length of the header value data.
+ * @param intr Flag indicating if the header value data is incomplete.
+ * @return 0 to continue parsing.
+ */
 static int on_header_value(http_parser* p, cstr at, size_t l, int intr);
+
+/**
+ * @brief Callback for HTTP parser's on_body event.
+ * @param p The HTTP parser instance.
+ * @param at Pointer to the body data.
+ * @param l Length of the body data.
+ * @param intr Flag indicating if the body data is incomplete.
+ * @return 0 to continue parsing.
+ */
 static int on_body(http_parser* p, cstr at, size_t l, int intr);
+
+//------------------------------------------------------------------------------
+// HTTP Request
+//------------------------------------------------------------------------------
 
 vrtql_http_req* vrtql_http_req_new()
 {
@@ -64,7 +125,6 @@ void vrtql_http_req_free(vrtql_http_req* req)
     free(req);
 }
 
-// Define the callback functions
 int on_message_begin(http_parser* p)
 {
     return 0;
@@ -91,6 +151,11 @@ int on_url(http_parser* p, cstr at, size_t l, int intr)
     return 0;
 }
 
+/**
+ * @brief Converts a string to lowercase.
+ * @param s The string to convert.
+ * @return The converted lowercase string.
+ */
 char* lcase(char* s)
 {
     for(int i = 0; s[i]; i++)

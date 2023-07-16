@@ -4,6 +4,10 @@
 #include "vrtql.h"
 #include "http_parser.h"
 
+/**
+ * @struct vrtql_http_req
+ * @brief Structure representing an HTTP request
+ */
 typedef struct vrtql_http_req
 {
     /**< The parser */
@@ -32,8 +36,25 @@ typedef struct vrtql_http_req
 
 } vrtql_http_req;
 
+/**
+ * @brief Creates a new instance of vrtql_http_req.
+ * @return The newly created vrtql_http_req instance.
+ */
 vrtql_http_req* vrtql_http_req_new();
+
+/**
+ * @brief Parses the provided data as an HTTP request.
+ * @param req The vrtql_http_req instance.
+ * @param data The data to parse.
+ * @param size The size of the data.
+ * @return The number of bytes parsed, or a negative value on error.
+ */
 int vrtql_http_req_parse(vrtql_http_req* req, cstr data, size_t size);
+
+/**
+ * @brief Frees the resources associated with the vrtql_http_req instance.
+ * @param req The vrtql_http_req instance to free.
+ */
 void vrtql_http_req_free(vrtql_http_req* req);
 
 #endif /* VRTQL_HTTP_REQUEST_DECLARE */
