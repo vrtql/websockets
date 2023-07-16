@@ -11,6 +11,7 @@
 #include <stdbool.h>
 
 #include "vrtql.h"
+#include "socket.h"
 #include "util/sc_queue.h"
 
 //------------------------------------------------------------------------------
@@ -150,38 +151,26 @@ typedef void (*vws_process_frame)(struct vws_cnx* cnx, vws_frame* frame);
  */
 typedef struct vws_cnx
 {
+    /**< Base class */
+    struct vws_socket base;
+
     /**< Connection state flags. */
     uint64_t flags;
 
     /**< The URL of the websocket server. */
     vrtql_url url;
 
-    /**< The socket file descriptor. */
-    int sockfd;
-
-    /**< The SSL context for the connection. */
-    SSL_CTX* ssl_ctx;
-
-    /**< The SSL connection instance. */
-    SSL* ssl;
+    /**< The WebSocket origin. */
+    char* origin;
 
     /**< The websocket key. */
     char* key;
 
-    /**< Socket receive buffer. */
-    vrtql_buffer* buffer;
-
     /**< Queue for incoming frames. */
     struct sc_queue_ptr queue;
 
-    /**< Socket timeout in milliseconds. */
-    int timeout;
-
     /**< Frame processing callback. */
     vws_process_frame process;
-
-    /**< Enable tracing. */
-    uint8_t trace;
 
     /**< User-defined data associated with the connection */
     char* data;
@@ -195,7 +184,6 @@ typedef struct vws_cnx
  * @return Returns the accept key on the heap. Caller MUST call free() on return
  * value
  */
-
 cstr vws_accept_key(cstr key);
 
 /**
@@ -228,23 +216,6 @@ vws_cnx* vws_cnx_new();
 void vws_cnx_free(vws_cnx* c);
 
 /**
- * @brief Checks if a connection is established.
- *
- * @param c The websocket connection.
- * @return Returns true if the connection is established, false otherwise.
- */
-bool vws_cnx_is_connected(vws_cnx* c);
-
-/**
- * @brief Sets a timeout for the connection.
- *
- * @param c The websocket connection.
- * @param t The timeout value in seconds.
- * @return Returns true if successful, false otherwise.
- */
-bool vws_cnx_set_timeout(vws_cnx* c, int t);
-
-/**
  * @brief Sets the connection to server mode
  *
  * @param c The websocket connection.
@@ -253,14 +224,16 @@ bool vws_cnx_set_timeout(vws_cnx* c, int t);
 void vws_cnx_set_server_mode(vws_cnx* c);
 
 /**
- * @brief Reads data from a WebSocket connection and deserializes it into a
- *        frame.
+ * @brief Processes incoming data from a WebSocket connection.
  *
- * @param c The vws_cnx representing the WebSocket connection.
- * @return The number of bytes read and deserialized, or an error code if an
- *         error occurred.
+ * This function parses the data in the socket buffer and attempts to extract
+ * complete WebSocket frames. It processes as many frames as possible and
+ * calls the appropriate processing function for each frame. The consumed
+ * data is then drained from the buffer.
  *
- * @ingroup SocketFunctions
+ * @param c The WebSocket connection.
+ * @return The total number of bytes consumed from the socket buffer.
+ *         If no complete frame is available or an error occurs, it returns 0.
  */
 ssize_t vws_socket_ingress(vws_cnx* c);
 

@@ -52,7 +52,7 @@ static VALUE m_init(VALUE self)
 // Checks that connection is established
 static void ensure_connected(vws_cnx* c)
 {
-    if (vws_cnx_is_connected(c) == false)
+    if (vws_socket_is_connected((vws_socket*)c) == false)
     {
         rb_raise(rb_eRuntimeError, "Not connected");
     }
@@ -111,12 +111,15 @@ static VALUE m_is_connected(VALUE self)
     vws_cnx* c = get_object(self);
 
     // Call the vws_cnx_is_connected function from the C API
-    bool isConnected = vws_cnx_is_connected(c);
+    bool connected = vws_socket_is_connected((vws_socket*)c);
 
     // Convert the boolean result to a Ruby value and return it
-    if (isConnected) {
+    if (connected)
+    {
         return Qtrue;
-    } else {
+    }
+    else
+    {
         return Qfalse;
     }
 }
@@ -282,7 +285,7 @@ static VALUE m_set_timeout(VALUE self, VALUE timeout)
     double timeout_value = NUM2DBL(timeout);
 
     // Call the vws_cnx_set_timeout function from the C API
-    vws_cnx_set_timeout(c, timeout_value);
+    vws_socket_set_timeout((vws_socket*)c, (int)timeout_value);
 
     return Qnil;
 }

@@ -52,15 +52,23 @@ File.open('platform.h', 'w') do |file|
   file.puts "#endif /* PLATFORM_H */"
 end
 
-source_files = Dir.glob('*.c') +
-               Dir.glob('vrtql/*.c') +
+vrtql_files = [
+  'vrtql/message.c',
+  'vrtql/socket.c',
+  'vrtql/vrtql.c',
+  'vrtql/websocket.c'
+]
+
+source_files = vrtql_files +
+               Dir.glob('*.c') +
                Dir.glob('vrtql/util/*.c') +
                Dir.glob('vrtql/mpack/*.c')
 
 # Use the base name (without extension) for object files
 obj_files = source_files.map { |f| f.gsub('.c', '.o') }
 
-# This is important. The $objs array tells mkmf what object files need to be linked to form the shared library.
+# This is important. The $objs array tells mkmf what object files need to be
+# linked to form the shared library.
 $objs = obj_files
 
 # Get paths to include directories

@@ -291,7 +291,8 @@ static VALUE m_get_content(VALUE self)
 static VALUE m_serialize(VALUE self)
 {
     vrtql_msg* msg    = get_object(self);
-    vrtql_buffer* buf = vrtql_msg_serialize(msg, VM_MPACK_FORMAT);
+    msg->format       = VM_MPACK_FORMAT;
+    vrtql_buffer* buf = vrtql_msg_serialize(msg);
     VALUE binary      = rb_str_new(buf->data, buf->size);
 
     vrtql_buffer_free(buf);

@@ -197,10 +197,16 @@ To build/install from source:
 
 ```
     git clone git@github.com:vrtql/websockets-ruby.git
-    cd websockets-ruby
-    gem install rake-compiler
-    rake
-    rake gem
-    cd pkg
+    cd websockets-ruby/src/ruby
+    gem build config/vrtql-ws.gemspec
     gem install -l vrtql-websockets-*.gem
+```
+
+Alternately, without using `gem`:
+
+```
+    cd websockets-ruby/src/ruby/ext/vrtql/ws/
+    ruby extconf.rb
+    make
+    make install
 ```

@@ -293,6 +293,15 @@ $ make gem
 $ sudo gem install vrtql-ws*.gem
 ```
 
+Alternately, without using `gem`:
+
+```bash
+    cd websockets-ruby/src/ruby/ext/vrtql/ws/
+    ruby extconf.rb
+    make
+    make install
+```
+
 The RDoc documentaton is located [here](https://vrtql.github.io/ws/ruby/).
 
 ### Cross-Compiling for Windows

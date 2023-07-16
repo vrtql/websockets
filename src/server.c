@@ -94,12 +94,11 @@ static vrtql_svr* svr_ctor(vrtql_svr* s, int nt, int backlog, int queue_size);
  * struct.
  *
  * @param server The server instance to be destructed
- * @return The initialized server instance
  *
  * @ingroup ServerFunctions
  */
 
-static vrtql_svr* svr_dtor(vrtql_svr* s);
+static void svr_dtor(vrtql_svr* s);
 
 /**
  * @brief Initiates the server shutdown process.
@@ -679,7 +678,7 @@ void on_uv_walk(uv_handle_t* handle, void* arg)
     }
 }
 
-vrtql_svr* svr_dtor(vrtql_svr* server)
+void svr_dtor(vrtql_svr* server)
 {
     if (server->state == VS_RUNNING)
     {
@@ -1313,15 +1312,15 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
     vrtql_svr_cnx* cnx    = data->cnx;
     vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
     vws_cnx* c            = (vws_cnx*)cnx->data;
-    vrtql_buffer_append(c->buffer, data->data, data->size);
+    vrtql_buffer_append(c->base.buffer, data->data, data->size);
 
     // If we are in HTTP mode
     if (server->upgraded == false)
     {
         // Parse incoming data as HTTP request.
 
-        cstr data   = c->buffer->data;
-        size_t size = c->buffer->size;
+        cstr data   = c->base.buffer->data;
+        size_t size = c->base.buffer->size;
         ssize_t n   = vrtql_http_req_parse(server->http, data, size);
 
         // Did we get a complete request?
@@ -1351,7 +1350,7 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
             }
 
             // Drain HTTP request data from cnx->data buffer
-            vrtql_buffer_drain(c->buffer, n);
+            vrtql_buffer_drain(c->base.buffer, n);
 
             //> Generate HTTP response and send
 
@@ -1406,7 +1405,7 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
 
             // Do we have any data in the socket after consuming the HTTP
             // request? We shouldn't but if so this is WebSocket data.
-            if (c->buffer->size == 0)
+            if (c->base.buffer->size == 0)
             {
                 // No more data in the socket buffer. Done for now.
                 return;

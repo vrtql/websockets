@@ -1,14 +1,5 @@
 #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netdb.h>
 #include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <unistd.h>
 #endif
 
 #if defined(__windows__)
@@ -16,10 +7,6 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #endif
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include <openssl/rand.h>
 
@@ -154,18 +141,6 @@ typedef enum
 static vws_cnx* cnx_new();
 
 /**
- * @brief Connects to a host at a specific port and returns the connection
- *        status.
- *
- * @param host The host to connect to.
- * @param port The port to connect to.
- * @return The connection status, 0 if successful, an error code otherwise.
- *
- * @ingroup ConnectionFunctions
- */
-static int connect_to_host(const char* host, const char* port);
-
-/**
  * @brief Generates a new, random WebSocket key for the handshake process.
  *
  * @return A pointer to the generated WebSocket key.
@@ -207,28 +182,16 @@ static int verify_handshake(const char* key, const char* response);
  */
 
 /**
- * @brief Reads data from a WebSocket connection into a buffer.
+ * @brief Performs WebSocket connection. This is integrated as callback into
+ *        vws_connect().
  *
- * @param c The vws_cnx representing the WebSocket connection.
- * @param data The buffer to read data into.
- * @param size The size of the buffer.
- * @return The number of bytes read, or an error code if an error occurred.
+ * @param s The WebSocket connection
+ * @return Returns true if handshake succeeded, false otherwise
  *
- * @ingroup SocketFunctions
+ * @ingroup ConnectionFunctions
  */
-static ssize_t socket_read(vws_cnx* c, ucstr data, size_t size);
 
-/**
- * @brief  Writes data from a buffer to a WebSocket connection.
- *
- * @param c The vws_cnx representing the WebSocket connection.
- * @param data The buffer containing the data to write.
- * @param size The size of the data to write.
- * @return The number of bytes written, or an error code if an error occurred.
- *
- * @ingroup SocketFunctions
- */
-static ssize_t socket_write(vws_cnx* c, ucstr data, size_t size);
+static bool socket_handshake(vws_socket* s);
 
 /**
  * @brief Waits for a complete frame to be available from a WebSocket
@@ -242,37 +205,7 @@ static ssize_t socket_write(vws_cnx* c, ucstr data, size_t size);
  */
 static ssize_t socket_wait_for_frame(vws_cnx* c);
 
-/**
- * @brief Closes a WebSocket connection.
- *
- * @param c The vws_cnx representing the WebSocket connection to close.
- *
- * @ingroup SocketFunctions
- */
-static void socket_close(vws_cnx* c);
-
-/**
- * @brief Sets a socket to non-blocking mode.
- *
- * @param sockfd The socket file descriptor.
- * @return True if successful, false otherwise.
- *
- * @ingroup SocketFunctions
- */
-static bool socket_set_nonblocking(int sockfd);
-
-/**
- * @brief  Sets a timeout on a socket read/write operations.
- *
- * @param fd The socket file descriptor.
- * @param sec The timeout value in seconds.
- * @return True if successful, false otherwise.
- *
- * @ingroup SocketFunctions
- */
-static bool socket_set_timeout(int fd, int sec);
-
-
+#define IS_CONNECTED(c) vws_socket_is_connected((vws_socket*) c)
 
 
 /**
@@ -401,17 +334,17 @@ static void dump_websocket_frame(const unsigned char* data, size_t size);
 vws_cnx* vws_cnx_new()
 {
     vws_cnx* c = (vws_cnx*)vrtql.malloc(sizeof(vws_cnx));
-
     memset(c, 0, sizeof(vws_cnx));
+
+    // Call base constructor
+    vws_socket_ctor((vws_socket*)c);
+
+    c->base.hs = socket_handshake;
     c->flags   = CNX_CLOSED;
     c->url     = vrtql_url_new();
+    c->origin  = NULL;
     c->key     = generate_websocket_key();
-    c->buffer  = vrtql_buffer_new();
-    c->ssl     = NULL;
-    c->ssl_ctx = NULL;
-    c->timeout = 10000;
     c->process = process_frame;
-    c->trace   = 0;
     c->data    = NULL;
 
     sc_queue_init(&c->queue);
@@ -427,6 +360,11 @@ void vws_cnx_free(vws_cnx* c)
     }
 
     vws_disconnect(c);
+
+    if (c->origin != NULL)
+    {
+        free(c->origin);
+    }
 
     // Free receive queue contents
     vws_frame* f;
@@ -444,21 +382,8 @@ void vws_cnx_free(vws_cnx* c)
     // Free websocket key
     free(c->key);
 
-    // Free receive buffer
-    vrtql_buffer_free(c->buffer);
-
-    if (c->sockfd >= 0)
-    {
-        close(c->sockfd);
-    }
-
-    // Free connection
-    free(c);
-}
-
-bool vws_cnx_set_timeout(vws_cnx* c, int sec)
-{
-    return socket_set_timeout(c->sockfd, sec);
+    // Call base constructor
+    vws_socket_dtor((vws_socket*)c);
 }
 
 void vws_cnx_set_server_mode(vws_cnx* c)
@@ -484,72 +409,25 @@ bool vws_connect(vws_cnx* c, cstr uri)
         return false;
     }
 
+    // Copy url as origin
+    c->origin = strdup(uri);
+
     // Connect to the server
     cstr default_port = strcmp(c->url.scheme, "wss") == 0 ? "443" : "80";
     cstr port = c->url.port != NULL ? c->url.port : default_port;
 
+    bool ssl = false;
     if (strcmp(c->url.scheme, "wss") == 0)
     {
-        if (vrtql_is_flag(&vrtql.state, CNX_SSL_INIT) == false)
-        {
-            SSL_library_init();
-            RAND_poll();
-            SSL_load_error_strings();
-
-            c->ssl_ctx = SSL_CTX_new(TLS_method());
-
-            if (c->ssl_ctx == NULL)
-            {
-                vrtql.error(VE_SYS, "Failed to create new SSL context");
-                return false;
-            }
-
-            SSL_CTX_set_options(c->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
-
-            c->ssl = SSL_new(c->ssl_ctx);
-
-            if (c->ssl == NULL)
-            {
-                vrtql.error(VE_SYS, "Failed to create new SSL object");
-                socket_close(c);
-                return false;
-            }
-
-            vrtql_set_flag(&vrtql.state, CNX_SSL_INIT);
-        }
+        ssl = true;
     }
 
-    c->sockfd = connect_to_host(c->url.host, port);
+    return vws_socket_connect((vws_socket*)c, c->url.host, atoi(port), ssl);
+}
 
-    if (c->sockfd < 0)
-    {
-        vrtql.error(VE_SYS, "Connection failed");
-        socket_close(c);
-        return false;
-    }
-
-    c->flags = CNX_CONNECTED;
-
-    // Set default timeout
-
-    if (socket_set_timeout(c->sockfd, c->timeout/1000) == false)
-    {
-        // Error already set
-        socket_close(c);
-        return false;
-    }
-
-    if (c->ssl != NULL)
-    {
-        SSL_set_fd(c->ssl, c->sockfd);
-
-        if (SSL_connect(c->ssl) <= 0)
-        {
-            vrtql.error(VE_SYS, "SSL connection failed");
-            socket_close(c);
-            return false;
-        }
-    }
+bool socket_handshake(vws_socket* s)
+{
+    vws_cnx* c = (vws_cnx*)s;
 
     // Send the WebSocket handshake request
     const char* websocket_handshake =
@@ -569,12 +447,10 @@ bool vws_connect(vws_cnx* c, cstr uri)
               websocket_handshake,
               c->url.path,
               c->url.host,
-              uri,
+              c->origin,
               c->key);
 
-    ssize_t n;
-
-    n = send(c->sockfd, req, strlen(req), 0);
+    ssize_t n = send(s->sockfd, req, strlen(req), 0);
 
     if (n == -1)
     {
@@ -591,14 +467,13 @@ bool vws_connect(vws_cnx* c, cstr uri)
             vrtql.error(VE_SYS, "send() failed");
         }
 
-        socket_close(c);
         return false;
     }
 
     // Receive the WebSocket handshake response
     char buffer[MAX_BUFFER_SIZE] = {0};
 
-    n = recv(c->sockfd, buffer, sizeof(buffer) - 1, 0);
+    n = recv(s->sockfd, buffer, sizeof(buffer) - 1, 0);
 
     if (n == -1)
     {
@@ -615,7 +490,6 @@ bool vws_connect(vws_cnx* c, cstr uri)
             vrtql.error(VE_SYS, "recv() failed");
         }
 
-        socket_close(c);
         return false;
     }
 
@@ -625,7 +499,6 @@ bool vws_connect(vws_cnx* c, cstr uri)
     {
         vrtql.error(VE_SYS, "connect failed: no accept key returned");
 
-        socket_close(c);
         return false;
     }
 
@@ -633,39 +506,19 @@ bool vws_connect(vws_cnx* c, cstr uri)
     {
         vrtql.error(VE_RT, "Handshake verification failed");
         free(accept_key);
-        socket_close(c);
         return false;
     }
 
     free(accept_key);
 
-    // Go into non-blocking mode as we are using poll() for socket_read() and
-    // socket_write().
-    if (socket_set_nonblocking(c->sockfd) == false)
-    {
-        // Error already set
-        socket_close(c);
-        return false;
-    }
-
-    vrtql.success();
-
     return true;
-}
-
-bool vws_cnx_is_connected(vws_cnx* c)
-{
-    if (c == NULL)
-    {
-        return false;
-    }
-
-    return c->sockfd > 0;
 }
 
 void vws_disconnect(vws_cnx* c)
 {
-    if (vws_cnx_is_connected(c) == false)
+    vws_socket* s = (vws_socket*)c;
+
+    if (IS_CONNECTED(c) == false)
     {
         return;
     }
@@ -676,7 +529,7 @@ void vws_disconnect(vws_cnx* c)
 
     for (size_t i = 0; i < buffer->size;)
     {
-        int n = socket_write(c, buffer->data + i, buffer->size - i);
+        int n = vws_socket_write(s, buffer->data + i, buffer->size - i);
 
         if (n < 0)
         {
@@ -687,9 +540,8 @@ void vws_disconnect(vws_cnx* c)
     }
 
     vrtql_buffer_free(buffer);
-    socket_close(c);
 
-    vrtql.success();
+    vws_socket_disconnect(s);
 }
 
 //------------------------------------------------------------------------------
@@ -714,7 +566,9 @@ ssize_t vws_send_data(vws_cnx* c, ucstr data, size_t size, int oc)
 
 ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame)
 {
-    if (vws_cnx_is_connected(c) == false)
+    vws_socket* s = (vws_socket*)c;
+
+    if (vws_socket_is_connected(s) == false)
     {
         vrtql.error(VE_RT, "Not connected");
         return -1;
@@ -722,7 +576,7 @@ ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame)
 
     vrtql_buffer* binary = serialize(frame);
 
-    if (c->trace)
+    if (c->base.trace)
     {
         printf("\n\n");
         printf("+----------------------------------------------------+\n");
@@ -737,7 +591,7 @@ ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame)
 
     if (binary->data != NULL)
     {
-        n = socket_write(c, binary->data, binary->size);
+        n = vws_socket_write((vws_socket*)c, binary->data, binary->size);
         vrtql_buffer_free(binary);
     }
 
@@ -773,7 +627,7 @@ vws_msg* vws_recv_msg(vws_cnx* c)
     // Default success unless error
     vrtql.success();
 
-    if (vws_cnx_is_connected(c) == false)
+    if (IS_CONNECTED(c) == false)
     {
         vrtql.error(VE_RT, "Not connected");
         return NULL;
@@ -844,7 +698,7 @@ vws_frame* vws_recv_frame(vws_cnx* c)
     // Default success unless error
     vrtql.success();
 
-    if (vws_cnx_is_connected(c) == false)
+    if (IS_CONNECTED(c) == false)
     {
         vrtql.error(VE_RT, "Not connected");
         return NULL;
@@ -1004,7 +858,7 @@ void process_frame(vws_cnx* c, vws_frame* f)
             vrtql_buffer* buffer = vws_generate_close_frame();
 
             // Send the response frame
-            socket_write(c, buffer->data, buffer->size);
+            vws_socket_write((vws_socket*)c, buffer->data, buffer->size);
 
             // Clean up
             vrtql_buffer_free(buffer);
@@ -1029,7 +883,7 @@ void process_frame(vws_cnx* c, vws_frame* f)
             vrtql_buffer* buffer = vws_generate_pong_frame(f->data, f->size);
 
             // Send the PONG response
-            socket_write(c, buffer->data, buffer->size);
+            vws_socket_write((vws_socket*)c, buffer->data, buffer->size);
 
             // Clean up
             vrtql_buffer_free(buffer);
@@ -1055,133 +909,6 @@ void process_frame(vws_cnx* c, vws_frame* f)
     }
 
     vrtql.success();
-}
-
-int connect_to_host(const char* host, const char* port)
-{
-    int sockfd = -1;
-
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-
-    // Resolve the host
-    struct addrinfo hints, *res, *res0;
-    int error;
-
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family   = PF_UNSPEC; // Accept any family (IPv4 or IPv6)
-    hints.ai_socktype = SOCK_STREAM;
-
-    error = getaddrinfo(host, port, &hints, &res0);
-
-    if (error)
-    {
-        if (vrtql.trace)
-        {
-            cstr msg = gai_strerror(error);
-            vrtql_trace(VL_ERROR, "getaddrinfo failed: %s: %s", host, msg);
-        }
-
-        vrtql.error(VE_SYS, "getaddrinfo() failed");
-
-        return -1;
-    }
-
-    for (res = res0; res; res = res->ai_next)
-    {
-        sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-
-        if (sockfd == -1)
-        {
-            vrtql.error(VE_SYS, "Failed to create socket");
-            continue;
-        }
-
-        if (connect(sockfd, res->ai_addr, res->ai_addrlen) == -1)
-        {
-            close(sockfd);
-            sockfd = -1;
-
-            vrtql.error(VE_SYS, "Failed to connect");
-            continue;
-        }
-
-        break; // If we get here, we must have connected successfully
-    }
-
-    freeaddrinfo(res0); // Free the addrinfo structure for this host
-
-#elif defined(__windows__)
-
-    // Windows specific implementation
-    // Please refer to Windows Socket programming guide
-
-    WSADATA wsaData;
-    struct addrinfo *result = NULL, *ptr = NULL, hints;
-    sockfd = INVALID_SOCKET;
-
-    // Initialize Winsock
-    if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0)
-    {
-        vrtql.error(VE_SYS, "WSAStartup failed");
-        return -1;
-    }
-
-    ZeroMemory(&hints, sizeof(hints));
-    hints.ai_family   = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-
-    // Resolve the server address and port
-    if (getaddrinfo(host, port, &hints, &result) != 0)
-    {
-        vrtql.error(VE_SYS, "getaddrinfo failed\n");
-        return -1;
-    }
-
-    // Attempt to connect to an address until one succeeds
-    for (ptr = result; ptr != NULL; ptr =ptr->ai_next)
-    {
-        // Create a SOCKET for connecting to server
-        sockfd = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
-
-        if (sockfd == INVALID_SOCKET)
-        {
-            char buf[256];
-            int e = WSAGetLastError();
-            snprintf(buf, sizeof(buf), "socket failed with error: %ld", e);
-            vrtql.error(VE_RT, buf);
-
-            WSACleanup();
-            return -1;
-        }
-
-        // Connect to server.
-        if (connect(sockfd, ptr->ai_addr, (int)ptr->ai_addrlen) == SOCKET_ERROR)
-        {
-            closesocket(sockfd);
-            sockfd = INVALID_SOCKET;
-            continue;
-        }
-
-        break;
-    }
-
-    freeaddrinfo(result);
-
-    if (sockfd == INVALID_SOCKET)
-    {
-        vrtql.error(VE_SYS, "Unable to connect to host");
-        WSACleanup();
-        return -1;
-    }
-
-#else
-    #error Platform not supported
-#endif
-
-    vrtql.success();
-
-    return sockfd;
 }
 
 char* generate_websocket_key()
@@ -1359,261 +1086,12 @@ fs_t deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
     return FRAME_COMPLETE;
 }
 
-bool socket_set_timeout(int fd, int sec)
-{
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-
-    if (fd < 0)
-    {
-        vrtql.error(VE_RT, "Not connected");
-        return false;
-    }
-
-    struct timeval tm;
-    tm.tv_sec  = sec;
-    tm.tv_usec = 0;
-
-    // Set the send timeout
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (char *)&tm, sizeof(tm)) < 0)
-    {
-        vrtql.error(VE_SYS, "setsockopt failed");
-
-        return false;
-    }
-
-    // Set the receive timeout
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tm, sizeof(tm)) < 0)
-    {
-        vrtql.error(VE_SYS, "setsockopt failed");
-
-        return false;
-    }
-
-#elif defined(__windows__)
-
-    if (fd == INVALID_SOCKET)
-    {
-        vrtql.error(VE_RT, "Not connected");
-        return false;
-    }
-
-    // Convert from sec to ms for Windows
-    DWORD tm = sec * 1000;
-
-    // Set the send timeout
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (cstr)&tm, sizeof(tm)) < 0)
-    {
-        vrtql.error(VE_SYS, "setsockopt failed");
-
-        return false;
-    }
-
-    // Set the receive timeout
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (cstr)&tm, sizeof(tm)) < 0)
-    {
-        vrtql.error(VE_SYS, "setsockopt failed");
-
-        return false;
-    }
-
-#else
-    #error Platform not supported
-#endif
-
-    vrtql.success();
-
-    return true;
-}
-
-bool socket_set_nonblocking(int sockfd)
-{
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-
-    int flags = fcntl(sockfd, F_GETFL, 0);
-
-    if (flags == -1)
-    {
-        vrtql.error(VE_SYS, "fcntl(sockfd, F_GETFL, 0) failed");
-
-        return false;
-    }
-
-    if (fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) == -1)
-    {
-        vrtql.error(VE_SYS, "fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) failed");
-
-        return false;
-    }
-
-#elif defined(__windows__)
-
-    unsigned long arg = 1;
-    if (ioctlsocket(sockfd, FIONBIO, &arg) == SOCKET_ERROR)
-    {
-        vrtql.error(VE_SYS, "ioctlsocket(sockfd, FIONBIO, &arg)");
-
-        return false;
-    }
-
-#else
-    #error Platform not supported
-#endif
-
-    vrtql.success();
-
-    return true;
-}
-
-ssize_t socket_read(vws_cnx* c, ucstr data, size_t size)
-{
-    // Default success unless error
-    vrtql.success();
-
-    // Validate input parameters
-    if (c == NULL || data == NULL || size == 0)
-    {
-        vrtql.error(VE_WARN, "Invalid parameters");
-        return -1;
-    }
-
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-
-    struct pollfd fds;
-    fds.fd     = c->sockfd;
-    fds.events = POLLIN;
-
-    int poll_result = poll(&fds, 1, c->timeout);
-
-#elif defined(__windows__)
-
-    WSAPOLLFD fds;
-    fds.fd     = c->sockfd;
-    fds.events = POLLIN;
-
-    int poll_result = WSAPoll(&fds, 1, c->timeout);
-
-#else
-    #error Platform not supported
-#endif
-
-    if (poll_result == -1)
-    {
-        vrtql.error(VE_RT, "poll() failed");
-        return -1;
-    }
-
-    if (poll_result == 0)
-    {
-        vrtql.error(VE_WARN, "timeout");
-        return 0;
-    }
-
-    if (fds.revents & POLLIN)
-    {
-        if (c->ssl != NULL)
-        {
-            // SSL socket is readable, perform SSL_read() operation
-            return SSL_read(c->ssl, data, size);
-        }
-        else
-        {
-            // Non-SSL socket is readable, perform recv() operation
-            ssize_t n = recv(c->sockfd, data, size, 0);
-            if (n == -1)
-            {
-                vrtql.error(VE_WARN, "recv() failed");
-            }
-
-            return n;
-        }
-    }
-
-    vrtql.error(VE_WARN, "Unexpected event in poll()");
-
-    return -1;
-}
-
-ssize_t socket_write(vws_cnx* c, const ucstr data, size_t size)
-{
-    // Default success unless error
-    vrtql.success();
-
-    if (vws_cnx_is_connected(c) == false)
-    {
-        vrtql.error(VE_RT, "Not connected");
-        return -1;
-    }
-
-    // Validate input parameters
-    if (c == NULL || data == NULL || size == 0)
-    {
-        vrtql.error(VE_WARN, "Invalid parameters");
-        return -1;
-    }
-
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-
-    struct pollfd fds;
-    fds.fd     = c->sockfd;
-    fds.events = POLLOUT;
-
-    int poll_result = poll(&fds, 1, c->timeout);
-
-#elif defined(__windows__)
-
-    WSAPOLLFD fds;
-    fds.fd     = c->sockfd;
-    fds.events = POLLOUT;
-
-    int poll_result = WSAPoll(&fds, 1, c->timeout);
-
-#else
-    #error Platform not supported
-#endif
-
-    if (poll_result == -1)
-    {
-        vrtql.error(VE_SYS, "poll() failed");
-        return -1;
-    }
-
-    if (poll_result == 0)
-    {
-        vrtql.error(VE_TIMEOUT, "timeout");
-        return 0;
-    }
-
-    if (fds.revents & POLLOUT)
-    {
-        if (c->ssl != NULL)
-        {
-            // SSL socket is writable, perform SSL_write() operation
-            return SSL_write(c->ssl, data, size);
-        }
-        else
-        {
-            // Non-SSL socket is writable, perform send() operation
-            ssize_t bytes_sent = send(c->sockfd, data, size, 0);
-            if (bytes_sent == -1)
-            {
-                vrtql.error(VE_SYS, "send() failed");
-            }
-
-            return bytes_sent;
-        }
-    }
-
-    vrtql.error(VE_SYS, "Unexpected event in poll()");
-
-    return -1;
-}
-
 ssize_t socket_wait_for_frame(vws_cnx* c)
 {
     // Default success unless error
     vrtql.success();
 
-    if (vws_cnx_is_connected(c) == false)
+    if (IS_CONNECTED(c) == false)
     {
         vrtql.error(VE_RT, "Not connected");
         return -1;
@@ -1625,12 +1103,12 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
     while (true)
     {
         memset(buf, 0, 1024);
-        n = socket_read(c, buf, 1023);
+        n = vws_socket_read((vws_socket*)c);
 
         if (n < 0)
         {
             vrtql.error(VE_RT, "Connection closed");
-            socket_close(c);
+            vws_socket_close((vws_socket*)c);
             return n;
         }
 
@@ -1638,8 +1116,6 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
         {
             return 0;
         }
-
-        vrtql_buffer_append(c->buffer, &buf[0], n);
 
         if (vws_socket_ingress(c) > 0)
         {
@@ -1658,17 +1134,17 @@ ssize_t vws_socket_ingress(vws_cnx* c)
     while (true)
     {
         // If there is no more data in socket buffer
-        if (c->buffer->size == 0)
+        if (c->base.buffer->size == 0)
         {
             break;
         }
 
         // Attempt to parse complete frame
         size_t consumed  = 0;
-        vrtql_buffer* b  = c->buffer;
+        vrtql_buffer* b  = c->base.buffer;
         vws_frame* frame = vws_frame_new(NULL, 0, TEXT_FRAME);
 
-        if (c->trace)
+        if (c->base.trace)
         {
             printf("\n+----------------------------------------------------+\n");
             printf("| Frame Received                                     |\n");
@@ -1702,58 +1178,12 @@ ssize_t vws_socket_ingress(vws_cnx* c)
         c->process(c, frame);
 
         // Drain the consumed frame data from buffer
-        vrtql_buffer_drain(c->buffer, consumed);
+        vrtql_buffer_drain(c->base.buffer, consumed);
     }
 
     vrtql.success();
 
     return total_consumed;
-}
-
-void socket_close(vws_cnx* c)
-{
-    if (c->ssl != NULL)
-    {
-        int rc = SSL_shutdown(c->ssl);
-
-        if (rc == 0)
-        {
-            // the shutdown is not yet finished
-            rc = SSL_shutdown(c->ssl);
-        }
-
-        if (rc != 1)
-        {
-            vrtql.error(VE_WARN, "SSL_shutdown failed");
-        }
-
-        SSL_free(c->ssl);
-        c->ssl = NULL;
-    }
-
-    if (c->ssl_ctx != NULL)
-    {
-        SSL_CTX_free(c->ssl_ctx);
-        c->ssl_ctx = NULL;
-    }
-
-    if (c->sockfd > 0)
-    {
-#if defined(__windows__)
-        if (closesocket(c->sockfd) == SOCKET_ERROR)
-#else
-        if (close(c->sockfd) == -1)
-#endif
-        {
-            vrtql.error(VE_SYS, "Socket close failed");
-        }
-
-#if defined(__windows__)
-        WSACleanup();
-#endif
-
-        c->sockfd = -1;
-    }
 }
 
 vrtql_buffer* vws_generate_close_frame()

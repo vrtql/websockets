@@ -45,6 +45,7 @@ set(core_sources
   vrtql.c
   websocket.c
   rpc.c
+  socket.c
   ${mpack_files}
   ${util_files}
 )

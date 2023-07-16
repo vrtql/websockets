@@ -39,7 +39,7 @@ CTEST_SETUP(test)
     ASSERT_TRUE(vws_connect(data->c, uri));
 
     // Enable tracing
-    data->c->trace = true;
+    data->c->base.trace = true;
 }
 
 CTEST_TEARDOWN(test)

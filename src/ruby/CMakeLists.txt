@@ -52,7 +52,13 @@ include_directories(${RUBY_INCLUDE_DIRS})
 # Build Targets
 #-------------------------------------------------------------------------------
 
-file(GLOB core_files  ../*.c)
+file(GLOB core_files
+  ../message.c
+  ../socket.c
+  ../vrtql.c
+  ../websocket.c
+)
+
 file(GLOB mpack_files ../mpack/*.c)
 file(GLOB util_files  ../util/*.c)
 

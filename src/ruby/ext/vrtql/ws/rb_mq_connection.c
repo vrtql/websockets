@@ -49,7 +49,7 @@ static VALUE m_init(VALUE self)
 // Checks that connection is established
 static void ensure_connected(vws_cnx* c)
 {
-    if (vws_cnx_is_connected(c) == false)
+    if (vws_socket_is_connected((vws_socket*)c) == false)
     {
         rb_raise(rb_eRuntimeError, "Not connected");
     }
@@ -127,7 +127,8 @@ static VALUE m_send(int argc, VALUE* argv, VALUE self)
     // Serialize the VRTQL::Message to binary and send
 
     vrtql_msg* msg = vr_mq_get_object(value);
-    vrtql_buffer* binary = vrtql_msg_serialize(msg, format);
+    msg->format = format;
+    vrtql_buffer* binary = vrtql_msg_serialize(msg);
     int sent = vws_send_binary(c, binary->data, binary->size);
     vrtql_buffer_free(binary);
 
@@ -168,7 +169,7 @@ static VALUE m_receive(VALUE self)
     if (vrtql_msg_deserialize(msg, data, size) == false)
     {
         // Set invalid (clear valid flag)
-        vrtql_msg_clear_flag(msg, VM_MSG_VALID);
+        vrtql_clear_flag(&msg->flags, VM_MSG_VALID);
     }
 
     vws_msg_free(m);
