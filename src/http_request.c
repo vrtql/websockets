@@ -178,10 +178,9 @@ int on_header_field(http_parser* p, cstr at, size_t l, int intr)
         vrtql_buffer_append(req->field, "\0", 1);
         vrtql_buffer_append(req->value, "\0", 1);
 
-        // Add
-        vrtql_map_set( &req->headers,
-                       lcase(req->field->data),
-                       req->value->data );
+        cstr field = lcase(req->field->data);
+        cstr data  = req->value->data;
+        vrtql_map_set(&req->headers, field, data);
 
         // Reset for the next field-value pair.
         vrtql_buffer_clear(req->field);
