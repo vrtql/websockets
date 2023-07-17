@@ -1,6 +1,7 @@
 #include <time.h>
 
 #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+#include <unistd.h>
 #include <pthread.h>
 #endif
 
@@ -664,6 +665,46 @@ unsigned char* vrtql_base64_decode(const char* data, size_t* size)
 //------------------------------------------------------------------------------
 // Utilities
 //------------------------------------------------------------------------------
+
+/**
+ * @brief Sleeps for the specified number of milliseconds.
+ *
+ * This function provides a platform-independent way to sleep for a specific
+ * duration in milliseconds. The behavior is similar to the standard `sleep`
+ * function, but with millisecond precision.
+ *
+ * @param ms The number of milliseconds to sleep.
+ *
+ * @note This function may not be available on all platforms. Make sure to
+ *       include the necessary headers and handle any compilation errors or
+ *       warnings specific to your environment.
+ */
+void vrtql_msleep(unsigned int ms)
+{
+#if defined(__windows__) || defined(_WIN64)
+
+    Sleep(ms);
+
+#elif defined(__linux__)
+
+    usleep(ms * 1000);
+
+#elif defined(__bsd__)
+    usleep(ms * 1000);
+
+#elif defined(__sunos__)
+
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000;
+    nanosleep(&ts, NULL);
+
+#else
+
+#error "Unsupported platform. msleep is not implemented for this platform."
+
+#endif
+}
 
 uint8_t vrtql_is_flag(const uint64_t* flags, uint64_t flag)
 {

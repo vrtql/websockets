@@ -759,24 +759,45 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
                      server->threads[i] );
     }
 
+    //> Create listening socket
+
     uv_tcp_t socket;
     uv_tcp_init(server->loop, &socket);
     socket.data = server;
 
+    //> Bind to address
+
+    int rc;
     struct sockaddr_in addr;
     uv_ip4_addr("0.0.0.0", port, &addr);
+    rc = uv_tcp_bind(&socket, (const struct sockaddr*)&addr, 0);
 
-    uv_tcp_bind(&socket, (const struct sockaddr*)&addr, 0);
-
-    int r = uv_listen((uv_stream_t*)&socket, server->backlog, svr_on_connect);
-
-    if (r)
+    if (rc)
     {
-        fprintf(stderr, "Listen error %s\n", uv_strerror(r));
+        vrtql.error(VE_RT, "Bind error %s", uv_strerror(rc));
         return -1;
     }
 
+    //> Listen
+
+    rc = uv_listen((uv_stream_t*)&socket, server->backlog, svr_on_connect);
+
+    if (rc)
+    {
+        vrtql.error(VE_RT, "Listen error %s", uv_strerror(rc));
+        return -1;
+    }
+
+    //> Start server
+
+    // Set state to running
+    server->state = VS_RUNNING;
+
+    // Run UV loop. This runs indefinitely, passing network I/O and and out of
+    // system until server is shutdown by vrtql_svr_stop() (by external thread).
     uv_run(server->loop, UV_RUN_DEFAULT);
+
+    //> Shutdown server
 
     // Close the listening socket handle
     socket.data = NULL;
@@ -787,6 +808,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
         vrtql_trace(VL_INFO, "vrtql_svr_run(): stop");
     }
 
+    // Set state to halted
     server->state = VS_HALTED;
 
     return 0;
@@ -863,32 +885,8 @@ void svr_client_data_in(vrtql_svr_data* req)
 {
     vrtql_svr* server = req->cnx->server;
 
-    //> Prepare the response: echo the data back
-
-    // Allocate memory for the data to be sent in response
-    char* data = (char*)vrtql.malloc(req->size);
-
-    // Copy the request's data to the response data
-    strncpy(data, req->data, req->size);
-
-    // Create response
-    vrtql_svr_data* reply = vrtql_svr_data_own(req->cnx, data, req->size);
-
-    // Free request
+    // Default: Do nothing. Drop data.
     vrtql_svr_data_free(req);
-
-    if (server->trace)
-    {
-        vrtql_trace(VL_INFO, "worker_thread(): %p queing", reply->cnx);
-    }
-
-    // Send reply. This will wakeup network thread.
-    vrtql_svr_send(server, reply);
-
-    if (server->trace)
-    {
-        vrtql_trace(VL_INFO, "worker_thread(): %p done", reply->cnx);
-    }
 }
 
 void svr_client_data_out(vrtql_svr_data* data)
@@ -1480,31 +1478,7 @@ void msg_svr_client_msg_in(vrtql_svr_cnx* cnx, vrtql_msg* m)
 
 void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req)
 {
-    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
-
-    if (server->base.trace)
-    {
-        vrtql_trace(VL_INFO, "process (%p) %p", cnx, req);
-    }
-
-    // Default: Echo back
-
-    // Note: You should always set reply messages format to the format of the
-    // connection.
-
-    // Create reply message
-    vrtql_msg* reply = vrtql_msg_new();
-    reply->format    = cnx->format;
-
-    // Copy content
-    cstr data        = req->content->data;
-    size_t size      = req->content->size;
-    vrtql_buffer_append(reply->content, data, size);
-
-    // Send. We don't free message as send() does it for us.
-    server->send(cnx, reply);
-
-    // Clean up request
+    // Default: Do nothing. Drop message.
     vrtql_msg_free(req);
 }
 

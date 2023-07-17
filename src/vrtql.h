@@ -340,6 +340,21 @@ void vrtql_url_free(vrtql_url parts);
 //------------------------------------------------------------------------------
 
 /**
+ * @brief Sleeps for the specified number of milliseconds.
+ *
+ * This function provides a platform-independent way to sleep for a specific
+ * duration in milliseconds. The behavior is similar to the standard `sleep`
+ * function, but with millisecond precision.
+ *
+ * @param ms The number of milliseconds to sleep.
+ *
+ * @note This function may not be available on all platforms. Make sure to
+ *       include the necessary headers and handle any compilation errors or
+ *       warnings specific to your environment.
+ */
+void vrtql_msleep(unsigned int ms);
+
+/**
  * @brief Checks if a specific flag is set.
  *
  * @param flags The flags to check

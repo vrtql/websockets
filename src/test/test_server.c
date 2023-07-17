@@ -1,112 +1,81 @@
 #include "server.h"
-#include "message.h"
+#include "socket.h"
 
 #include "common.h"
 
 cstr server_host = "127.0.0.1";
 int  server_port = 8181;
-cstr uri         = "ws://localhost:8181/websocket";
-cstr content     = "content";
 
-// Server function to process messages. Runs in context of worker thread.
-void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
+void process_data(vrtql_svr_data* req)
 {
-    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
+    vrtql_svr* server = req->cnx->server;
 
-    if (server->base.trace)
+    //> Prepare the response: echo the data back
+
+    // Allocate memory for the data to be sent in response
+    char* data = (char*)vrtql.malloc(req->size);
+
+    // Copy the request's data to the response data
+    strncpy(data, req->data, req->size);
+
+    // Create response
+    vrtql_svr_data* reply = vrtql_svr_data_own(req->cnx, data, req->size);
+
+    // Free request
+    vrtql_svr_data_free(req);
+
+    if (server->trace)
     {
-        vrtql_trace(VL_INFO, "process_message (%p) %p", cnx, m);
+        vrtql_trace(VL_INFO, "process_data(): %p queing", reply->cnx);
     }
 
-    // Echo back. Note: You should always set reply messages format to the
-    // format of the connection.
+    // Send reply. This will wakeup network thread.
+    vrtql_svr_send(server, reply);
 
-    // Create reply message
-    vrtql_msg* reply = vrtql_msg_new();
-    reply->format    = cnx->format;
-
-    // Copy content
-    cstr data   = m->content->data;
-    size_t size = m->content->size;
-    vrtql_buffer_append(reply->content, data, size);
-
-    // Send. We don't free message as send() does it for us.
-    server->send(cnx, reply);
-
-    // Clean up request
-    vrtql_msg_free(m);
+    if (server->trace)
+    {
+        vrtql_trace(VL_INFO, "process_data(): %p done", reply->cnx);
+    }
 }
 
 void server_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
-    vrtql_svr_trace(server, 1);
     vrtql_svr_run(server, server_host, server_port);
 }
 
 CTEST(test_server, echo)
 {
-    vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
-
-    // Assign the message processing function
-    server->process = process_message;
+    vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
+    server->trace      = 1;
+    server->on_data_in = process_data;
 
     uv_thread_t server_tid;
     uv_thread_create(&server_tid, server_thread, server);
 
-    // Give the server some time to start up.
-    sleep(2);
-
-    vws_cnx* cnx = vws_cnx_new();
-    ASSERT_TRUE(vws_connect(cnx, uri));
-
-    cstr payload = "payload";
-
-    int i = 0;
-    while (true)
+    // Wait for server to start up
+    while (server->state != VS_RUNNING)
     {
-        if (i++ > 10)
-        {
-            break;
-        }
-
-        // Create
-        vrtql_msg* request = vrtql_msg_new();
-        vrtql_msg_set_content(request, payload);
-
-        // Send
-        ASSERT_TRUE(vrtql_msg_send(cnx, request) > 0);
-
-        // Receive
-        vrtql_msg* reply = NULL;
-        while (true)
-        {
-            reply = vrtql_msg_receive(cnx);
-
-            if (reply != NULL)
-            {
-                break;
-            }
-        }
-
-        // Check
-        cstr content = reply->content->data;
-        size_t size  = reply->content->size;
-        ASSERT_TRUE(strncmp(payload, content, size) == 0);
-
-        // Cleanup
-        vrtql_msg_free(request);
-        vrtql_msg_free(reply);
+        vrtql_msleep(100);
     }
 
-    // Disconnect
-    vws_disconnect(cnx);
-    vws_cnx_free(cnx);
+    cstr content = "Hello, Server!";
 
-    // Shutdown
-    vrtql_svr_stop((vrtql_svr*)server);
+    vws_socket* s = vws_socket_new();
+    ASSERT_TRUE(vws_socket_connect(s, server_host, server_port, false));
+    s->trace = true;
+    vws_socket_write(s, content, strlen(content));
+
+    ssize_t n = vws_socket_read(s);
+    ASSERT_TRUE(n > 0);
+    printf("Received: %s\n", s->buffer->data);
+
+    vws_socket_disconnect(s);
+    vws_socket_free(s);
+
+    vrtql_svr_stop(server);
     uv_thread_join(&server_tid);
-    vrtql_msg_svr_free(server);
+    vrtql_svr_free(server);
 }
 
 int main(int argc, const char* argv[])
