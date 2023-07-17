@@ -636,7 +636,7 @@ vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
     server->on_read       = svr_client_read;
     server->on_data_in    = svr_client_data_in;
     server->on_data_out   = svr_client_data_out;
-    server->backlog       = 128;
+    server->backlog       = backlog;
     server->loop          = (uv_loop_t*)vrtql.malloc(sizeof(uv_loop_t));
     server->state         = VS_HALTED;
 
