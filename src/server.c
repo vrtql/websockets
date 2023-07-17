@@ -690,6 +690,8 @@ void on_uv_walk(uv_handle_t* handle, void* arg)
 
 void svr_dtor(vrtql_svr* server)
 {
+    //> Stop/shutdown server
+
     if (server->state == VS_RUNNING)
     {
         vrtql_svr_stop(server);
@@ -698,11 +700,11 @@ void svr_dtor(vrtql_svr* server)
     svr_shutdown(server);
     free(server->threads);
 
-    // Close the async handle
+    // Close the server async handle
     server->wakeup.data = NULL;
     uv_close((uv_handle_t*)&server->wakeup, NULL);
 
-    // Shutdown libuv
+    //> Shutdown libuv
 
     // Close loop
     int rc = uv_loop_close(server->loop);
@@ -723,7 +725,8 @@ void svr_dtor(vrtql_svr* server)
     // Free loop
     free(server->loop);
 
-    // Free connection map
+    //> Free connection map
+
     svr_cnx_map_clear(&server->cnxs);
     sc_map_term_64v(&server->cnxs);
 }
