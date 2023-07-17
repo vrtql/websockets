@@ -14,20 +14,6 @@
 
 #define MAX_BUFFER_SIZE 1024
 
-/** @brief Defines the states of a WebSocket frame. */
-typedef enum
-{
-    /** Not all of the frame data has been received or processed. */
-    FRAME_INCOMPLETE,
-
-    /** All of the frame data has been received and processed. */
-    FRAME_COMPLETE,
-
-    /** There was an error in processing the frame data. */
-    FRAME_ERROR
-
-} fs_t;
-
 /** @brief Defines the various states of a WebSocket connection */
 typedef enum
 {
@@ -216,43 +202,6 @@ static ssize_t socket_wait_for_frame(vws_cnx* c);
  */
 
 /**
- * @brief Frees memory associated with a vws_frame object.
- *
- * @param frame The vws_frame object to free.
- * @return void
- *
- * @ingroup FrameFunctions
- */
-static void frame_free(vws_frame* frame);
-
-/**
- * @brief Serializes a vws_frame into a buffer that can be sent over the
- *        network.
- *
- * @param f The vws_frame to serialize.
- * @return A pointer to the serialized buffer.
- *
- * @ingroup FrameFunctions
- */
-static vrtql_buffer* serialize(vws_frame* f);
-
-/**
- * @brief Deserializes raw network data into a vws_frame, updating consumed
- *        with the number of bytes processed.
- *
- * @param data The raw network data.
- * @param size The size of the data.
- * @param f The vws_frame to deserialize into.
- * @param consumed Pointer to the number of bytes consumed during
- *        deserialization.
- * @return The status of the deserialization process, 0 if successful, an error
- *         code otherwise.
- *
- * @ingroup FrameFunctions
- */
-static fs_t deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed);
-
-/**
  * @brief Processes a single frame from a WebSocket connection.
  *
  * @param c The vws_cnx representing the WebSocket connection.
@@ -316,16 +265,6 @@ typedef struct
  * @ingroup TraceFunctions
  */
 static void dump_websocket_header(const ws_header* header);
-
-/**
- * @brief Dumps the contents of a WebSocket frame for debugging purposes.
- *
- * @param data The data of the WebSocket frame.
- * @param size The size of the WebSocket frame.
- *
- * @ingroup TraceFunctions
- */
-static void dump_websocket_frame(const unsigned char* data, size_t size);
 
 //------------------------------------------------------------------------------
 //> Connection API
@@ -560,7 +499,6 @@ int vws_send_binary(vws_cnx* c, ucstr data, size_t size)
 
 ssize_t vws_send_data(vws_cnx* c, ucstr data, size_t size, int oc)
 {
-
     return vws_send_frame(c, vws_frame_new(data, size, oc));
 }
 
@@ -574,7 +512,7 @@ ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame)
         return -1;
     }
 
-    vrtql_buffer* binary = serialize(frame);
+    vrtql_buffer* binary = vws_serialize(frame);
 
     if (c->base.trace)
     {
@@ -583,7 +521,7 @@ ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame)
         printf("| Frame Sent                                         |\n");
         printf("+----------------------------------------------------+\n");
 
-        dump_websocket_frame(binary->data, binary->size);
+        vws_dump_websocket_frame(binary->data, binary->size);
         printf("------------------------------------------------------\n");
     }
 
@@ -720,11 +658,7 @@ vws_frame* vws_recv_frame(vws_cnx* c)
     return NULL;
 }
 
-//------------------------------------------------------------------------------
-// Utility functions
-//------------------------------------------------------------------------------
-
-vrtql_buffer* serialize(vws_frame* f)
+vrtql_buffer* vws_serialize(vws_frame* f)
 {
     if (f == NULL)
     {
@@ -777,15 +711,15 @@ vrtql_buffer* serialize(vws_frame* f)
         header_size += 8;
     }
 
-    // Set the masking bit
-    header[1] |= 0x80;
-
     //> Section 2: Frame allocation
 
     size_t frame_size = header_size + payload_length;
 
     if (f->mask)
     {
+        // Set the masking bit
+        header[1] |= 0x80;
+
         // Additional bytes for masking key
         frame_size += 4;
     }
@@ -821,6 +755,11 @@ vrtql_buffer* serialize(vws_frame* f)
             frame_data[payload_start + i] = f->data[i] ^ masking_key[i % 4];
         }
     }
+    else
+    {
+        // Copy the payload data without masking
+        memcpy(frame_data + header_size, f->data, payload_length);
+    }
 
     //> Section 4: Finalizing
 
@@ -830,20 +769,117 @@ vrtql_buffer* serialize(vws_frame* f)
     // Create the vrtql_buffer to hold the frame data
     vrtql_buffer* buffer = vrtql_buffer_new();
 
-    if (buffer == NULL)
-    {
-        free(frame_data);
-        vrtql.error(VE_MEM, "vrtql_buffer_new() failed");
-        return NULL;
-    }
-
-    vrtql.success();
-
+    // Have buffer take ownership of data
     buffer->data = frame_data;
     buffer->size = frame_size;
 
+    vrtql.success();
+
     return buffer;
 }
+
+fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
+{
+    // Check if the data contains the minimum required frame header bytes
+    if (size < 2)
+    {
+        return FRAME_INCOMPLETE;
+    }
+
+    // Read the first byte (FIN bit and opcode)
+    f->fin    = (data[0] >> 7) & 0x01;
+    f->opcode = data[0] & 0x0F;
+
+    // Read the second byte (mask bit and payload length)
+    f->mask = (data[1] >> 7) & 0x01;
+    f->size = data[1] & 0x7F;
+
+    // Check if the payload length requires additional bytes
+    size_t size_bytes = 0;
+    if (f->size == 126)
+    {
+        size_bytes = 2;
+    }
+    else if (f->size == 127)
+    {
+        size_bytes = 8;
+    }
+
+    // Check if the data contains complete frame header and payload
+    size_t required_bytes = 2 + size_bytes;
+
+    if (size < required_bytes)
+    {
+        return FRAME_INCOMPLETE;
+    }
+
+    // Read the payload
+    if (size_bytes > 0)
+    {
+        f->size = 0;
+        for (size_t i = 0; i < size_bytes; i++)
+        {
+            f->size = (f->size << 8) | data[2 + i];
+        }
+    }
+
+    // Check if the frame has masking key and payload data
+    if (f->mask)
+    {
+        // Check if the data contains the masking key and payload data
+        required_bytes += 4 + f->size;
+
+        if (size < required_bytes)
+        {
+            return FRAME_INCOMPLETE;
+        }
+
+        // Store the payload offset
+        f->offset = 2 + size_bytes + 4;
+
+        // Allocate the frame data
+        f->data = vrtql.malloc(f->size);
+
+        // Create a temp variable for the masking key
+        unsigned char mask[4];
+        memcpy(mask, data + 2 + size_bytes, 4);
+
+        // Read the payload data and apply the masking
+        for (size_t i = 0; i < f->size; i++)
+        {
+            f->data[i] = data[f->offset + i] ^ mask[i % 4];
+        }
+    }
+    else
+    {
+        // Check if the data contains the payload data
+
+        required_bytes += f->size;
+
+        if (size < required_bytes)
+        {
+            return FRAME_INCOMPLETE;
+        }
+
+        // Store the payload offset
+        f->offset = 2 + size_bytes;
+
+        // Allocate the frame data
+        f->data = vrtql.malloc(f->size);
+
+        // Copy the payload data
+        memcpy(f->data, data + f->offset, f->size);
+    }
+
+    // Update the bytes consumed
+    *consumed = required_bytes;
+
+    return FRAME_COMPLETE;
+}
+
+//------------------------------------------------------------------------------
+// Utility functions
+//------------------------------------------------------------------------------
 
 void process_frame(vws_cnx* c, vws_frame* f)
 {
@@ -994,98 +1030,6 @@ int verify_handshake(const char* key, const char* response)
     return result == 0;
 }
 
-fs_t deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
-{
-    // Check if the data contains the minimum required frame header bytes
-    if (size < 2)
-    {
-        return FRAME_INCOMPLETE;
-    }
-
-    // Read the first byte (FIN bit and opcode)
-    f->fin    = (data[0] >> 7) & 0x01;
-    f->opcode = data[0] & 0x0F;
-
-    // Read the second byte (mask bit and payload length)
-    f->mask = (data[1] >> 7) & 0x01;
-    f->size = data[1] & 0x7F;
-
-    // Check if the payload length requires additional bytes
-    size_t size_bytes = 0;
-    if (f->size == 126)
-    {
-        size_bytes = 2;
-    }
-    else if (f->size == 127)
-    {
-        size_bytes = 8;
-    }
-
-    // Check if the data contains complete frame header and payload
-    size_t required_bytes = 2 + size_bytes;
-
-    if (size < required_bytes)
-    {
-        return FRAME_INCOMPLETE;
-    }
-
-    // Read the payload
-    if (size_bytes > 0)
-    {
-        f->size = 0;
-        for (size_t i = 0; i < size_bytes; i++)
-        {
-            f->size = (f->size << 8) | data[2 + i];
-        }
-    }
-
-    // Check if the frame has masking key and payload data
-    if (f->mask)
-    {
-        // Check if the data contains the masking key and payload data
-        required_bytes += 4 + f->size;
-
-        if (size < required_bytes)
-        {
-            return FRAME_INCOMPLETE;
-        }
-
-        // Read the masking key
-        memcpy(f->data - 4, data + 2 + size_bytes, 4);
-
-        // Read the payload data and apply the masking
-        for (size_t i = 0; i < f->size; i++)
-        {
-            f->data[i] = data[2 + size_bytes + 4 + i] ^ f->data[i % 4];
-        }
-    }
-    else
-    {
-        // Check if the data contains the payload data
-
-        required_bytes += f->size;
-
-        if (size < required_bytes)
-        {
-            return FRAME_INCOMPLETE;
-        }
-
-        // Store the payload offset
-        f->offset = 2 + size_bytes;
-
-        // Allocate the frame data
-        f->data = vrtql.malloc(f->size);
-
-        // Copy the payload data
-        memcpy(f->data, data + f->offset, f->size);
-    }
-
-    // Update the bytes consumed
-    *consumed = required_bytes;
-
-    return FRAME_COMPLETE;
-}
-
 ssize_t socket_wait_for_frame(vws_cnx* c)
 {
     // Default success unless error
@@ -1149,11 +1093,11 @@ ssize_t vws_socket_ingress(vws_cnx* c)
             printf("\n+----------------------------------------------------+\n");
             printf("| Frame Received                                     |\n");
             printf("+----------------------------------------------------+\n");
-            dump_websocket_frame(b->data, b->size);
+            vws_dump_websocket_frame(b->data, b->size);
             printf("------------------------------------------------------\n");
         }
 
-        fs_t rc = deserialize(b->data, b->size, frame, &consumed);
+        fs_t rc = vws_deserialize(b->data, b->size, frame, &consumed);
 
         if (rc == FRAME_ERROR)
         {
@@ -1197,7 +1141,7 @@ vrtql_buffer* vws_generate_close_frame()
 
     free(data);
 
-    return serialize(f);
+    return vws_serialize(f);
 }
 
 vrtql_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s)
@@ -1206,7 +1150,7 @@ vrtql_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s)
     vws_frame* f = vws_frame_new(ping_data, s, PONG_FRAME);
 
     // Serialize the frame and return it
-    return serialize(f);
+    return vws_serialize(f);
 }
 
 vws_msg* vws_pop_message(vws_cnx* c)
@@ -1275,7 +1219,7 @@ void dump_websocket_header(const ws_header* header)
     printf("\n");
 }
 
-void dump_websocket_frame(const uint8_t* frame, size_t size)
+void vws_dump_websocket_frame(const uint8_t* frame, size_t size)
 {
     if (size < 2)
     {

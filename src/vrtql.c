@@ -276,11 +276,15 @@ vrtql_error_value vrtql_get_error()
 
 int vrtql_error_default_submit(int code, cstr format, ...)
 {
-    va_list args;
+    va_list args, args_copy;
     va_start(args, format);
 
+    va_copy(args_copy, args);
+
     // Determine the length of the formatted string
-    int length = vsnprintf(NULL, 0, format, args);
+    int length = vsnprintf(NULL, 0, format, args_copy);
+
+    va_end(args_copy);  // End args_copy. We're done with it now.
 
     // Allocate a buffer for the formatted string
     char* buffer = malloc(length + 1);
@@ -434,11 +438,15 @@ void vrtql_buffer_free(vrtql_buffer* buffer)
 
 void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...)
 {
-    va_list args;
+    va_list args, args_copy;
     va_start(args, format);
 
+    va_copy(args_copy, args);
+
     // Determine the length of the formatted string
-    int length = vsnprintf(NULL, 0, format, args);
+    int length = vsnprintf(NULL, 0, format, args_copy);
+
+    va_end(args_copy);  // End args_copy. We're done with it now.
 
     // Allocate a buffer for the formatted string
     char* data = malloc(length + 1);

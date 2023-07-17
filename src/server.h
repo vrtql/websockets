@@ -111,6 +111,9 @@ typedef struct
     /**< Current state of the queue */
     uint8_t state;
 
+    /**< Queue name */
+    cstr name;
+
     /**< Debugging trace flag */
     uint8_t trace;
 
@@ -241,15 +244,25 @@ typedef struct vrtql_svr
 } vrtql_svr;
 
 /**
+ * @brief Creates a new thread data. This TAKES OWNERSHIP of the buffer data and
+ * it sets the buffer to zero.
+ *
+ * @param c The connection
+ * @param buffer The buffer
+ * @return A new vrtql_svr_data instance with memory
+ */
+vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, vrtql_buffer* memory);
+
+/**
  * @brief Creates a new thread data. This TAKES OWNERSHIP of the data. The
- * called is not to free this data.
+ * caller MUST NOT free() this data.
  *
  * @param c The connection
  * @param size The number of bytes of data
  * @param data The data
- * @return A new thread data.
+ * @return A new vrtql_svr_data instance with memory
  */
-vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, ucstr data, size_t size);
+vrtql_svr_data* vrtql_svr_data_own(vrtql_svr_cnx* c, ucstr data, size_t size);
 
 /**
  * @brief Frees the resources allocated to a thread data

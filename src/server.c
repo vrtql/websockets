@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "server.h"
+#include "websocket.h"
 
 //------------------------------------------------------------------------------
 // Internal functions
@@ -439,10 +440,11 @@ static void svr_cnx_map_clear(vrtql_svr_cnx_map* map);
  *
  * @param queue Pointer to the server queue to be initialized.
  * @param capacity The maximum capacity of the queue.
+ * @param name The queue name
  *
  * @ingroup QueueGroup
  */
-void queue_init(vrtql_svr_queue* queue, int capacity);
+void queue_init(vrtql_svr_queue* queue, int capacity, cstr name);
 
 /**
  * @brief Destroys a server queue.
@@ -531,11 +533,6 @@ void worker_thread(void* arg)
             }
         }
 
-        if (server->trace)
-        {
-            vrtql_trace(VL_INFO, "worker_thread(): process %p", request->cnx);
-        }
-
         server->on_data_in(request);
     }
 }
@@ -584,7 +581,18 @@ void uv_thread(uv_async_t* handle)
 // Server API
 //------------------------------------------------------------------------------
 
-vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, ucstr data, size_t size)
+vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, vrtql_buffer* buffer)
+{
+    vrtql_svr_data* item = vrtql_svr_data_own(c, buffer->data, buffer->size);
+
+    // We take ownership of buffer data so we clear the buffer.
+    buffer->data = NULL;
+    buffer->size = 0;
+
+    return item;
+}
+
+vrtql_svr_data* vrtql_svr_data_own(vrtql_svr_cnx* c, ucstr data, size_t size)
 {
     vrtql_svr_data* item;
     item = (vrtql_svr_data*)vrtql.malloc(sizeof(vrtql_svr_data));
@@ -632,8 +640,8 @@ vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
 
     uv_loop_init(server->loop);
     sc_map_init_64v(&server->cnxs, 0, 0);
-    queue_init(&server->requests, queue_size);
-    queue_init(&server->responses, queue_size);
+    queue_init(&server->requests, queue_size, "requests");
+    queue_init(&server->responses, queue_size, "responses");
     uv_mutex_init(&server->mutex);
 
     server->wakeup.data = server;
@@ -692,6 +700,15 @@ void svr_dtor(vrtql_svr* server)
     server->wakeup.data = NULL;
     uv_close((uv_handle_t*)&server->wakeup, NULL);
 
+    // LibUV can never shutdown properly. There is no point in trying.
+    uv_loop_close(server->loop);
+
+    /*
+    // This is the correct way to do it but threads makes UV get wonky
+    // somtimes. And since there is only one server instance which lives through
+    // the life of the process, it's better leak its memory on exit rather than
+    // have libuv mysteriously segfault on uv__stream_flush_write_queue().
+    //
     // If uv_loop_close() does not return 0, it is because there are active
     // handles preventing it. So we need to deal with them.
     while (uv_loop_close(server->loop))
@@ -705,6 +722,7 @@ void svr_dtor(vrtql_svr* server)
             uv_run(server->loop, UV_RUN_DEFAULT);
         }
     }
+    */
 
     free(server->loop);
 
@@ -791,7 +809,7 @@ void vrtql_svr_stop(vrtql_svr* server)
     // Wakeup all worker threads
     if (server->trace)
     {
-        vrtql_trace(VL_INFO, "vrtql_svr_stop(): shutdown workers");
+        vrtql_trace(VL_INFO, "vrtql_svr_stop(): stop worker threads");
     }
 
     uv_mutex_lock(&server->requests.mutex);
@@ -801,7 +819,7 @@ void vrtql_svr_stop(vrtql_svr* server)
     // Wakeup the main event loop to shutdown main thread
     if (server->trace)
     {
-        vrtql_trace(VL_INFO, "vrtql_svr_stop(): shutdown main thread");
+        vrtql_trace(VL_INFO, "vrtql_svr_stop(): stop main thread");
     }
 
     uv_async_send(&server->wakeup);
@@ -836,13 +854,8 @@ void svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
 {
     vrtql_svr* server = c->server;
 
-    if (server->trace)
-    {
-        vrtql_trace(VL_INFO, "svr_client_read(%p)", c);
-    }
-
     // Queue data to worker pool for processing
-    vrtql_svr_data* data = vrtql_svr_data_new(c, buf->base, size);
+    vrtql_svr_data* data = vrtql_svr_data_own(c, buf->base, size);
     queue_push(&server->requests, data);
 }
 
@@ -859,7 +872,7 @@ void svr_client_data_in(vrtql_svr_data* req)
     strncpy(data, req->data, req->size);
 
     // Create response
-    vrtql_svr_data* reply = vrtql_svr_data_new(req->cnx, data, req->size);
+    vrtql_svr_data* reply = vrtql_svr_data_own(req->cnx, data, req->size);
 
     // Free request
     vrtql_svr_data_free(req);
@@ -880,7 +893,14 @@ void svr_client_data_in(vrtql_svr_data* req)
 
 void svr_client_data_out(vrtql_svr_data* data)
 {
-    uv_buf_t buf    = uv_buf_init(data->data, strlen(data->data));
+    if (data->size == 0)
+    {
+        vrtql_trace(VL_INFO, "svr_client_data_out(): no data");
+        vrtql.error(VL_WARN, "svr_client_data_out(): no data");
+        return;
+    }
+
+    uv_buf_t buf    = uv_buf_init(data->data, data->size);
     uv_write_t* req = (uv_write_t*)vrtql.malloc(sizeof(uv_write_t));
     req->data       = data;
 
@@ -1094,7 +1114,7 @@ void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf)
 // Queue API
 //------------------------------------------------------------------------------
 
-void queue_init(vrtql_svr_queue* queue, int size)
+void queue_init(vrtql_svr_queue* queue, int size, cstr name)
 {
     queue->buffer   = (vrtql_svr_data**)vrtql.malloc(size * sizeof(vrtql_svr_data*));
     queue->size     = 0;
@@ -1103,6 +1123,7 @@ void queue_init(vrtql_svr_queue* queue, int size)
     queue->tail     = 0;
     queue->state    = VS_RUNNING;
     queue->trace    = 0;
+    queue->name     = strdup(name);
 
     // Initialize mutex and condition variable
     uv_mutex_init(&queue->mutex);
@@ -1113,6 +1134,8 @@ void queue_destroy(vrtql_svr_queue* queue)
 {
     if (queue->buffer != NULL)
     {
+        vrtql_trace(VL_INFO, "queue_destroy(%s)", queue->name);
+        free(queue->name);
         uv_mutex_destroy(&queue->mutex);
         uv_cond_destroy(&queue->cond);
         free(queue->buffer);
@@ -1123,11 +1146,6 @@ void queue_destroy(vrtql_svr_queue* queue)
 
 void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data)
 {
-    if (queue->trace)
-    {
-        vrtql_trace(VL_INFO, "queue_push(enter) %p", data->cnx);
-    }
-
     uv_mutex_lock(&queue->mutex);
 
     while (queue->size == queue->capacity)
@@ -1142,30 +1160,15 @@ void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data)
     // Signal condition variable
     uv_cond_signal(&queue->cond);
     uv_mutex_unlock(&queue->mutex);
-
-    if (queue->trace)
-    {
-        vrtql_trace(VL_INFO, "queue_push(leave) %p", data->cnx);
-    }
 }
 
 vrtql_svr_data* queue_pop(vrtql_svr_queue* queue)
 {
-    if (queue->trace)
-    {
-        vrtql_trace(VL_INFO, "queue_pop(enter)");
-    }
-
     uv_mutex_lock(&queue->mutex);
 
     while (queue->size == 0 && queue->state == VS_RUNNING)
     {
         uv_cond_wait(&queue->cond, &queue->mutex);
-    }
-
-    if (queue->trace)
-    {
-        vrtql_trace(VL_INFO, "queue_pop(wakeup)");
     }
 
     if (queue->state == VS_HALTING)
@@ -1177,10 +1180,9 @@ vrtql_svr_data* queue_pop(vrtql_svr_queue* queue)
     }
 
     vrtql_svr_data* data = queue->buffer[queue->head];
-    queue->head = (queue->head + 1) % queue->capacity;
+    queue->head          = (queue->head + 1) % queue->capacity;
     queue->size--;
-    uv_cond_signal(&queue->cond);
-    uv_cond_broadcast(&queue->cond);
+
     uv_mutex_unlock(&queue->mutex);
 
     return data;
@@ -1213,12 +1215,10 @@ void msg_svr_process_frame(vws_cnx* c, vws_frame* f)
             // Send back to cliane Send the PONG response
             vrtql_svr_data* response;
 
-            response = vrtql_svr_data_new(cnx, buffer->data, buffer->size);
+            response = vrtql_svr_data_new(cnx, buffer);
             vrtql_svr_send(cnx->server, response);
 
-            // Free buffer: response took ownership of buffer memory
-            buffer->data = NULL;
-            buffer->size = 0;
+            // Free buffer
             vrtql_buffer_free(buffer);
 
             // Free frame
@@ -1244,12 +1244,10 @@ void msg_svr_process_frame(vws_cnx* c, vws_frame* f)
 
             // Send back to cliane Send the PONG response
             vrtql_svr_data* response;
-            response = vrtql_svr_data_new(cnx, buffer->data, buffer->size);
+            response = vrtql_svr_data_new(cnx, buffer);
             vrtql_svr_send(cnx->server, response);
 
-            // Free buffer: response took ownership of buffer memory
-            buffer->data = NULL;
-            buffer->size = 0;
+            // Free buffer
             vrtql_buffer_free(buffer);
 
             // Free frame
@@ -1305,14 +1303,17 @@ void msg_svr_client_disconnect(vrtql_svr_cnx* c)
     }
 }
 
-void msg_svr_client_data_in(vrtql_svr_data* data)
+void msg_svr_client_data_in(vrtql_svr_data* block)
 {
     //> Append data to connection buffer
 
-    vrtql_svr_cnx* cnx    = data->cnx;
+    vrtql_svr_cnx* cnx    = block->cnx;
     vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
     vws_cnx* c            = (vws_cnx*)cnx->data;
-    vrtql_buffer_append(c->base.buffer, data->data, data->size);
+    vrtql_buffer_append(c->base.buffer, block->data, block->size);
+
+    // Free incoming data
+    vrtql_svr_data_free(block);
 
     // If we are in HTTP mode
     if (server->upgraded == false)
@@ -1338,7 +1339,7 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
 
                 // Create reply
                 vrtql_svr_data* reply;
-                reply = vrtql_svr_data_new(cnx, NULL, 0);
+                reply = vrtql_svr_data_own(cnx, NULL, 0);
 
                 // Set connection close flag
                 vrtql_set_flag(&reply->flags, VM_SVR_DATA_CLOSE);
@@ -1372,7 +1373,7 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
 
             vrtql_buffer_printf(http, "Sec-WebSocket-Protocol: ");
 
-            if (strlen(proto) > 0)
+            if (proto != NULL)
             {
                 vrtql_buffer_printf(http, "%s\r\n", proto);
             }
@@ -1385,13 +1386,12 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
 
             // Package up response
             vrtql_svr_data* reply;
-            reply = vrtql_svr_data_new(cnx, http->data, http->size);
+            reply = vrtql_svr_data_new(cnx, http);
 
             // Queue the data to uv_thread() to send out on wire
             vrtql_svr_send(cnx->server, reply);
 
             // Cleanup. Buffer data was passed to reply.
-            http->data = NULL; http->size = 0;
             vrtql_buffer_free(http);
 
             //> Change state to WebSocket mode
@@ -1418,7 +1418,7 @@ void msg_svr_client_data_in(vrtql_svr_data* data)
         }
 
         // If we get here, we have a complete request and we have incoming
-        // WebSocket data to process (c->buffer->size > 0)
+        // WebSocket data to process (c->base.buffer->size > 0)
     }
 
     //> Process connection buffer data for complete messages
@@ -1484,39 +1484,55 @@ void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req)
 
     if (server->base.trace)
     {
-        vrtql_trace(VL_INFO, "msg_svr_process(%p) %s", cnx, req);
+        vrtql_trace(VL_INFO, "process (%p) %p", cnx, req);
     }
 
-    // Default: Do nothing
-    //
-    // Note: You should always set reply messages format to the format of the
-    // connection. For example, when creating reply messages:
-    //
-    //    vrtql_msg* reply = vrtql_msg_new();
-    //    reply->format    = cnx->format;
-    //
-    // We Could echo back (then we don't free message as reply() does it)
-    // server->send(cnx, reply);
+    // Default: Echo back
 
-    // Clean up message.
+    // Note: You should always set reply messages format to the format of the
+    // connection.
+
+    // Create reply message
+    vrtql_msg* reply = vrtql_msg_new();
+    reply->format    = cnx->format;
+
+    // Copy content
+    cstr data        = req->content->data;
+    size_t size      = req->content->size;
+    vrtql_buffer_append(reply->content, data, size);
+
+    // Send. We don't free message as send() does it for us.
+    server->send(cnx, reply);
+
+    // Clean up request
     vrtql_msg_free(req);
 }
 
 void msg_svr_client_msg_out(vrtql_svr_cnx* cnx, vrtql_msg* m)
 {
-    // Serialize to WebSocket message
-    vrtql_buffer* buffer;
-    buffer = vrtql_msg_serialize(m);
+    // Serialize message
+    vrtql_buffer* mdata = vrtql_msg_serialize(m);
 
-    // Pack message binary into queue data
+    // Create a binary websocket frame containing message
+    vws_frame* frame;
+    frame = vws_frame_new(mdata->data, mdata->size, BINARY_FRAME);
+
+    // This frame is from server to we don't mask it
+    frame->mask = 0;
+
+    // Serialize frame: frame is freed by function
+    vrtql_buffer* fdata = vws_serialize(frame);
+
+    // Pack frame binary into queue data
     vrtql_svr_data* response;
-    response = vrtql_svr_data_new(cnx, buffer->data, buffer->size);
+    response = vrtql_svr_data_new(cnx, fdata);
 
     // Queue the data to uv_thread() to send out on wire
     vrtql_svr_send(cnx->server, response);
 
-    // Free buffer
-    vrtql_buffer_free(buffer);
+    // Free buffers
+    vrtql_buffer_free(fdata);
+    vrtql_buffer_free(mdata);
 
     // Free message
     vrtql_msg_free(m);

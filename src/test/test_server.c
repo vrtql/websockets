@@ -1,97 +1,55 @@
-#include <uv.h>
-#include <stdio.h>
-#include <string.h>
-
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-#include <unistd.h>
-#include <stdlib.h>
-#endif
-
 #include "server.h"
+#include "message.h"
+
+#include "common.h"
 
 cstr server_host = "127.0.0.1";
 int  server_port = 8181;
-#define TEST_DATA "Hello, Server!"
+cstr uri         = "ws://localhost:8181/websocket";
+cstr content     = "content";
 
-static void alloc_buffer(uv_handle_t* h, size_t n, uv_buf_t *buf)
+// Server function to process messages. Runs in context of worker thread.
+void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
 {
-    buf->base = (char*) malloc(n);
-    buf->len  = n;
-}
+    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
 
-static void on_client_write(uv_write_t* req, int status)
-{
-    if (status < 0)
+    if (server->base.trace)
     {
-        fprintf(stderr, "uv_write error: %s\n", uv_strerror(status));
-        return;
+        vrtql_trace(VL_INFO, "process_message (%p) %p", cnx, m);
     }
 
-    printf("Message sent!\n");
-    free(req);
-}
+    // Echo back. Note: You should always set reply messages format to the
+    // format of the connection.
 
-static void on_client_close(uv_handle_t* handle)
-{
-    printf("Closed connection.\n");
-}
+    // Create reply message
+    vrtql_msg* reply = vrtql_msg_new();
+    reply->format    = cnx->format;
 
-static void on_client_read(uv_stream_t* s, ssize_t n, const uv_buf_t *buf)
-{
-    if (n < 0)
-    {
-        if (n == UV_EOF)
-        {
-            // The other side closed the connection. Let's do the same.
-            uv_close((uv_handle_t*) s, NULL);
-        }
-    }
-    else if (n > 0)
-    {
-        printf("Received data: %.*s\n", (int)n, buf->base);
+    // Copy content
+    cstr data   = m->content->data;
+    size_t size = m->content->size;
+    vrtql_buffer_append(reply->content, data, size);
 
-        // Close the connection after receiving the data
-        uv_close((uv_handle_t*) s, on_client_close);
-    }
+    // Send. We don't free message as send() does it for us.
+    server->send(cnx, reply);
 
-    // OK to free buffer as write_data copies it.
-    if (buf->base)
-    {
-        free(buf->base);
-    }
-}
-
-static void on_client_connect(uv_connect_t* req, int status)
-{
-    if (status < 0)
-    {
-        fprintf(stderr, "Connection error: %s\n", uv_strerror(status));
-        return;
-    }
-
-    printf("Connected to the server!\n");
-
-    // Now that we're connected, let's send some test data.
-    uv_buf_t buffer = uv_buf_init(TEST_DATA, strlen(TEST_DATA));
-    uv_write_t* write_req = (uv_write_t*)malloc(sizeof(uv_write_t));
-    uv_write(write_req, req->handle, &buffer, 1, on_client_write);
-    free(req);
-
-    // Start reading from the stream
-    uv_read_start(req->handle, alloc_buffer, on_client_read);
+    // Clean up request
+    vrtql_msg_free(m);
 }
 
 void server_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
+    vrtql_svr_trace(server, 1);
     vrtql_svr_run(server, server_host, server_port);
 }
 
-int main()
+CTEST(test_server, echo)
 {
-    vrtql_svr* server = vrtql_svr_new(10, 0, 0);
+    vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
 
-    server->trace = 1;
+    // Assign the message processing function
+    server->process = process_message;
 
     uv_thread_t server_tid;
     uv_thread_create(&server_tid, server_thread, server);
@@ -99,33 +57,59 @@ int main()
     // Give the server some time to start up.
     sleep(2);
 
-    uv_loop_t* loop = uv_default_loop();
+    vws_cnx* cnx = vws_cnx_new();
+    ASSERT_TRUE(vws_connect(cnx, uri));
 
-    uv_tcp_t client;
-    uv_tcp_init(loop, &client);
+    cstr payload = "payload";
 
-    struct sockaddr_in dest;
-    uv_ip4_addr(server_host, server_port, &dest);
-
-    uv_connect_t* connect_req = (uv_connect_t*)malloc(sizeof(uv_connect_t));
-    uv_tcp_connect( connect_req,
-                    &client,
-                    (const struct sockaddr*)&dest,
-                    on_client_connect );
-
-    uv_run(loop, UV_RUN_DEFAULT);
-
-    // Make sure to close the client loop
-    while(uv_loop_close(loop) != UV_EBUSY)
+    int i = 0;
+    while (true)
     {
+        if (i++ > 10)
+        {
+            break;
+        }
 
+        // Create
+        vrtql_msg* request = vrtql_msg_new();
+        vrtql_msg_set_content(request, payload);
+
+        // Send
+        ASSERT_TRUE(vrtql_msg_send(cnx, request) > 0);
+
+        // Receive
+        vrtql_msg* reply = NULL;
+        while (true)
+        {
+            reply = vrtql_msg_receive(cnx);
+
+            if (reply != NULL)
+            {
+                break;
+            }
+        }
+
+        // Check
+        cstr content = reply->content->data;
+        size_t size  = reply->content->size;
+        ASSERT_TRUE(strncmp(payload, content, size) == 0);
+
+        // Cleanup
+        vrtql_msg_free(request);
+        vrtql_msg_free(reply);
     }
 
-    vrtql_svr_stop(server);
+    // Disconnect
+    vws_disconnect(cnx);
+    vws_cnx_free(cnx);
 
+    // Shutdown
+    vrtql_svr_stop((vrtql_svr*)server);
     uv_thread_join(&server_tid);
+    vrtql_msg_svr_free(server);
+}
 
-    vrtql_svr_free(server);
-
-    return 0;
+int main(int argc, const char* argv[])
+{
+    return ctest_main(argc, argv);
 }

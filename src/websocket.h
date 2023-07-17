@@ -18,6 +18,20 @@
 // Frame
 //------------------------------------------------------------------------------
 
+/** @brief Defines the states of a WebSocket frame. */
+typedef enum
+{
+    /** Not all of the frame data has been received or processed. */
+    FRAME_INCOMPLETE,
+
+    /** All of the frame data has been received and processed. */
+    FRAME_COMPLETE,
+
+    /** There was an error in processing the frame data. */
+    FRAME_ERROR
+
+} fs_t;
+
 /** @brief Defines the types of WebSocket frames */
 typedef enum
 {
@@ -77,11 +91,41 @@ typedef struct vws_frame
 vws_frame* vws_frame_new(ucstr data, size_t s, unsigned char oc);
 
 /**
- * @brief Deallocates a websocket frame.
+ * @brief Frees memory associated with a vws_frame object.
  *
- * @param frame The frame to be deallocated.
+ * @param frame The vws_frame object to free.
+ * @return void
+ *
+ * @ingroup FrameFunctions
  */
 void vws_frame_free(vws_frame* frame);
+
+/**
+ * @brief Serializes a vws_frame into a buffer that can be sent over the
+ *        network.
+ *
+ * @param f The vws_frame to serialize.
+ * @return A pointer to the serialized buffer.
+ *
+ * @ingroup FrameFunctions
+ */
+vrtql_buffer* vws_serialize(vws_frame* f);
+
+/**
+ * @brief Deserializes raw network data into a vws_frame, updating consumed
+ *        with the number of bytes processed.
+ *
+ * @param data The raw network data.
+ * @param size The size of the data.
+ * @param f The vws_frame to deserialize into.
+ * @param consumed Pointer to the number of bytes consumed during
+ *        deserialization.
+ * @return The status of the deserialization process, 0 if successful, an error
+ *         code otherwise.
+ *
+ * @ingroup FrameFunctions
+ */
+fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed);
 
 /**
  * @brief Generates a close frame for a WebSocket connection.
@@ -102,6 +146,16 @@ vrtql_buffer* vws_generate_close_frame();
  * @ingroup FrameFunctions
  */
 vrtql_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s);
+
+/**
+ * @brief Dumps the contents of a WebSocket frame for debugging purposes.
+ *
+ * @param data The data of the WebSocket frame.
+ * @param size The size of the WebSocket frame.
+ *
+ * @ingroup TraceFunctions
+ */
+void vws_dump_websocket_frame(const unsigned char* data, size_t size);
 
 //------------------------------------------------------------------------------
 // Message
