@@ -104,14 +104,41 @@ static void svr_dtor(vrtql_svr* s);
 /**
  * @brief Initiates the server shutdown process.
  *
- * It signals all worker threads to stop processing new data and
- * to finish any requests they are currently processing.
+ * This function is responsible for shutting down a vrtql_svr server instance.
+ * It stops the server if it's currently running, performs necessary cleanup,
+ * shuts down the libuv event loop, frees memory, and clears the connection map.
+ * It signals all worker threads to stop processing new data and to finish any
+ * requests they are currently processing.
  *
  * @param server The server that needs to be shutdown.
  *
  * @ingroup ServerFunctions
  */
 static void svr_shutdown(vrtql_svr* server);
+
+/**
+ * @brief Handles the close event for a libuv handle.
+ *
+ * This function is called when a libuv handle is closed. It checks if the handle
+ * has associated heap data stored in `handle->data` and generates a warning if
+ * the resource was not properly freed.
+ *
+ * @param handle The libuv handle being closed.
+ */
+static void on_uv_close(uv_handle_t* handle);
+
+/**
+ * @brief Walks through libuv handles and attempts to close them.
+ *
+ * This function is used to walk through libuv handles and attempts to close each
+ * handle. It is typically called during libuv shutdown to ensure that all handles
+ * are properly closed. If a handle has not been closed, it will be closed and
+ * the `on_uv_close()` function will be called.
+ *
+ * @param handle The libuv handle being walked.
+ * @param arg    Optional argument passed to the function (not used in this case).
+ */
+static void on_uv_walk(uv_handle_t* handle, void* arg);
 
 /**
  * @brief Callback for new client connection.
@@ -616,119 +643,10 @@ void vrtql_svr_data_free(vrtql_svr_data* t)
     }
 }
 
-vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
-{
-    if (backlog == 0)
-    {
-        backlog = 128;
-    }
-
-    if (queue_size == 0)
-    {
-        queue_size = 1024;
-    }
-
-    server->threads       = vrtql.malloc(sizeof(uv_thread_t) * nt);
-    server->pool_size     = nt;
-    server->trace         = 0;
-    server->on_connect    = svr_client_connect;
-    server->on_disconnect = svr_client_disconnect;
-    server->on_read       = svr_client_read;
-    server->on_data_in    = svr_client_data_in;
-    server->on_data_out   = svr_client_data_out;
-    server->backlog       = backlog;
-    server->loop          = (uv_loop_t*)vrtql.malloc(sizeof(uv_loop_t));
-    server->state         = VS_HALTED;
-
-    uv_loop_init(server->loop);
-    sc_map_init_64v(&server->cnxs, 0, 0);
-    queue_init(&server->requests, queue_size, "requests");
-    queue_init(&server->responses, queue_size, "responses");
-    uv_mutex_init(&server->mutex);
-
-    server->wakeup.data = server;
-    uv_async_init(server->loop, &server->wakeup, uv_thread);
-
-    return server;
-}
-
 vrtql_svr* vrtql_svr_new(int num_threads, int backlog, int queue_size)
 {
     vrtql_svr* server = vrtql.malloc(sizeof(vrtql_svr));
     return svr_ctor(server, num_threads, backlog, queue_size);
-}
-
-void on_uv_close(uv_handle_t* handle)
-{
-    if (handle != NULL)
-    {
-        // As a policy we don't put heap data on handle->data. If that is ever
-        // done then it must be freed in the appropriate place. It is ignored
-        // here because it's impossible to tell what it is by the very nature of
-        // uv_handle_t. We will generate a warning however.
-
-        if (handle->data != NULL)
-        {
-            vrtql_trace( VL_WARN,
-                         "on_uv_close(): libuv resource not properly freed: %p",
-                         (void*)handle->data );
-        }
-    }
-}
-
-void on_uv_walk(uv_handle_t* handle, void* arg)
-{
-    vrtql_trace(VL_INFO, "on_uv_walk(): %p", (void*)handle);
-
-    // If this handle has not been closed, it should have been. Nevertheless we
-    // will make an attempt to close it.
-    if (uv_is_closing(handle) == 0)
-    {
-        uv_close(handle, (uv_close_cb)on_uv_close);
-    }
-}
-
-void svr_dtor(vrtql_svr* server)
-{
-    //> Stop/shutdown server
-
-    if (server->state == VS_RUNNING)
-    {
-        vrtql_svr_stop(server);
-    }
-
-    svr_shutdown(server);
-    free(server->threads);
-
-    // Close the server async handle
-    server->wakeup.data = NULL;
-    uv_close((uv_handle_t*)&server->wakeup, NULL);
-
-    //> Shutdown libuv
-
-    // Close loop
-    int rc = uv_loop_close(server->loop);
-
-    // Close pending handles
-    uv_walk(uv_default_loop(), on_uv_walk, NULL);
-
-    // Run the loop until there are no pending callbacks
-    do
-    {
-        rc = uv_run(uv_default_loop(), UV_RUN_ONCE);
-    }
-    while (rc != 0);
-
-    // Now close loop
-    uv_loop_close(server->loop);
-
-    // Free loop
-    free(server->loop);
-
-    //> Free connection map
-
-    svr_cnx_map_clear(&server->cnxs);
-    sc_map_term_64v(&server->cnxs);
 }
 
 void vrtql_svr_free(vrtql_svr* server)
@@ -875,6 +793,119 @@ void vrtql_svr_stop(vrtql_svr* server)
     {
         sleep(1);
     }
+}
+
+//------------------------------------------------------------------------------
+// Server construction / destruction
+//------------------------------------------------------------------------------
+
+vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
+{
+    if (backlog == 0)
+    {
+        backlog = 128;
+    }
+
+    if (queue_size == 0)
+    {
+        queue_size = 1024;
+    }
+
+    server->threads       = vrtql.malloc(sizeof(uv_thread_t) * nt);
+    server->pool_size     = nt;
+    server->trace         = 0;
+    server->on_connect    = svr_client_connect;
+    server->on_disconnect = svr_client_disconnect;
+    server->on_read       = svr_client_read;
+    server->on_data_in    = svr_client_data_in;
+    server->on_data_out   = svr_client_data_out;
+    server->backlog       = backlog;
+    server->loop          = (uv_loop_t*)vrtql.malloc(sizeof(uv_loop_t));
+    server->state         = VS_HALTED;
+
+    uv_loop_init(server->loop);
+    sc_map_init_64v(&server->cnxs, 0, 0);
+    queue_init(&server->requests, queue_size, "requests");
+    queue_init(&server->responses, queue_size, "responses");
+    uv_mutex_init(&server->mutex);
+
+    server->wakeup.data = server;
+    uv_async_init(server->loop, &server->wakeup, uv_thread);
+
+    return server;
+}
+
+void on_uv_close(uv_handle_t* handle)
+{
+    if (handle != NULL)
+    {
+        // As a policy we don't put heap data on handle->data. If that is ever
+        // done then it must be freed in the appropriate place. It is ignored
+        // here because it's impossible to tell what it is by the very nature of
+        // uv_handle_t. We will generate a warning however.
+
+        if (handle->data != NULL)
+        {
+            vrtql_trace( VL_WARN,
+                         "on_uv_close(): libuv resource not properly freed: %p",
+                         (void*)handle->data );
+        }
+    }
+}
+
+void on_uv_walk(uv_handle_t* handle, void* arg)
+{
+    vrtql_trace(VL_INFO, "on_uv_walk(): %p", (void*)handle);
+
+    // If this handle has not been closed, it should have been. Nevertheless we
+    // will make an attempt to close it.
+    if (uv_is_closing(handle) == 0)
+    {
+        uv_close(handle, (uv_close_cb)on_uv_close);
+    }
+}
+
+void svr_dtor(vrtql_svr* server)
+{
+    //> Stop/shutdown server
+
+    if (server->state == VS_RUNNING)
+    {
+        vrtql_svr_stop(server);
+    }
+
+    svr_shutdown(server);
+    free(server->threads);
+
+    // Close the server async handle
+    server->wakeup.data = NULL;
+    uv_close((uv_handle_t*)&server->wakeup, NULL);
+
+    //> Shutdown libuv
+
+    // Close loop
+    int rc = uv_loop_close(server->loop);
+
+    // Close pending handles
+    uv_walk(uv_default_loop(), on_uv_walk, NULL);
+
+    // Run the loop until there are no pending callbacks
+    do
+    {
+        rc = uv_run(uv_default_loop(), UV_RUN_ONCE);
+    }
+    while (rc != 0);
+
+    // Now close loop
+    uv_loop_close(server->loop);
+
+    // Free loop
+    free(server->loop);
+
+    //> Free connection map
+
+    svr_cnx_map_clear(&server->cnxs);
+    sc_map_term_64v(&server->cnxs);
 }
 
 //------------------------------------------------------------------------------
