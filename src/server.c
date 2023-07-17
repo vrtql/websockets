@@ -843,7 +843,6 @@ void on_uv_close(uv_handle_t* handle)
         // done then it must be freed in the appropriate place. It is ignored
         // here because it's impossible to tell what it is by the very nature of
         // uv_handle_t. We will generate a warning however.
-
         if (handle->data != NULL)
         {
             vrtql_trace( VL_WARN,
