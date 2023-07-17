@@ -505,6 +505,8 @@ void worker_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
 
+    vrtql_trace(VL_INFO, "worker_thread(): Starting");
+
     while (true)
     {
         //> Wait for arrival
@@ -521,7 +523,7 @@ void worker_thread(void* arg)
             {
                 if (server->trace)
                 {
-                    vrtql_trace(VL_INFO, "worker_thread(): exiting");
+                    vrtql_trace(VL_INFO, "worker_thread(): Exiting");
                 }
 
                 return;
@@ -700,32 +702,28 @@ void svr_dtor(vrtql_svr* server)
     server->wakeup.data = NULL;
     uv_close((uv_handle_t*)&server->wakeup, NULL);
 
-    // LibUV can never shutdown properly. There is no point in trying.
+    // Shutdown libuv
+
+    // Close loop
+    int rc = uv_loop_close(server->loop);
+
+    // Close pending handles
+    uv_walk(uv_default_loop(), on_uv_walk, NULL);
+
+    // Run the loop until there are no pending callbacks
+    do
+    {
+        rc = uv_run(uv_default_loop(), UV_RUN_ONCE);
+    }
+    while (rc != 0);
+
+    // Now close loop
     uv_loop_close(server->loop);
 
-    /*
-    // This is the correct way to do it but threads makes UV get wonky
-    // somtimes. And since there is only one server instance which lives through
-    // the life of the process, it's better leak its memory on exit rather than
-    // have libuv mysteriously segfault on uv__stream_flush_write_queue().
-    //
-    // If uv_loop_close() does not return 0, it is because there are active
-    // handles preventing it. So we need to deal with them.
-    while (uv_loop_close(server->loop))
-    {
-        // Walk the loop to close everything
-        uv_walk(server->loop, on_uv_walk, NULL);
-
-        // Run the loop until there are no more active handles
-        while (uv_loop_alive(server->loop))
-        {
-            uv_run(server->loop, UV_RUN_DEFAULT);
-        }
-    }
-    */
-
+    // Free loop
     free(server->loop);
 
+    // Free connection map
     svr_cnx_map_clear(&server->cnxs);
     sc_map_term_64v(&server->cnxs);
 }
@@ -751,12 +749,17 @@ int vrtql_svr_send(vrtql_svr* server, vrtql_svr_data* data)
 
 int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 {
+    if (server->trace == true)
+    {
+        vrtql_trace( VL_INFO,
+                     "vrtql_svr_run(%p): Starting worker %i threads",
+                     server,
+                     server->pool_size );
+    }
+
     for (int i = 0; i < server->pool_size; i++)
     {
         uv_thread_create(&server->threads[i], worker_thread, server);
-        vrtql_trace( VL_INFO,
-                     "vrtql_svr_run(): starting worker %lu",
-                     server->threads[i] );
     }
 
     //> Create listening socket
@@ -769,8 +772,15 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 
     int rc;
     struct sockaddr_in addr;
-    uv_ip4_addr("0.0.0.0", port, &addr);
+    uv_ip4_addr(host, port, &addr);
     rc = uv_tcp_bind(&socket, (const struct sockaddr*)&addr, 0);
+
+    if (server->trace == true)
+    {
+        vrtql_trace( VL_INFO,
+                     "vrtql_svr_run(%p): Bind %s:%lu",
+                     server, host, port);
+    }
 
     if (rc)
     {
@@ -788,10 +798,22 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
         return -1;
     }
 
+    if (server->trace == true)
+    {
+        vrtql_trace( VL_INFO,
+                     "vrtql_svr_run(%s): Listen %s:%lu",
+                     server, host, port );
+    }
+
     //> Start server
 
     // Set state to running
     server->state = VS_RUNNING;
+
+    if (server->trace == true)
+    {
+        vrtql_trace(VL_INFO, "vrtql_svr_run(%s): Starting uv_run()", server);
+    }
 
     // Run UV loop. This runs indefinitely, passing network I/O and and out of
     // system until server is shutdown by vrtql_svr_stop() (by external thread).
@@ -805,7 +827,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 
     if (server->trace)
     {
-        vrtql_trace(VL_INFO, "vrtql_svr_run(): stop");
+        vrtql_trace(VL_INFO, "vrtql_svr_run(%p): Shutdown complete", server);
     }
 
     // Set state to halted
@@ -991,6 +1013,16 @@ void svr_cnx_free(vrtql_svr_cnx* c)
 
 void svr_shutdown(vrtql_svr* server)
 {
+    if (server->state == VS_HALTED)
+    {
+        return;
+    }
+
+    if (server->trace)
+    {
+        vrtql_trace(VL_INFO, "svr_shutdown(%p): Shutdown starting", server);
+    }
+
     // Cleanup libuv
     queue_destroy(&server->requests);
     queue_destroy(&server->responses);

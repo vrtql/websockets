@@ -6,7 +6,7 @@
 cstr server_host = "127.0.0.1";
 int  server_port = 8181;
 cstr uri         = "ws://localhost:8181/websocket";
-cstr content     = "content";
+cstr content     = "Lorem ipsum dolor sit amet";
 
 // Server function to process messages. Runs in context of worker thread.
 void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
