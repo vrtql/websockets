@@ -245,7 +245,8 @@ int main()
 
 ## Documentation
 
-Full documentation is located [here](https://vrtql.github.io/ws/ws.html).
+Full documentation is located [here](https://vrtql.github.io/ws/ws.html). Source
+code documentation is located [here](https://vrtql.github.io/ws-code-doc/root/).
 
 ## Feature Summary
 
