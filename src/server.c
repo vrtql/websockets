@@ -34,7 +34,7 @@
  * Worker threads pass data to it through a queue. The data is in the form of
  * vrtql_svr_data instances. When a worker sends a vrtql_svr_data instance, it
  * adds it to the queue (server->responses) and notifies (wakes up) the main UV
- * loop (uv_run() in vrtql_svr_run()) by calling uv_async_send(&server->wakeup)
+ * loop (uv_run() in vrtql_svr_run()) by calling uv_async_send(server->wakeup)
  * which in turn calls this function to check the server->responses queue. This
  * function unloads all data in the queue and sends the data out to each
  * respective client. It then returns control back to the main UV loop which
@@ -665,7 +665,7 @@ int vrtql_svr_send(vrtql_svr* server, vrtql_svr_data* data)
     queue_push(&server->responses, data);
 
     // Notify event loop about the new response
-    uv_async_send(&server->wakeup);
+    uv_async_send(server->wakeup);
 }
 
 int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
@@ -685,16 +685,17 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 
     //> Create listening socket
 
-    uv_tcp_t socket;
-    uv_tcp_init(server->loop, &socket);
-    socket.data = server;
+    uv_tcp_t* socket = vrtql.malloc(sizeof(uv_tcp_t));
+
+    uv_tcp_init(server->loop, socket);
+    socket->data = server;
 
     //> Bind to address
 
     int rc;
     struct sockaddr_in addr;
     uv_ip4_addr(host, port, &addr);
-    rc = uv_tcp_bind(&socket, (const struct sockaddr*)&addr, 0);
+    rc = uv_tcp_bind(socket, (const struct sockaddr*)&addr, 0);
 
     if (server->trace == true)
     {
@@ -711,7 +712,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 
     //> Listen
 
-    rc = uv_listen((uv_stream_t*)&socket, server->backlog, svr_on_connect);
+    rc = uv_listen((uv_stream_t*)socket, server->backlog, svr_on_connect);
 
     if (rc)
     {
@@ -743,8 +744,10 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     //> Shutdown server
 
     // Close the listening socket handle
-    socket.data = NULL;
-    uv_close((uv_handle_t*)&socket, NULL);
+    //socket->data = (void*)-2;
+    uv_close((uv_handle_t*)socket, svr_on_close);
+
+    vrtql_trace(VL_INFO, "vrtql_svr_run(%p): socket=%p", (uv_handle_t*)socket);
 
     if (server->trace)
     {
@@ -787,7 +790,7 @@ void vrtql_svr_stop(vrtql_svr* server)
         vrtql_trace(VL_INFO, "vrtql_svr_stop(): stop main thread");
     }
 
-    uv_async_send(&server->wakeup);
+    uv_async_send(server->wakeup);
 
     while (server->state != VS_HALTED)
     {
@@ -827,10 +830,10 @@ vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
     sc_map_init_64v(&server->cnxs, 0, 0);
     queue_init(&server->requests, queue_size, "requests");
     queue_init(&server->responses, queue_size, "responses");
-    uv_mutex_init(&server->mutex);
 
-    server->wakeup.data = server;
-    uv_async_init(server->loop, &server->wakeup, uv_thread);
+    server->wakeup = vrtql.malloc(sizeof(uv_async_t));
+    server->wakeup->data = server;
+    uv_async_init(server->loop, server->wakeup, uv_thread);
 
     return server;
 }
@@ -858,6 +861,7 @@ void on_uv_walk(uv_handle_t* handle, void* arg)
 
     // If this handle has not been closed, it should have been. Nevertheless we
     // will make an attempt to close it.
+
     if (uv_is_closing(handle) == 0)
     {
         uv_close(handle, (uv_close_cb)on_uv_close);
@@ -877,26 +881,21 @@ void svr_dtor(vrtql_svr* server)
     free(server->threads);
 
     // Close the server async handle
-    server->wakeup.data = NULL;
-    uv_close((uv_handle_t*)&server->wakeup, NULL);
+    uv_close((uv_handle_t*)server->wakeup, svr_on_close);
 
     //> Shutdown libuv
 
-    // Close loop
-    int rc = uv_loop_close(server->loop);
+    // Walk the loop to close everything
+    uv_walk(server->loop, on_uv_walk, NULL);
 
-    // Close pending handles
-    uv_walk(uv_default_loop(), on_uv_walk, NULL);
-
-    // Run the loop until there are no pending callbacks
-    do
+    while (uv_loop_close(server->loop))
     {
-        rc = uv_run(uv_default_loop(), UV_RUN_ONCE);
+        // Run the loop until there are no more active handles
+        while (uv_loop_alive(server->loop))
+        {
+            uv_run(server->loop, UV_RUN_DEFAULT);
+        }
     }
-    while (rc != 0);
-
-    // Now close loop
-    uv_loop_close(server->loop);
 
     // Free loop
     free(server->loop);
@@ -1150,6 +1149,8 @@ void svr_on_close(uv_handle_t* handle)
     vrtql_svr* server      = handle->data;
     vrtql_svr_cnx_map* map = &server->cnxs;
     vrtql_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)handle);
+
+    vrtql_trace(VL_INFO, "svr_on_close(): %p", handle);
 
     // If entry exists
     if (sc_map_found(map) == true)

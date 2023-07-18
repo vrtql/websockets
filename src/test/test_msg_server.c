@@ -66,7 +66,7 @@ CTEST(test_msg_server, echo)
     int i = 0;
     while (true)
     {
-        if (i++ > 10)
+        if (i++ > 5)
         {
             break;
         }

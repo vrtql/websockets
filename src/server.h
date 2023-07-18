@@ -196,11 +196,8 @@ typedef struct vrtql_svr
     /**< Current state of the server */
     uint8_t state;
 
-    /**< Mutex for thread safety */
-    uv_mutex_t mutex;
-
     /**< Asynchronous handle for event-based programming */
-    uv_async_t wakeup;
+    uv_async_t* wakeup;
 
     /**< Event loop handle */
     uv_loop_t* loop;

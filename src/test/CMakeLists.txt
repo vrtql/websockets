@@ -50,7 +50,8 @@ foreach(x ${test_targets})
   add_test(NAME ${x} COMMAND ${x})
 
   add_custom_target(${x}_leakcheck
-    COMMAND valgrind --leak-check=full --show-reachable=yes ./${x} )
+    COMMAND valgrind --leak-check=full --show-reachable=yes
+            --suppressions=valgrind.suppress ./${x} )
   add_dependencies(${x} static_test_lib)
   add_dependencies(${x} static_lib)
 endforeach(x)

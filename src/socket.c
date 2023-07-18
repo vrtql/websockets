@@ -390,7 +390,7 @@ ssize_t vws_socket_read(vws_socket* c)
 
     unsigned char data[1024];
     int size = 1024;
-    ssize_t n;
+    ssize_t n = 0;
 
     if (fds.revents & POLLIN)
     {

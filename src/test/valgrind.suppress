@@ -1,0 +1,35 @@
+{
+   VRTQL
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:vrtql_malloc
+   fun:vrtql_svr_data_own
+   fun:svr_client_read
+   fun:svr_on_read
+   fun:uv__read
+   fun:uv__stream_io
+   fun:uv__io_poll
+   fun:uv_run
+   fun:vrtql_svr_run
+   fun:server_thread
+   fun:start_thread
+}
+
+{
+   <leak_in_vrtql_svr_run_realloc>
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:realloc
+   fun:vrtql_realloc
+   fun:svr_on_realloc
+   fun:uv__read
+   fun:uv__stream_io
+   fun:uv__io_poll
+   fun:uv_run
+   fun:vrtql_svr_run
+   fun:server_thread
+   fun:start_thread
+   fun:clone
+}

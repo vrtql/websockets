@@ -53,12 +53,20 @@ set(core_sources
 # Server (optional)
 option(BUILD_SERVER "Build the server" OFF)
 
+# Address Sanitizer
+option(ASAN "Build the server" OFF)
+
 if(BUILD_SERVER)
   set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/config ${CMAKE_MODULE_PATH})
   find_package(LibUV REQUIRED)
   include_directories(${LIBUV_INCLUDE_DIRS})
   list(APPEND OS_LIBS ${LIBUV_LIBRARIES})
   list(APPEND core_sources server.c http_parser.c http_request.c)
+endif()
+
+if(ASAN)
+  add_definitions(-fsanitize=address -g -O1)
+  list(APPEND OS_LIBS asan)
 endif()
 
 #-------------------------------------------------------------------------------
