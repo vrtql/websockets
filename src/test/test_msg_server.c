@@ -66,7 +66,7 @@ CTEST(test_msg_server, echo)
     int i = 0;
     while (true)
     {
-        if (i++ > 5)
+        if (i++ > 10)
         {
             break;
         }
@@ -79,16 +79,7 @@ CTEST(test_msg_server, echo)
         ASSERT_TRUE(vrtql_msg_send(cnx, request) > 0);
 
         // Receive
-        vrtql_msg* reply = NULL;
-        while (true)
-        {
-            reply = vrtql_msg_receive(cnx);
-
-            if (reply != NULL)
-            {
-                break;
-            }
-        }
+        vrtql_msg* reply = vrtql_msg_receive(cnx);
 
         // Check
         cstr content = reply->content->data;
