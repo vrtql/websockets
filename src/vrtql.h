@@ -18,7 +18,7 @@ typedef const unsigned char* ucstr;
 /**
  * @brief Enumerates error codes used in the library.
  */
-typedef enum vrtql_error_code
+typedef enum
 {
     VE_SUCCESS = 0,   /**< No error */
     VE_TIMEOUT = 1,   /**< Socket timeout */
@@ -27,7 +27,7 @@ typedef enum vrtql_error_code
     VE_RT      = 11,  /**< Runtime error */
     VE_MEM     = 100, /**< Memory failure */
     VE_FATAL   = 200, /**< Fatal error */
-} vrtql_error_code;
+} vrtql_error_code_t;
 
 /**
  * @brief Defines a structure for vrtql errors.
@@ -161,7 +161,7 @@ typedef enum
     VL_WARN,          /**< Warning level log     */
     VL_ERROR,         /**< Error level log       */
     VL_LEVEL_COUNT    /**< Count of log levels   */
-} vrtql_log_level;
+} vrtql_log_level_t;
 
 /**
  * @brief Logs a trace message.
@@ -170,7 +170,7 @@ typedef enum
  * @param format The format string for the message
  * @param ... The arguments for the format string
  */
-void vrtql_trace(vrtql_log_level level, const char* format, ...);
+void vrtql_trace(vrtql_log_level_t level, const char* format, ...);
 
 //------------------------------------------------------------------------------
 // Buffer

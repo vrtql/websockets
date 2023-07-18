@@ -13,10 +13,7 @@ void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
 {
     vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
 
-    if (server->base.trace)
-    {
-        vrtql_trace(VL_INFO, "process_message (%p) %p", cnx, m);
-    }
+    vrtql_trace(VL_INFO, "process_message (%p) %p", cnx, m);
 
     // Echo back. Note: You should always set reply messages format to the
     // format of the connection.
@@ -53,7 +50,7 @@ CTEST(test_msg_server, echo)
     uv_thread_create(&server_tid, server_thread, server);
 
     // Wait for server to start up
-    while (server->base.state != VS_RUNNING)
+    while (vrtql_svr_state((vrtql_svr*)server) != VS_RUNNING)
     {
         vrtql_msleep(100);
     }

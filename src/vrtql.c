@@ -80,7 +80,7 @@ static void unlock_mutex(void* arg)
     pthread_mutex_unlock((pthread_mutex_t*)arg);
 }
 
-void vrtql_trace(vrtql_log_level level, const char* format, ...)
+void vrtql_trace(vrtql_log_level_t level, const char* format, ...)
 {
     if (level < 0 || level >= VL_LEVEL_COUNT)
     {
@@ -253,7 +253,7 @@ void* vrtql_realloc_error(void* ptr, size_t size)
 //------------------------------------------------------------------------------
 
 // Sets the last error for the current thread
-void vrtql_set_error(vrtql_error_code code, const char* message)
+void vrtql_set_error(vrtql_error_code_t code, const char* message)
 {
     if (vrtql.e.text != NULL)
     {

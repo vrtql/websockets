@@ -306,11 +306,30 @@ static void svr_client_data_out(vrtql_svr_data* data);
 
 
 /**
- * @defgroup MessageServerFunctions
+ * @defgroup WebSocketServerFunctions
  *
  * @brief Functions that support message server operation
  *
  */
+
+/**
+ * @brief WebSocket server constructor.
+ *
+ * @param server The WebSocket server instance.
+ * @param nt The number of threads to run in the worker pool.
+ * @param bl The connection backlog for listen(). If set to 0, it uses the
+ *        default value (128).
+ * @param qs The maximum queue size for requests and responses. If set to 0, it
+ *        uses the default value (1024).
+ */
+static void ws_svr_ctor(vrtql_ws_svr* server, int nt, int bl, int qs);
+
+/**
+ * @brief WebSocket server destructor.
+ *
+ * @param server The WebSocket server instance to free.
+ */
+static void ws_svr_dtor(vrtql_ws_svr* server);
 
 /**
  * @brief Callback for client connection.
@@ -321,9 +340,9 @@ static void svr_client_data_out(vrtql_svr_data* data);
  *
  * @param c The connection structure representing the client that has connected.
  *
- * @ingroup MessageServerFunctions
+ * @ingroup WebSocketServerFunctions
  */
-static void msg_svr_client_connect(vrtql_svr_cnx* c);
+static void ws_svr_client_connect(vrtql_svr_cnx* c);
 
 /**
  * @brief Callback for client disconnection.
@@ -334,24 +353,43 @@ static void msg_svr_client_connect(vrtql_svr_cnx* c);
  *
  * @param c The connection structure representing the client that has disconnected.
  *
- * @ingroup MessageServerFunctions
+ * @ingroup WebSocketServerFunctions
  */
-static void msg_svr_client_disconnect(vrtql_svr_cnx* c);
+static void ws_svr_client_disconnect(vrtql_svr_cnx* c);
 
 /**
  * @brief Callback for processing client data in (ingress) for msg server
  *
  * This function processes data arriving from client to worker thread. It
  * collects data until there is a complete message. It passes message to
- * msg_svr_client_msg_in() for processing. This takes place in the context of
+ * ws_svr_client_msg_in() for processing. This takes place in the context of
  * worker_thread().
  *
  * @param server The server instance
  * @param data The incoming data from the client to process.
  *
- * @ingroup MessageServerFunctions
+ * @ingroup WebSocketServerFunctions
  */
-static void msg_svr_client_data_in(vrtql_svr_data* data);
+static void ws_svr_client_data_in(vrtql_svr_data* data);
+
+/**
+ * @brief Sends data from a server connection to a client WebSocket connection.
+ *
+ * @param cnx The server connection.
+ * @param buffer The data to send.
+ * @param opcode The opcode for the WebSocket frame.
+ */
+static void ws_svr_client_data_out( vrtql_svr_cnx* cnx,
+                                    vrtql_buffer* buffer,
+                                    unsigned char opcode);
+
+/**
+ * @brief Process a WebSocket frame received from a client.
+ *
+ * @param c The WebSocket connection.
+ * @param f The incoming frame to process.
+ */
+static void ws_svr_process_frame(vws_cnx* c, vws_frame* f);
 
 /**
  * @brief Callback for client message processing
@@ -363,9 +401,9 @@ static void msg_svr_client_data_in(vrtql_svr_data* data);
  * @param c The connection that sent the data.
  * @param m The message to process
  *
- * @ingroup MessageServerFunctions
+ * @ingroup WebSocketServerFunctions
  */
-static void msg_svr_client_msg_in(vrtql_svr_cnx* c, vrtql_msg* m);
+static void ws_svr_client_msg_in(vrtql_svr_cnx* c, vws_msg* m);
 
 /**
  * @brief Callback for sending message to client. It takes a message as input,
@@ -378,9 +416,59 @@ static void msg_svr_client_msg_in(vrtql_svr_cnx* c, vrtql_msg* m);
  * @param c The connection that sent the data.
  * @param m The message to send
  *
+ * @ingroup WebSocketServerFunctions
+ */
+static void ws_svr_client_msg_out(vrtql_svr_cnx* c, vws_msg* m);
+
+
+
+
+/**
+ * @defgroup MessageServerFunctions
+ *
+ * @brief Functions that support message server operation
+ *
+ */
+
+/**
+ * @brief Convert incoming WebSocket messages to VRTQL messages for processing.
+ *
+ * @param cnx The server connection.
+ * @param wsm The incoming WebSocket message.
+ *
  * @ingroup MessageServerFunctions
  */
-static void msg_svr_client_msg_out(vrtql_svr_cnx* c, vrtql_msg* m);
+static void msg_svr_client_ws_msg_in(vrtql_svr_cnx* cnx, vws_msg* wsm);
+
+/**
+ * @brief Callback function for handling incoming VRTQL messages from a client.
+ *
+ * @param cnx The server connection.
+ * @param m The incoming VRTQL message.
+ *
+ * @ingroup MessageServerFunctions
+ */
+static void msg_svr_client_msg_in(vrtql_svr_cnx* cnx, vrtql_msg* m);
+
+/**
+ * @brief Callback function for sending VRTQL messages to a client.
+ *
+ * @param cnx The server connection.
+ * @param m The outgoing VRTQL message.
+ *
+ * @ingroup MessageServerFunctions
+ */
+static void msg_svr_client_msg_out(vrtql_svr_cnx* cnx, vrtql_msg* m);
+
+/**
+ * @brief Default VRTQL message processing function.
+ *
+ * @param cnx The server connection.
+ * @param req The incoming VRTQL message.
+ *
+ * @ingroup MessageServerFunctions
+ */
+static void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req);
 
 
 
@@ -647,6 +735,11 @@ vrtql_svr* vrtql_svr_new(int num_threads, int backlog, int queue_size)
 {
     vrtql_svr* server = vrtql.malloc(sizeof(vrtql_svr));
     return svr_ctor(server, num_threads, backlog, queue_size);
+}
+
+uint8_t vrtql_svr_state(vrtql_svr* server)
+{
+    return server->state;
 }
 
 void vrtql_svr_free(vrtql_svr* server)
@@ -1262,10 +1355,10 @@ bool queue_empty(vrtql_svr_queue* queue)
 }
 
 //------------------------------------------------------------------------------
-// Messaging Server
+// Pure WebSocket Server
 //------------------------------------------------------------------------------
 
-void msg_svr_process_frame(vws_cnx* c, vws_frame* f)
+void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
 {
     vrtql_svr_cnx* cnx = (vrtql_svr_cnx*)c->data;
 
@@ -1339,25 +1432,25 @@ void msg_svr_process_frame(vws_cnx* c, vws_frame* f)
     vrtql.success();
 }
 
-void msg_svr_client_connect(vrtql_svr_cnx* c)
+void ws_svr_client_connect(vrtql_svr_cnx* c)
 {
     if (c->server->trace)
     {
-        vrtql_trace(VL_INFO, "msg_svr_client_connect(%p)", c->handle);
+        vrtql_trace(VL_INFO, "ws_svr_client_connect(%p)", c->handle);
     }
 
     // Create a new vws_cnx
     vws_cnx* cnx = (void*)vws_cnx_new();
-    cnx->process = msg_svr_process_frame;
+    cnx->process = ws_svr_process_frame;
     cnx->data    = (void*)c;   // Link cnx -> c
     c->data      = (void*)cnx; // Link c -> cnx
 }
 
-void msg_svr_client_disconnect(vrtql_svr_cnx* c)
+void ws_svr_client_disconnect(vrtql_svr_cnx* c)
 {
     if (c->server->trace)
     {
-        vrtql_trace(VL_INFO, "msg_svr_client_disconnect(%p)", c->handle);
+        vrtql_trace(VL_INFO, "ws_svr_client_disconnect(%p)", c->handle);
     }
 
     if (c->data != NULL)
@@ -1367,13 +1460,26 @@ void msg_svr_client_disconnect(vrtql_svr_cnx* c)
     }
 }
 
-void msg_svr_client_data_in(vrtql_svr_data* block)
+void vrtql_svr_close(vrtql_svr_cnx* cnx)
+{
+    // Create reply
+    vrtql_svr_data* reply;
+    reply = vrtql_svr_data_own(cnx, NULL, 0);
+
+    // Set connection close flag
+    vrtql_set_flag(&reply->flags, VM_SVR_DATA_CLOSE);
+
+    // Queue the data to uv_thread() to send out on wire
+    vrtql_svr_send(cnx->server, reply);
+}
+
+void ws_svr_client_data_in(vrtql_svr_data* block)
 {
     //> Append data to connection buffer
 
-    vrtql_svr_cnx* cnx    = block->cnx;
-    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
-    vws_cnx* c            = (vws_cnx*)cnx->data;
+    vrtql_svr_cnx* cnx   = block->cnx;
+    vrtql_ws_svr* server = (vrtql_ws_svr*)cnx->server;
+    vws_cnx* c           = (vws_cnx*)cnx->data;
     vrtql_buffer_append(c->base.buffer, block->data, block->size);
 
     // Free incoming data
@@ -1401,6 +1507,9 @@ void msg_svr_client_data_in(vrtql_svr_data* block)
                             http_errno_name(err),
                             http_errno_description(err) );
 
+                vrtql_svr_close(cnx);
+
+                /*
                 // Create reply
                 vrtql_svr_data* reply;
                 reply = vrtql_svr_data_own(cnx, NULL, 0);
@@ -1410,6 +1519,7 @@ void msg_svr_client_data_in(vrtql_svr_data* block)
 
                 // Queue the data to uv_thread() to send out on wire
                 vrtql_svr_send(cnx->server, reply);
+                */
 
                 return;
             }
@@ -1500,62 +1610,21 @@ void msg_svr_client_data_in(vrtql_svr_data* block)
                 return;
             }
 
-            //> Deserialize message
-
-            vrtql_msg* m = vrtql_msg_new();
-            cstr data    = wsm->data->data;
-            size_t size  = wsm->data->size;
-
-            if (vrtql_msg_deserialize(m, data, size) == false)
-            {
-                // Error already set
-                vws_msg_free(wsm);
-                vrtql_msg_free(m);
-
-                // Try for more messages
-                continue;
-            }
-            else
-            {
-                // Deserialized succeeded.
-
-                // We send back the format we get. More than that, a request
-                // with different format effectively changes the entire
-                // connection default format setting.
-                cnx->format = m->format;
-
-                // Free websocket message
-                vws_msg_free(wsm);
-
-                // Process message
-                server->on_msg_in(cnx, m);
-            }
+            // Process message
+            server->on_msg_in(cnx, wsm);
         }
     }
 }
 
-void msg_svr_client_msg_in(vrtql_svr_cnx* cnx, vrtql_msg* m)
+void ws_svr_client_data_out( vrtql_svr_cnx* cnx,
+                             vrtql_buffer* buffer,
+                             unsigned char opcode )
 {
-    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
-
-    // Route to application-specific processing callback
-    server->process(cnx, m);
-}
-
-void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req)
-{
-    // Default: Do nothing. Drop message.
-    vrtql_msg_free(req);
-}
-
-void msg_svr_client_msg_out(vrtql_svr_cnx* cnx, vrtql_msg* m)
-{
-    // Serialize message
-    vrtql_buffer* mdata = vrtql_msg_serialize(m);
-
     // Create a binary websocket frame containing message
     vws_frame* frame;
-    frame = vws_frame_new(mdata->data, mdata->size, BINARY_FRAME);
+    cstr data   = buffer->data;
+    size_t size = buffer->size;
+    frame       = vws_frame_new(data, size, opcode);
 
     // This frame is from server to we don't mask it
     frame->mask = 0;
@@ -1572,25 +1641,160 @@ void msg_svr_client_msg_out(vrtql_svr_cnx* cnx, vrtql_msg* m)
 
     // Free buffers
     vrtql_buffer_free(fdata);
-    vrtql_buffer_free(mdata);
+}
 
-    // Free message
+void ws_svr_client_msg_in(vrtql_svr_cnx* cnx, vws_msg* m)
+{
+    vrtql_ws_svr* server = (vrtql_ws_svr*)cnx->server;
+
+    // Route to application-specific processing callback
+    server->process(cnx, m);
+}
+
+void ws_svr_client_process(vrtql_svr_cnx* cnx, vws_msg* m)
+{
+    // Default: Do nothing. Drop message.
+    vws_msg_free(m);
+}
+
+void ws_svr_client_msg_out(vrtql_svr_cnx* cnx, vws_msg* m)
+{
+    ws_svr_client_data_out(cnx, m->data, m->opcode);
+    vws_msg_free(m);
+}
+
+void ws_svr_ctor(vrtql_ws_svr* server, int nt, int bl, int qs)
+{
+    svr_ctor((vrtql_svr*)server, nt, bl, qs);
+
+    // Server base function overrides
+    server->base.on_connect    = ws_svr_client_connect;
+    server->base.on_disconnect = ws_svr_client_disconnect;
+    server->base.on_data_in    = ws_svr_client_data_in;
+
+    // Initialize HTTP state
+    server->upgraded           = false;
+    server->http               = vrtql_http_req_new();
+
+    // Message handling
+    server->on_msg_in          = ws_svr_client_msg_in;
+    server->on_msg_out         = ws_svr_client_msg_out;
+
+    // Application functions
+    server->process            = ws_svr_client_process;
+    server->send               = ws_svr_client_msg_out;
+}
+
+vrtql_ws_svr* vrtql_ws_svr_new(int num_threads, int backlog, int queue_size)
+{
+    vrtql_ws_svr* server = vrtql.malloc(sizeof(vrtql_ws_svr));
+    ws_svr_ctor(server, num_threads, backlog, queue_size);
+    return server;
+}
+
+void ws_svr_dtor(vrtql_ws_svr* server)
+{
+    if (server == NULL)
+    {
+        return;
+    }
+
+    if (server->http != NULL)
+    {
+        vrtql_http_req_free(server->http);
+    }
+
+    svr_dtor((vrtql_svr*)server);
+}
+
+void vrtql_ws_svr_free(vrtql_ws_svr* server)
+{
+    if (server == NULL)
+    {
+        return;
+    }
+
+    ws_svr_dtor(server);
+    free(server);
+}
+
+//------------------------------------------------------------------------------
+// Messaging Server: Derived from WebSocket server
+//------------------------------------------------------------------------------
+
+// Convert incoming WebSocket messages to VRTQL messages for processing
+void msg_svr_client_ws_msg_in(vrtql_svr_cnx* cnx, vws_msg* wsm)
+{
+    // Deserialize message
+
+    vrtql_msg* msg = vrtql_msg_new();
+    cstr data      = wsm->data->data;
+    size_t size    = wsm->data->size;
+
+    if (vrtql_msg_deserialize(msg, data, size) == false)
+    {
+        // Deserialized failed
+
+        // Error already set
+        vws_msg_free(wsm);
+        vrtql_msg_free(msg);
+
+        vrtql_svr_close(cnx);
+
+        return;
+    }
+
+    // Deserialized succeeded
+
+    // We send back the format we get. More than that, a request with different
+    // format effectively changes the entire connection default format setting.
+    cnx->format = msg->format;
+
+    // Free websocket message
+    vws_msg_free(wsm);
+
+    // Process message
+    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
+    server->on_msg_in(cnx, msg);
+}
+
+// Receive/handle incoming VRTQL messages
+void msg_svr_client_msg_in(vrtql_svr_cnx* cnx, vrtql_msg* m)
+{
+    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
+
+    // Route to application-specific processing callback
+    server->process(cnx, m);
+}
+
+// Send VRTQL messages
+void msg_svr_client_msg_out(vrtql_svr_cnx* cnx, vrtql_msg* m)
+{
+    // Serialize message
+    vrtql_buffer* mdata = vrtql_msg_serialize(m);
+
+    // Send to base class
+    ws_svr_client_data_out(cnx, mdata, BINARY_FRAME);
+
+    // Cleanup
+    vrtql_buffer_free(mdata);
     vrtql_msg_free(m);
+}
+
+// Process incoming VRTQL messages
+void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req)
+{
+    // Default: Do nothing. Drop message.
+    vrtql_msg_free(req);
 }
 
 vrtql_msg_svr* vrtql_msg_svr_new(int num_threads, int backlog, int queue_size)
 {
     vrtql_msg_svr* server = vrtql.malloc(sizeof(vrtql_msg_svr));
-    svr_ctor((vrtql_svr*)server, num_threads, backlog, queue_size);
+    ws_svr_ctor((vrtql_ws_svr*)server, num_threads, backlog, queue_size);
 
     // Server base function overrides
-    server->base.on_connect    = msg_svr_client_connect;
-    server->base.on_disconnect = msg_svr_client_disconnect;
-    server->base.on_data_in    = msg_svr_client_data_in;
-
-    // Initialize HTTP state
-    server->upgraded           = false;
-    server->http               = vrtql_http_req_new();
+    server->base.process       = msg_svr_client_ws_msg_in;
 
     // Message handling
     server->on_msg_in          = msg_svr_client_msg_in;
@@ -1610,12 +1814,6 @@ void vrtql_msg_svr_free(vrtql_msg_svr* server)
         return;
     }
 
-    if (server->http != NULL)
-    {
-        vrtql_http_req_free(server->http);
-    }
-
-    svr_dtor((vrtql_svr*)server);
+    ws_svr_dtor((vrtql_ws_svr*)server);
     free(server);
 }
-
