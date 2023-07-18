@@ -75,7 +75,7 @@ documentation:
   </listitem>
 
   <listitem>
-    <para>Links such as <xref linkend="web.js"/> are shown in this manner.
+    <para>Links such as <xref linkend="ws.build"/> are shown in this manner.
     </para>
   </listitem>
 

@@ -26,9 +26,9 @@ bidirectional communication, it doesn't inherently offer things like you would
 see in more heavyweight message protocols like AMQP. The Messaging API provides
 a small step in that direction, but without the heft.</para>
 
-<section id="ws.api.ws"><title>Websocket API</title>
+<section id="ws.api.ws"><title>The Client API</title>
 
-<para>The following is a basic example of the Websockets API:
+<para>The following is a basic example of the Client API:
 
 <sourcecode href="ws.api.ws.example-1.cpp"/>
 
