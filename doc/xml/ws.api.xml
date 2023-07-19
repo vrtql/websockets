@@ -40,8 +40,8 @@ basic usage of the Client API:
 
 <section id="ws.api.ws.msg"><title>Messages and Frames</title>
 
-<para>The <function><cr f="websocket.h">vws_frame_send_text</cr>()</function>,
-<function><cr f="websocket.h">vws_frame_send_binary</cr>()</function> and
+<para>The <function><cr f="websocket.h">vws_msg_send_text</cr>()</function>,
+<function><cr f="websocket.h">vws_msg_send_binary</cr>()</function> and
 <function><cr f="websocket.h">vws_msg_recv</cr>()</function> work in terms of
 frames. The first two send messages out as a single frame. The latter continues
 to receive one or more frames back until it gets a frame with the FIN bit
@@ -50,8 +50,8 @@ message.</para>
 
 <para>While the API is geared around messages, you can deal in frames if you
 need to. There are equivalent functions to send and receive frames:
-<function><cr f="websocket.h">vws_frame_send_frame</cr>()</function>, <function>
-<cr f="websocket.h">vws_frame_recv_frame</cr>()</function>, and <function> <cr
+<function><cr f="websocket.h">vws_frame_send</cr>()</function>, <function>
+<cr f="websocket.h">vws_frame_recv</cr>()</function>, and <function> <cr
 f="websocket.h">vws_frame_send_data</cr>()</function>. As frames arrive in they
 are put on a receive queue. The <function><cr
 f="websocket.h">vws_frame_recv</cr>()</function> function checks this queue. If

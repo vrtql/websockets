@@ -88,8 +88,6 @@ Websockets API:
 ```c
 #include <vrtql/websocket.h>
 
-int main()
-{
     // Create connection object
     vws_cnx* cnx = vws_cnx_new();
 
@@ -114,7 +112,7 @@ int main()
     // format as they are sent and received.
     vrtql.trace = VT_PROTOCOL;
 
-    // Send a text message
+    // Send a TEXT frame
     vws_frame_send_text(cnx, "Hello, world!");
 
     // Receive websocket message
@@ -130,8 +128,8 @@ int main()
         vws_msg_free(reply);
     }
 
-    // Send a binary message
-    vws_frame_send_binary(cnx, "Hello, world!", 14);
+    // Send a BINARY message
+    vws_msg_send_binary(cnx, "Hello, world!", 14);
 
     // Receive websocket message
     reply = vws_msg_recv(cnx);

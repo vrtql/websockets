@@ -502,6 +502,21 @@ ssize_t vws_frame_send_data(vws_cnx* c, ucstr data, size_t size, int oc)
     return vws_frame_send(c, vws_frame_new(data, size, oc));
 }
 
+int vws_msg_send_text(vws_cnx* c, cstr data)
+{
+    return vws_frame_send_data(c, (ucstr)data, strlen(data), 0x1);
+}
+
+int vws_msg_send_binary(vws_cnx* c, ucstr data, size_t size)
+{
+    return vws_frame_send_data(c, data, size, 0x2);
+}
+
+ssize_t vws_msg_send_data(vws_cnx* c, ucstr data, size_t size, int oc)
+{
+    return vws_frame_send(c, vws_frame_new(data, size, oc));
+}
+
 ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 {
     vws_socket* s = (vws_socket*)c;

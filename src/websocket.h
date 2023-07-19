@@ -296,7 +296,7 @@ ssize_t vws_cnx_ingress(vws_cnx* c);
 //------------------------------------------------------------------------------
 
 /**
- * @brief Sends a TEXT message via a websocket connection.
+ * @brief Sends a TEXT frame
  *
  * @param c The connection.
  * @param string The text to send.
@@ -305,7 +305,7 @@ ssize_t vws_cnx_ingress(vws_cnx* c);
 int vws_frame_send_text(vws_cnx* c, cstr string);
 
 /**
- * @brief Sends a BINARY message via a websocket connection.
+ * @brief Sends a BINARY frame
  *
  * @param c The connection.
  * @param string The data to send.
@@ -315,7 +315,7 @@ int vws_frame_send_text(vws_cnx* c, cstr string);
 int vws_frame_send_binary(vws_cnx* c, ucstr string, size_t size);
 
 /**
- * @brief Sends custom frame data via a websocket connection.
+ * @brief Sends custom frame containing data
  *
  * @param c The connection.
  * @param dataThe data to send.
@@ -335,6 +335,36 @@ ssize_t vws_frame_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
  * @return Returns the number of bytes sent out on wire.
  */
 ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame);
+
+/**
+ * @brief Sends a TEXT message
+ *
+ * @param c The connection.
+ * @param string The text to send.
+ * @return Returns the number of bytes sent.
+ */
+int vws_msg_send_text(vws_cnx* c, cstr string);
+
+/**
+ * @brief Sends a BINARY message
+ *
+ * @param c The connection.
+ * @param string The data to send.
+ * @param size The size of the data in bytes.
+ * @return Returns the number of bytes sent.
+ */
+int vws_msg_send_binary(vws_cnx* c, ucstr string, size_t size);
+
+/**
+ * @brief Sends custom message containing
+ *
+ * @param c The connection.
+ * @param dataThe data to send.
+ * @param size The size of the data in bytes.
+ * @param oc The websocket opcode defining the frame type.
+ * @return Returns the number of bytes sent out on wire.
+ */
+ssize_t vws_msg_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
 
 /**
  * @brief Receives a websocket message from the connection.
