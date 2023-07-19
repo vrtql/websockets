@@ -37,7 +37,10 @@ void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
 void server_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
-    vrtql.trace = VT_THREAD;
+
+    vrtql.trace   = VT_THREAD;
+    server->trace = vrtql.trace;
+
     vrtql_svr_run(server, server_host, server_port);
 }
 

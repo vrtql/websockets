@@ -44,9 +44,6 @@ typedef struct vws_socket
     /**< Socket timeout in milliseconds. */
     int timeout;
 
-    /**< Enable tracing. */
-    uint8_t trace;
-
     /**< User-defined data associated with the connection */
     char* data;
 

@@ -6,10 +6,10 @@ CUSTOM_XSL_HTML_CHUNK=$(PWD)/xsl/html_chunk.xsl
 
 all:	includes ws
 
-includes:
+includes: include/*
 	./scripts/makeincludes.sh
 
-ws: xml/* xml/
+ws: xml/* xml/ includes
 	cd $(HTML_DIR) && xsltproc -o $@ -path $(DOCBOOKDTD) \
         --nonet                                          \
         --stringparam section.autolabel 1                \

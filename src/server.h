@@ -234,6 +234,9 @@ typedef struct vrtql_svr
     /**< Function for processing data from the worker back to the client */
     vrtql_svr_process_data on_data_out;
 
+    /**< Tracing leve (0 is off) */
+    uint8_t trace;
+
 } vrtql_svr;
 
 /**

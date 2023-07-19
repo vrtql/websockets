@@ -11,6 +11,8 @@ void process_data(vrtql_svr_data* req)
 {
     vrtql_svr* server = req->cnx->server;
 
+    vrtql_trace(VL_INFO, "process_data (%p)", req);
+
     //> Prepare the response: echo the data back
 
     // Allocate memory for the data to be sent in response
@@ -40,6 +42,10 @@ void process_data(vrtql_svr_data* req)
 void server_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
+
+    vrtql.trace   = VT_THREAD;
+    server->trace = vrtql.trace;
+
     vrtql_svr_run(server, server_host, server_port);
 }
 
@@ -64,7 +70,6 @@ CTEST(test_server, echo)
     vrtql_trace(VL_INFO, "[CLIENT] Connecting");
     vws_socket* s = vws_socket_new();
     ASSERT_TRUE(vws_socket_connect(s, server_host, server_port, false));
-    s->trace = true;
     vrtql_trace(VL_INFO, "[CLIENT] Connected");
 
     // Send request

@@ -2,12 +2,15 @@
 
 int main()
 {
-    cstr uri = "ws://localhost:8000/websocket";
-
-    // vws_connect() will detect "wss" scheme and automatically use SSL
+    // Create connection object
     vws_cnx* cnx = vws_cnx_new();
 
-    // Check if the connection was successful
+    // Set connection timeout to 2 seconds (the default is 10). This applies
+    // both to connect() and to read operations (i.e. poll()).
+    vws_cnx_set_timeout(cnx, 2);
+
+    // Connect. This will automatically use SSL if "wss" scheme is used.
+    cstr uri = "ws://localhost:8000/websocket";
     if (vws_connect(cnx, uri) == false)
     {
         printf("Failed to connect to the WebSocket server\n");
@@ -15,15 +18,13 @@ int main()
         return 1;
     }
 
-    // Check connection state. This should always be true here.
+    // Can check connection state this way. Should always be true here as we
+    // just successfully connected.
     assert(vws_cnx_is_connected(cnx) == true);
-
-    // Set timeout to 60 seconds (default is 10)
-    vws_cnx_set_timeout(cnx, 60);
 
     // Enable tracing. This will dump frames to the console in human-readable
     // format as they are sent and received.
-    cnx->trace = true;
+    vrtql.trace = VT_PROTOCOL;
 
     // Send a text message
     vws_send_text(cnx, "Hello, world!");

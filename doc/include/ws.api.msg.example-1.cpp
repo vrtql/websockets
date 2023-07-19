@@ -2,12 +2,11 @@
 
 int main()
 {
-    cstr uri = "ws://localhost:8000/websocket";
-
-    // vws_connect() will detect "wss" scheme and automatically use SSL
+    // Create connection object
     vws_cnx* cnx = vws_cnx_new();
 
-    // Check if the connection was successful
+    // Connect. This will automatically use SSL if "wss" scheme is used.
+    cstr uri = "ws://localhost:8000/websocket";
     if (vws_connect(cnx, uri) == false)
     {
         printf("Failed to connect to the WebSocket server\n");

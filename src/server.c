@@ -634,6 +634,9 @@ void worker_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
 
+    // Set thread tracing level to server.
+    vrtql.trace = server->trace;
+
     if (vrtql.trace >= VT_THREAD)
     {
         vrtql_trace(VL_INFO, "worker_thread(): Starting");
@@ -925,6 +928,7 @@ vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
     server->backlog       = backlog;
     server->loop          = (uv_loop_t*)vrtql.malloc(sizeof(uv_loop_t));
     server->state         = VS_HALTED;
+    server->trace         = vrtql.trace;
 
     uv_loop_init(server->loop);
     sc_map_init_64v(&server->cnxs, 0, 0);
@@ -1297,7 +1301,6 @@ void queue_destroy(vrtql_svr_queue* queue)
 {
     if (queue->buffer != NULL)
     {
-        vrtql_trace(VL_INFO, "queue_destroy(%s)", queue->name);
         free(queue->name);
         uv_mutex_destroy(&queue->mutex);
         uv_cond_destroy(&queue->cond);

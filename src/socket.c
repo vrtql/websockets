@@ -78,7 +78,6 @@ vws_socket* vws_socket_ctor(vws_socket* s)
     s->ssl     = NULL;
     s->ssl_ctx = NULL;
     s->timeout = 10000;
-    s->trace   = 0;
     s->data    = NULL;
     s->hs      = NULL;
 
@@ -117,7 +116,15 @@ void vws_socket_dtor(vws_socket* s)
 
 bool vws_socket_set_timeout(vws_socket* s, int sec)
 {
-    return socket_set_timeout(s->sockfd, sec);
+    if (socket_set_timeout(s->sockfd, sec) == false)
+    {
+        return false;
+    }
+
+    // Set socket attribute, this will apply to poll().
+    s->timeout = 10000;
+
+    return true;
 }
 
 bool socket_set_timeout(int fd, int sec)
@@ -562,7 +569,7 @@ int connect_to_host(const char* host, const char* port)
 
     if (error)
     {
-        if (vrtql.trace)
+        if (vrtql.trace > 0)
         {
             cstr msg = gai_strerror(error);
             vrtql_trace(VL_ERROR, "getaddrinfo failed: %s: %s", host, msg);
