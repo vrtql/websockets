@@ -90,14 +90,15 @@ Websockets API:
 
 int main()
 {
-    // Allocate a connection
+    // Create connection object
     vws_cnx* cnx = vws_cnx_new();
 
-    // Connect: vws_connect() will detect "wss" scheme and automatically use SSL
-    cstr uri = "ws://localhost:8000/websocket";
-    vws_connect(cnx, uri);
+    // Set connection timeout to 2 seconds (the default is 10). This applies
+    // both to connect() and to read operations (i.e. poll()).
+    vws_socket_set_timeout((vws_socket*)cnx, 2);
 
-    // Check if the connection was successful
+    // Connect. This will automatically use SSL if "wss" scheme is used.
+    cstr uri = "ws://localhost:8181/websocket";
     if (vws_connect(cnx, uri) == false)
     {
         printf("Failed to connect to the WebSocket server\n");
@@ -105,20 +106,19 @@ int main()
         return 1;
     }
 
-    // Check connection state. This should always be true here.
-    assert(vws_cnx_is_connected(cnx) == true);
+    // Can check connection state this way. Should always be true here as we
+    // just successfully connected.
+    assert(vws_socket_is_connected((vws_socket*)cnx) == true);
 
-    // Set timeout to 60 seconds (default is 10)
-    vws_cnx_set_timeout(cnx, 60);
-
-    // Enable tracing. This will dump frames sent and received.
-    cnx->trace = true;
+    // Enable tracing. This will dump frames to the console in human-readable
+    // format as they are sent and received.
+    vrtql.trace = VT_PROTOCOL;
 
     // Send a text message
-    vws_send_text(cnx, "Hello, world!");
+    vws_frame_send_text(cnx, "Hello, world!");
 
     // Receive websocket message
-    vws_msg* reply = vws_recv_msg(cnx);
+    vws_msg* reply = vws_msg_recv(cnx);
 
     if (reply == NULL)
     {
@@ -131,10 +131,10 @@ int main()
     }
 
     // Send a binary message
-    vws_send_binary(cnx, "Hello, world!", 14);
+    vws_frame_send_binary(cnx, "Hello, world!", 14);
 
     // Receive websocket message
-    reply = vws_recv_msg(cnx);
+    reply = vws_msg_recv(cnx);
 
     if (reply == NULL)
     {
@@ -146,8 +146,7 @@ int main()
         vws_msg_free(reply);
     }
 
-    // Disconnect and cleanup
-    vws_cnx_free(cnx);
+    vws_disconnect(cnx);
 
     return 0;
 }
@@ -181,19 +180,15 @@ MessagePack.
 The following is a basic example of using the high-level messaging API.
 
 ```c
-#include <vrtql/websocket.h>
 #include <vrtql/message.h>
 
 int main()
 {
-    // Allocate a connection
+    // Create connection object
     vws_cnx* cnx = vws_cnx_new();
 
-    // Connect: vws_connect() will detect "wss" scheme and automatically use SSL
-    cstr uri = "ws://localhost:8000/websocket";
-    vws_connect(cnx, uri);
-
-    // Check if the connection was successful
+    // Connect. This will automatically use SSL if "wss" scheme is used.
+    cstr uri = "ws://localhost:8181/websocket";
     if (vws_connect(cnx, uri) == false)
     {
         printf("Failed to connect to the WebSocket server\n");
@@ -201,10 +196,11 @@ int main()
         return 1;
     }
 
-    // Check connection state. This should always be true here.
-    assert(vws_cnx_is_connected(cnx) == true);
+    // Enable tracing. This will dump frames to the console in human-readable
+    // format as they are sent and received.
+    vrtql.trace = VT_PROTOCOL;
 
-    // Create
+  // Create
     vrtql_msg* request = vrtql_msg_new();
 
     vrtql_msg_set_routing(request, "key", "value");
@@ -221,7 +217,7 @@ int main()
     }
 
     // Receive
-    vrtql_msg* reply = vrtql_msg_receive(cnx);
+    vrtql_msg* reply = vrtql_msg_recv(cnx);
 
     if (reply == NULL)
     {
@@ -236,8 +232,7 @@ int main()
     // Cleanup
     vrtql_msg_free(request);
 
-    // Disconnect and cleanup
-    vws_cnx_free(cnx);
+    vws_disconnect(cnx);
 
     return 0;
 }

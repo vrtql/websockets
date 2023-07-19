@@ -278,7 +278,7 @@ void vws_cnx_free(vws_cnx* c);
 void vws_cnx_set_server_mode(vws_cnx* c);
 
 /**
- * @brief Processes incoming data from a WebSocket connection.
+ * @brief Processes incoming data from a Socket.
  *
  * This function parses the data in the socket buffer and attempts to extract
  * complete WebSocket frames. It processes as many frames as possible and
@@ -289,7 +289,7 @@ void vws_cnx_set_server_mode(vws_cnx* c);
  * @return The total number of bytes consumed from the socket buffer.
  *         If no complete frame is available or an error occurs, it returns 0.
  */
-ssize_t vws_socket_ingress(vws_cnx* c);
+ssize_t vws_cnx_ingress(vws_cnx* c);
 
 //------------------------------------------------------------------------------
 // Messaging API
@@ -302,7 +302,7 @@ ssize_t vws_socket_ingress(vws_cnx* c);
  * @param string The text to send.
  * @return Returns the number of bytes sent.
  */
-int vws_send_text(vws_cnx* c, cstr string);
+int vws_frame_send_text(vws_cnx* c, cstr string);
 
 /**
  * @brief Sends a BINARY message via a websocket connection.
@@ -312,7 +312,7 @@ int vws_send_text(vws_cnx* c, cstr string);
  * @param size The size of the data in bytes.
  * @return Returns the number of bytes sent.
  */
-int vws_send_binary(vws_cnx* c, ucstr string, size_t size);
+int vws_frame_send_binary(vws_cnx* c, ucstr string, size_t size);
 
 /**
  * @brief Sends custom frame data via a websocket connection.
@@ -323,7 +323,7 @@ int vws_send_binary(vws_cnx* c, ucstr string, size_t size);
  * @param oc The websocket opcode defining the frame type.
  * @return Returns the number of bytes sent out on wire.
  */
-ssize_t vws_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
+ssize_t vws_frame_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
 
 /**
  * @brief Sends a prebuilt websocket frame. This function will take ownership of
@@ -334,7 +334,7 @@ ssize_t vws_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
  *   frame and deallocate it for the caller.
  * @return Returns the number of bytes sent out on wire.
  */
-ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame);
+ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame);
 
 /**
  * @brief Receives a websocket message from the connection.
@@ -343,7 +343,7 @@ ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame);
  * @return Returns the most recent websocket message or NULL if the socket
  *   timed out without receiving a full message.
  */
-vws_msg* vws_recv_msg(vws_cnx* c);
+vws_msg* vws_msg_recv(vws_cnx* c);
 
 /**
  * @brief Removes and returns the first complete message from the connection's
@@ -355,7 +355,7 @@ vws_msg* vws_recv_msg(vws_cnx* c);
  *
  * @ingroup MessageFunctions
  */
-vws_msg* vws_pop_message(vws_cnx* c);
+vws_msg* vws_msg_pop(vws_cnx* c);
 
 /**
  * @brief Receives a websocket frame from the connection.
@@ -364,6 +364,6 @@ vws_msg* vws_pop_message(vws_cnx* c);
  * @return Returns the most recent websocket frame or NULL if the socket timed
  *   out without receiving a full frame.
  */
-vws_frame* vws_recv_frame(vws_cnx* c);
+vws_frame* vws_frame_recv(vws_cnx* c);
 
 #endif /* VRTQL_WEBSOCKET_DECLARE */

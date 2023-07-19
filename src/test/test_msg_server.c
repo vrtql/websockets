@@ -79,7 +79,7 @@ CTEST(test_msg_server, echo)
         ASSERT_TRUE(vrtql_msg_send(cnx, request) > 0);
 
         // Receive
-        vrtql_msg* reply = vrtql_msg_receive(cnx);
+        vrtql_msg* reply = vrtql_msg_recv(cnx);
 
         // Check
         cstr content = reply->content->data;

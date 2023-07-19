@@ -1606,13 +1606,13 @@ void ws_svr_client_data_in(vrtql_svr_data* block)
 
     //> Process connection buffer data for complete messages
 
-    if (vws_socket_ingress(c) > 0)
+    if (vws_cnx_ingress(c) > 0)
     {
         // Process as many messages as possible
         while (true)
         {
             // Check for a complete message
-            vws_msg* wsm = vws_pop_message(c);
+            vws_msg* wsm = vws_msg_pop(c);
 
             if (wsm == NULL)
             {

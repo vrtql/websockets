@@ -487,22 +487,22 @@ void vws_disconnect(vws_cnx* c)
 //> Messaging API
 //------------------------------------------------------------------------------
 
-int vws_send_text(vws_cnx* c, cstr data)
+int vws_frame_send_text(vws_cnx* c, cstr data)
 {
-    return vws_send_data(c, (ucstr)data, strlen(data), 0x1);
+    return vws_frame_send_data(c, (ucstr)data, strlen(data), 0x1);
 }
 
-int vws_send_binary(vws_cnx* c, ucstr data, size_t size)
+int vws_frame_send_binary(vws_cnx* c, ucstr data, size_t size)
 {
-    return vws_send_data(c, data, size, 0x2);
+    return vws_frame_send_data(c, data, size, 0x2);
 }
 
-ssize_t vws_send_data(vws_cnx* c, ucstr data, size_t size, int oc)
+ssize_t vws_frame_send_data(vws_cnx* c, ucstr data, size_t size, int oc)
 {
-    return vws_send_frame(c, vws_frame_new(data, size, oc));
+    return vws_frame_send(c, vws_frame_new(data, size, oc));
 }
 
-ssize_t vws_send_frame(vws_cnx* c, vws_frame* frame)
+ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 {
     vws_socket* s = (vws_socket*)c;
 
@@ -560,7 +560,7 @@ void vws_msg_free(vws_msg* m)
     }
 }
 
-vws_msg* vws_recv_msg(vws_cnx* c)
+vws_msg* vws_msg_recv(vws_cnx* c)
 {
     // Default success unless error
     vrtql.success();
@@ -573,7 +573,7 @@ vws_msg* vws_recv_msg(vws_cnx* c)
 
     while (true)
     {
-        vws_msg* msg = vws_pop_message(c);
+        vws_msg* msg = vws_msg_pop(c);
 
         if (msg != NULL)
         {
@@ -1061,7 +1061,7 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
             return 0;
         }
 
-        if (vws_socket_ingress(c) > 0)
+        if (vws_cnx_ingress(c) > 0)
         {
             break;
         }
@@ -1070,7 +1070,7 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
     return n;
 }
 
-ssize_t vws_socket_ingress(vws_cnx* c)
+ssize_t vws_cnx_ingress(vws_cnx* c)
 {
     size_t total_consumed = 0;
 
@@ -1153,7 +1153,7 @@ vrtql_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s)
     return vws_serialize(f);
 }
 
-vws_msg* vws_pop_message(vws_cnx* c)
+vws_msg* vws_msg_pop(vws_cnx* c)
 {
     if (has_complete_message(c) == false)
     {

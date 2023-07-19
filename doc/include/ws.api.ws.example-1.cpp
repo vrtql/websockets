@@ -7,10 +7,10 @@ int main()
 
     // Set connection timeout to 2 seconds (the default is 10). This applies
     // both to connect() and to read operations (i.e. poll()).
-    vws_cnx_set_timeout(cnx, 2);
+    vws_socket_set_timeout((vws_socket*)cnx, 2);
 
     // Connect. This will automatically use SSL if "wss" scheme is used.
-    cstr uri = "ws://localhost:8000/websocket";
+    cstr uri = "ws://localhost:8181/websocket";
     if (vws_connect(cnx, uri) == false)
     {
         printf("Failed to connect to the WebSocket server\n");
@@ -20,17 +20,17 @@ int main()
 
     // Can check connection state this way. Should always be true here as we
     // just successfully connected.
-    assert(vws_cnx_is_connected(cnx) == true);
+    assert(vws_socket_is_connected((vws_socket*)cnx) == true);
 
     // Enable tracing. This will dump frames to the console in human-readable
     // format as they are sent and received.
     vrtql.trace = VT_PROTOCOL;
 
     // Send a text message
-    vws_send_text(cnx, "Hello, world!");
+    vws_frame_send_text(cnx, "Hello, world!");
 
     // Receive websocket message
-    vws_msg* reply = vws_recv_msg(cnx);
+    vws_msg* reply = vws_msg_recv(cnx);
 
     if (reply == NULL)
     {
@@ -43,10 +43,10 @@ int main()
     }
 
     // Send a binary message
-    vws_send_binary(cnx, "Hello, world!", 14);
+    vws_frame_send_binary(cnx, "Hello, world!", 14);
 
     // Receive websocket message
-    reply = vws_recv_msg(cnx);
+    reply = vws_msg_recv(cnx);
 
     if (reply == NULL)
     {

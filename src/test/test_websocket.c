@@ -20,7 +20,7 @@ cstr uri     = "ws://localhost:8181/websocket";
 
 #define check_reply(c, value)                                             \
 {                                                                         \
-    vws_msg* m = vws_recv_msg(c);                                         \
+    vws_msg* m = vws_msg_recv(c);                                         \
     ASSERT_TRUE(m != NULL);                                               \
     ASSERT_TRUE(strncmp((cstr)m->data->data, value, m->data->size) == 0); \
     vws_msg_free(m);\
@@ -49,20 +49,20 @@ CTEST_TEARDOWN(test)
 
 CTEST2(test, send_receive)
 {
-    vws_send_text(data->c, content);
+    vws_frame_send_text(data->c, content);
     check_reply(data->c, content);
 }
 
 CTEST2(test, send_data)
 {
-    vws_send_data(data->c, (ucstr)content, strlen(content), 0x1);
+    vws_frame_send_data(data->c, (ucstr)content, strlen(content), 0x1);
     check_reply(data->c, content);
 }
 
 CTEST2(test, send_frame)
 {
     vws_frame* frame = vws_frame_new((ucstr)content, strlen(content), 0x1);
-    vws_send_frame(data->c, frame);
+    vws_frame_send(data->c, frame);
     check_reply(data->c, content);
 }
 
@@ -78,7 +78,7 @@ CTEST2(test, message)
     ASSERT_TRUE(vrtql_msg_send(data->c, request) > 0);
 
     // Receive
-    vrtql_msg* reply = vrtql_msg_receive(data->c);
+    vrtql_msg* reply = vrtql_msg_recv(data->c);
     ASSERT_TRUE(reply != NULL);
 
     // Check

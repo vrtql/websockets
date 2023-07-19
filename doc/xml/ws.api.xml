@@ -29,12 +29,10 @@ a small step in that direction, but without the heft.</para>
 <section id="ws.api.ws"><title>The Client API</title>
 
 <para>There are three objects in the C API: connections given by the
-<classname><link xlink:href="&websocket_h;#vws_cnx">vws_cnx</link></classname>
-struct, frames (<classname><link
-xlink:href="&websocket_h;#vws_frame">vws_frame</link></classname>) and messages
-(<classname><link
-xlink:href="&websocket_h;#vws_msg">vws_msg</link></classname>). The following
-example illustrates the basic usage of the Client API:
+<classname><cr f="websocket.h">vws_cnx</cr></classname>, <classname><cr
+f="websocket.h">vws_frame</cr></classname> and <classname><cr
+f="websocket.h">vws_msg</cr></classname>. The following example illustrates the
+basic usage of the Client API:
 
 <sourcecode href="ws.api.ws.example-1.cpp"/>
 
@@ -42,25 +40,38 @@ example illustrates the basic usage of the Client API:
 
 <section id="ws.api.ws.msg"><title>Messages and Frames</title>
 
-<para>The send and receive model works in terms of frames. You send one or more
-frames out and you receive one or more frames back. As frames come in they are
-put on a receive queue. The <function>vws_recv_frame()</function>
-function checks this queue. If the queue is empty it performs a socket read
-until the queue has at least one complete frame. If no frame arrives, it blocks
-until its set timeout and will return NULL.</para>
+<para>The <function><cr f="websocket.h">vws_frame_send_text</cr>()</function>,
+<function><cr f="websocket.h">vws_frame_send_binary</cr>()</function> and
+<function><cr f="websocket.h">vws_msg_recv</cr>()</function> work in terms of
+frames. The first two send messages out as a single frame. The latter continues
+to receive one or more frames back until it gets a frame with the FIN bit
+set. It then concatenates the data from all frames to form a single
+message.</para>
+
+<para>While the API is geared around messages, you can deal in frames if you
+need to. There are equivalent functions to send and receive frames:
+<function><cr f="websocket.h">vws_frame_send_frame</cr>()</function>, <function>
+<cr f="websocket.h">vws_frame_recv_frame</cr>()</function>, and <function> <cr
+f="websocket.h">vws_frame_send_data</cr>()</function>. As frames arrive in they
+are put on a receive queue. The <function><cr
+f="websocket.h">vws_frame_recv</cr>()</function> function checks this queue. If
+the queue is empty it performs a socket read until the queue has at least one
+complete frame. If no frame arrives, it blocks until its set timeout and will
+return NULL.</para>
 
 <para>While frames are a concrete object in the standard, messages are
 not. Messages are expressed in terms of frames. A message is one or more frames,
-terminated by a frame with the FIN bit set. So I message can be a single frame,
-which would have its FIN bit set. Or a message can be multiple frames the last
-of which has the FIN bet set. In the latter case, the first frame contains the
-content type (text, binary, etc.). Subsequent frames in the chain or
-continuation frames (another frame type). The last of these continuation frames
-will have the FIN bit set, signifying the end of the message. The
-<function>vws_recv_msg()</function> handles this logic and continues to collect
-frames in the queue until there is at least one complete message. It works
-almost identically <function>vws_recv_frame()</function> but on a message
-level.</para>
+terminated by a frame with the <literal>FIN</literal> bit set. So I message can
+be a single frame, which would have its <literal>FIN</literal> bit set. Or a
+message can be multiple frames the last of which has the <literal>FIN</literal>
+bet set. In the latter case, the first frame contains the content type (text,
+binary, etc.). Subsequent frames in the chain or continuation frames (another
+frame type). The last of these continuation frames will have the
+<literal>FIN</literal> bit set, signifying the end of the message. The
+<function><cr f="message.h">vrtql_msg_recv</cr>()</function> handles this logic
+and continues to collect frames in the queue until there is at least one
+complete message. It works almost identically <function><cr
+f="websocket.h">vws_frame_recv</cr>()</function> but on a message level.</para>
 
 </section>
 
@@ -92,9 +103,9 @@ maps (hashtables of string key/value pairs) and a payload. One map, called
 messaging applications. The other map, called <varname>headers</varname>, is for
 application use. The payload can hold both text and binary data.</para>
 
-<para>The associated connection API is really just two functions:
-<function>vrtql_msg_send()</function> and
-<function>vrtql_msg_receive()</function> calls which operate with these
+<para>The associated connection API is really just two functions: <function><cr
+f="message.h">vrtql_msg_send</cr>()</function> and <function><cr
+f="message.h">vrtql_msg_recv</cr>()</function> calls which operate with these
 messages. They send and receive the messages, automatically handling
 serialization and deserialization on and off the wire.</para>
 

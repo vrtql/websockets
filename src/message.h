@@ -156,7 +156,7 @@ ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg);
  * @return Returns the most recent message or NULL if the socket timed out
  *   without receiving a full message.
  */
-vrtql_msg* vrtql_msg_receive(vws_cnx* c);
+vrtql_msg* vrtql_msg_recv(vws_cnx* c);
 
 
 #endif /* VRTQL_MSG_DECLARE */

@@ -25,6 +25,7 @@ add_dependencies(static_test_lib static_lib)
 
 set(test_targets
   test_common
+  test_example
   test_json
   test_message
   test_rpc

@@ -53,6 +53,18 @@
 <!-- Additional Style / Formatting                                            -->
 <!-- vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv -->
 
+<xsl:template match="d:cr">
+  <a>
+    <xsl:attribute name="href">
+      <xsl:text>https://vrtql.github.io/ws-code-doc/root/codebrowser/src/</xsl:text>
+      <xsl:value-of select="@f" disable-output-escaping="yes"/>
+      <xsl:text>.html#</xsl:text>
+      <xsl:value-of select="text()" disable-output-escaping="yes"/>
+    </xsl:attribute>
+    <xsl:apply-templates/>
+  </a>
+</xsl:template>
+
 <xsl:template match="rhtml">
   <a>
     <xsl:attribute name="href">

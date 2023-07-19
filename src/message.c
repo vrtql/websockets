@@ -432,15 +432,15 @@ void vrtql_msg_set_content_binary(vrtql_msg* msg, cstr value, size_t size)
 ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg)
 {
     vrtql_buffer* binary = vrtql_msg_serialize(msg);
-    ssize_t bytes = vws_send_binary(c, binary->data, binary->size);
+    ssize_t bytes = vws_frame_send_binary(c, binary->data, binary->size);
     vrtql_buffer_free(binary);
 
     return bytes;
 }
 
-vrtql_msg* vrtql_msg_receive(vws_cnx* c)
+vrtql_msg* vrtql_msg_recv(vws_cnx* c)
 {
-    vws_msg* wsm = vws_recv_msg(c);
+    vws_msg* wsm = vws_msg_recv(c);
 
     if (wsm == NULL)
     {
