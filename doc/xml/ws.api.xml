@@ -28,7 +28,13 @@ a small step in that direction, but without the heft.</para>
 
 <section id="ws.api.ws"><title>The Client API</title>
 
-<para>The following is a basic example of the Client API:
+<para>There are three objects in the C API: connections given by the
+<classname><link xlink:href="&websocket_h;#vws_cnx">vws_cnx</link></classname>
+struct, frames (<classname><link
+xlink:href="&websocket_h;#vws_frame">vws_frame</link></classname>) and messages
+(<classname><link
+xlink:href="&websocket_h;#vws_msg">vws_msg</link></classname>). The following
+example illustrates the basic usage of the Client API:
 
 <sourcecode href="ws.api.ws.example-1.cpp"/>
 

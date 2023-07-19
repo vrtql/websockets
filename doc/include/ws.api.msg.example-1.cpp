@@ -7,8 +7,6 @@ int main()
     // vws_connect() will detect "wss" scheme and automatically use SSL
     vws_cnx* cnx = vws_cnx_new();
 
-    vws_connect(cnx, uri);
-
     // Check if the connection was successful
     if (vws_connect(cnx, uri) == false)
     {

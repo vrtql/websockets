@@ -29,6 +29,21 @@ typedef enum
     VE_FATAL   = 200, /**< Fatal error */
 } vrtql_error_code_t;
 
+// Trace levels
+typedef enum vrtql_tl_t
+{
+    VT_OFF         = 0,
+    VT_APPLICATION = 1,
+    VT_MODULE      = 2,
+    VT_SERVICE     = 3,
+    VT_PROTOCOL    = 4,
+    VT_THREAD      = 5,
+    VT_TCPIP       = 6,
+    VT_LOCK        = 7,
+    VT_MEMORY      = 8,
+    VT_ALL         = 9
+} vrtql_tl_t;
+
 /**
  * @brief Defines a structure for vrtql errors.
  */
@@ -128,7 +143,7 @@ typedef struct
     vrtql_error_clear_cb clear_error;     /**< Error clear function        */
     vrtql_error_clear_cb success;         /**< Error clear function        */
     vrtql_error_value e;                  /**< Last error value            */
-    uint8_t trace;                        /**< Turns on tracing            */
+    uint8_t trace;                        /**< Tracing leve (0 is off)     */
     uint64_t state;                       /**< Contains global state flags */
 } vrtql_env;
 

@@ -25,7 +25,7 @@ void process_data(vrtql_svr_data* req)
     // Free request
     vrtql_svr_data_free(req);
 
-    if (server->trace)
+    if (vrtql.trace >= VT_APPLICATION)
     {
         vrtql_trace( VL_INFO,
                      "process_data(%p): %i bytes",
@@ -46,7 +46,7 @@ void server_thread(void* arg)
 CTEST(test_server, echo)
 {
     vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
-    server->trace      = 1;
+    vrtql.trace        = VT_THREAD;
     server->on_data_in = process_data;
 
     vrtql_trace(VL_INFO, "[CLIENT] Starting server");

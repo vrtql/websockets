@@ -420,6 +420,20 @@ static void ws_svr_client_msg_in(vrtql_svr_cnx* c, vws_msg* m);
  */
 static void ws_svr_client_msg_out(vrtql_svr_cnx* c, vws_msg* m);
 
+/**
+ * @brief Default WebSocket message processing function. This is mean to be
+ * overriden by application to perform message processing, specifically by
+ * assigning the vrtql_ws_svr.process callback to the desired processing
+ * handler. The default implementation simple drops (deletes) the incoming
+ * message.
+ *
+ * @param cnx The server connection.
+ * @param req The incoming WebSocket message.
+ *
+ * @ingroup MessageServerFunctions
+ */
+static void ws_svr_client_process(vrtql_svr_cnx* cnx, vws_msg* req);
+
 
 
 
@@ -620,7 +634,10 @@ void worker_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
 
-    vrtql_trace(VL_INFO, "worker_thread(): Starting");
+    if (vrtql.trace >= VT_THREAD)
+    {
+        vrtql_trace(VL_INFO, "worker_thread(): Starting");
+    }
 
     while (true)
     {
@@ -636,7 +653,7 @@ void worker_thread(void* arg)
             // If server is in halting state, return
             if (server->state == VS_HALTING)
             {
-                if (server->trace)
+                if (vrtql.trace >= VT_THREAD)
                 {
                     vrtql_trace(VL_INFO, "worker_thread(): Exiting");
                 }
@@ -660,7 +677,7 @@ void uv_thread(uv_async_t* handle)
 
     if (server->state == VS_HALTING)
     {
-        if (server->trace)
+        if (vrtql.trace >= VT_THREAD)
         {
             vrtql_trace(VL_INFO, "uv_thread(): stop");
         }
@@ -763,7 +780,7 @@ int vrtql_svr_send(vrtql_svr* server, vrtql_svr_data* data)
 
 int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 {
-    if (server->trace == true)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace( VL_INFO,
                      "vrtql_svr_run(%p): Starting worker %i threads",
@@ -790,7 +807,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     uv_ip4_addr(host, port, &addr);
     rc = uv_tcp_bind(socket, (const struct sockaddr*)&addr, 0);
 
-    if (server->trace == true)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace( VL_INFO,
                      "vrtql_svr_run(%p): Bind %s:%lu",
@@ -813,7 +830,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
         return -1;
     }
 
-    if (server->trace == true)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace( VL_INFO,
                      "vrtql_svr_run(%s): Listen %s:%lu",
@@ -825,7 +842,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     // Set state to running
     server->state = VS_RUNNING;
 
-    if (server->trace == true)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace(VL_INFO, "vrtql_svr_run(%s): Starting uv_run()", server);
     }
@@ -840,9 +857,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     //socket->data = (void*)-2;
     uv_close((uv_handle_t*)socket, svr_on_close);
 
-    vrtql_trace(VL_INFO, "vrtql_svr_run(%p): socket=%p", (uv_handle_t*)socket);
-
-    if (server->trace)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace(VL_INFO, "vrtql_svr_run(%p): Shutdown complete", server);
     }
@@ -853,13 +868,6 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     return 0;
 }
 
-void vrtql_svr_trace(vrtql_svr* server, int flag)
-{
-    server->trace           = flag;
-    server->requests.trace  = flag;
-    server->responses.trace = flag;
-}
-
 void vrtql_svr_stop(vrtql_svr* server)
 {
     // Set shutdown flags
@@ -868,7 +876,7 @@ void vrtql_svr_stop(vrtql_svr* server)
     server->responses.state = VS_HALTING;
 
     // Wakeup all worker threads
-    if (server->trace)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace(VL_INFO, "vrtql_svr_stop(): stop worker threads");
     }
@@ -878,7 +886,7 @@ void vrtql_svr_stop(vrtql_svr* server)
     uv_mutex_unlock(&server->requests.mutex);
 
     // Wakeup the main event loop to shutdown main thread
-    if (server->trace)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace(VL_INFO, "vrtql_svr_stop(): stop main thread");
     }
@@ -909,7 +917,6 @@ vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
 
     server->threads       = vrtql.malloc(sizeof(uv_thread_t) * nt);
     server->pool_size     = nt;
-    server->trace         = 0;
     server->on_connect    = svr_client_connect;
     server->on_disconnect = svr_client_disconnect;
     server->on_read       = svr_client_read;
@@ -1005,7 +1012,7 @@ void svr_dtor(vrtql_svr* server)
 
 void svr_client_connect(vrtql_svr_cnx* c)
 {
-    if (c->server->trace)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace(VL_INFO, "svr_client_connect(%p)", c->handle);
     }
@@ -1013,7 +1020,7 @@ void svr_client_connect(vrtql_svr_cnx* c)
 
 void svr_client_disconnect(vrtql_svr_cnx* c)
 {
-    if (c->server->trace)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace(VL_INFO, "svr_client_disconnect(%p)", c->handle);
     }
@@ -1143,7 +1150,7 @@ void svr_shutdown(vrtql_svr* server)
         return;
     }
 
-    if (server->trace)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace(VL_INFO, "svr_shutdown(%p): Shutdown starting", server);
     }
@@ -1279,7 +1286,6 @@ void queue_init(vrtql_svr_queue* queue, int size, cstr name)
     queue->head     = 0;
     queue->tail     = 0;
     queue->state    = VS_RUNNING;
-    queue->trace    = 0;
     queue->name     = strdup(name);
 
     // Initialize mutex and condition variable
@@ -1434,7 +1440,7 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
 
 void ws_svr_client_connect(vrtql_svr_cnx* c)
 {
-    if (c->server->trace)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace(VL_INFO, "ws_svr_client_connect(%p)", c->handle);
     }
@@ -1448,7 +1454,7 @@ void ws_svr_client_connect(vrtql_svr_cnx* c)
 
 void ws_svr_client_disconnect(vrtql_svr_cnx* c)
 {
-    if (c->server->trace)
+    if (vrtql.trace >= VT_SERVICE)
     {
         vrtql_trace(VL_INFO, "ws_svr_client_disconnect(%p)", c->handle);
     }

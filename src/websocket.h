@@ -164,7 +164,7 @@ void vws_dump_websocket_frame(const unsigned char* data, size_t size);
 /**
  * @brief Represents a websocket message, which contains opcode and data.
  */
-typedef struct
+typedef struct vws_msg
 {
     /**< Defines the interpretation of the payload data. */
     unsigned char opcode;

@@ -1,8 +1,16 @@
 <!-- entities -->
 
-<!ENTITY modrubyreleaseversion "${VERSION}">
-<!ENTITY modrubyreleasedate    "${RELEASE_DATE}">
-<!ENTITY modrubyreleaseyear    "2023">
+<!ENTITY coderef "https://vrtql.github.io/ws-code-doc/root/codebrowser">
+<!ENTITY message_c "&coderef;/src/message.c.html">
+<!ENTITY message_h "&coderef;/src/message.h.html">
+<!ENTITY server_c "&coderef;/src/server.c.html">
+<!ENTITY server_h "&coderef;/src/server.h.html">
+<!ENTITY socket_c "&coderef;/src/socket.c.html">
+<!ENTITY socket_h "&coderef;/src/socket.h.html">
+<!ENTITY vrtql_c "&coderef;/src/vrtql.c.html">
+<!ENTITY vrtql_h "&coderef;/src/vrtql.h.html">
+<!ENTITY websocket_c "&coderef;/src/websocket.c.html">
+<!ENTITY websocket_h "&coderef;/src/websocket.h.html">
 
 <!-- C0 Controls and Basic Latin -->
 <!ENTITY quot     "&#34;">

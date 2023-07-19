@@ -7,8 +7,6 @@ int main()
     // vws_connect() will detect "wss" scheme and automatically use SSL
     vws_cnx* cnx = vws_cnx_new();
 
-    vws_connect(cnx, uri);
-
     // Check if the connection was successful
     if (vws_connect(cnx, uri) == false)
     {
@@ -23,7 +21,8 @@ int main()
     // Set timeout to 60 seconds (default is 10)
     vws_cnx_set_timeout(cnx, 60);
 
-    // Enable tracing. This will dump frames sent and received.
+    // Enable tracing. This will dump frames to the console in human-readable
+    // format as they are sent and received.
     cnx->trace = true;
 
     // Send a text message

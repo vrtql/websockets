@@ -116,7 +116,8 @@ void vws_socket_dtor(vws_socket* s);
 bool vws_socket_connect(vws_socket* s, cstr host, int port, bool ssl);
 
 /**
- * @brief  Sets a timeout on a socket read/write operations.
+ * @brief Sets a timeout on a socket read/write operations. The default
+ *        timeout is 10 seconds.
  *
  * @param s The socket instance to be destructed
  * @param sec The timeout value in seconds.

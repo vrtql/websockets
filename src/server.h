@@ -115,9 +115,6 @@ typedef struct
     /**< Queue name */
     cstr name;
 
-    /**< Debugging trace flag */
-    uint8_t trace;
-
 } vrtql_svr_queue;
 
 struct vrtql_svr;
@@ -237,9 +234,6 @@ typedef struct vrtql_svr
     /**< Function for processing data from the worker back to the client */
     vrtql_svr_process_data on_data_out;
 
-    /**< Debugging trace flag */
-    uint8_t trace;
-
 } vrtql_svr;
 
 /**
@@ -321,15 +315,6 @@ void vrtql_svr_close(vrtql_svr_cnx* cnx);
  * @param server The server to stop.
  */
 void vrtql_svr_stop(vrtql_svr* server);
-
-/**
- * @brief Toggles debugging trace for a VRTQL server.
- *
- * @param server The server to trace.
- * @param flag The flag to set the trace. Non-zero value enables tracing,
- *   zero disables it.
- */
-void vrtql_svr_trace(vrtql_svr* server, int flag);
 
 /**
  * @brief Returns the server operational state.
