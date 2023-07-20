@@ -646,7 +646,7 @@ void vws_frame_free(vws_frame* f)
     }
 }
 
-vws_frame* vws_recv_frame(vws_cnx* c)
+vws_frame* vws_frame_recv(vws_cnx* c)
 {
     // Default success unless error
     vrtql.success();

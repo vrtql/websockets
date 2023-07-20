@@ -367,7 +367,8 @@ int vws_msg_send_binary(vws_cnx* c, ucstr string, size_t size);
 ssize_t vws_msg_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
 
 /**
- * @brief Receives a websocket message from the connection.
+ * @brief Receives a websocket message from the connection. If there are no
+ *        messages in queue, it will call socket_wait_for_frame().
  *
  * @param c The connection.
  * @return Returns the most recent websocket message or NULL if the socket
@@ -388,7 +389,8 @@ vws_msg* vws_msg_recv(vws_cnx* c);
 vws_msg* vws_msg_pop(vws_cnx* c);
 
 /**
- * @brief Receives a websocket frame from the connection.
+ * @brief Receives a websocket frame from the connection. If there are no
+ *        frames in queue, it will call socket_wait_for_frame().
  *
  * @param c The connection.
  * @return Returns the most recent websocket frame or NULL if the socket timed

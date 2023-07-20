@@ -2,10 +2,8 @@
 
 int main()
 {
-    // Create connection object
     vws_cnx* cnx = vws_cnx_new();
 
-    // Connect. This will automatically use SSL if "wss" scheme is used.
     cstr uri = "ws://localhost:8181/websocket";
     if (vws_connect(cnx, uri) == false)
     {
@@ -14,11 +12,7 @@ int main()
         return 1;
     }
 
-    // Enable tracing. This will dump frames to the console in human-readable
-    // format as they are sent and received.
-    vrtql.trace = VT_PROTOCOL;
-
-  // Create
+    // Create a message
     vrtql_msg* request = vrtql_msg_new();
 
     vrtql_msg_set_routing(request, "key", "value");
@@ -51,6 +45,7 @@ int main()
     vrtql_msg_free(request);
 
     vws_disconnect(cnx);
+    vws_cnx_free(cnx);
 
     return 0;
 }

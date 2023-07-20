@@ -22,43 +22,15 @@ int main()
     // just successfully connected.
     assert(vws_socket_is_connected((vws_socket*)cnx) == true);
 
-    // Enable tracing. This will dump frames to the console in human-readable
-    // format as they are sent and received.
-    vrtql.trace = VT_PROTOCOL;
+    //
+    // { Do stuff: send and receive messages/frames }
+    //
 
-    // Send a TEXT frame
-    vws_frame_send_text(cnx, "Hello, world!");
-
-    // Receive websocket message
-    vws_msg* reply = vws_msg_recv(cnx);
-
-    if (reply == NULL)
-    {
-        // There was no message received and it resulted in timeout
-    }
-    else
-    {
-        // Free message
-        vws_msg_free(reply);
-    }
-
-    // Send a BINARY message
-    vws_msg_send_binary(cnx, "Hello, world!", 14);
-
-    // Receive websocket message
-    reply = vws_msg_recv(cnx);
-
-    if (reply == NULL)
-    {
-        // There was no message received and it resulted in timeout
-    }
-    else
-    {
-        // Free message
-        vws_msg_free(reply);
-    }
-
+    // Disconnect
     vws_disconnect(cnx);
+
+    // Free the connection
+    vws_cnx_free(cnx);
 
     return 0;
 }

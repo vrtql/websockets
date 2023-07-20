@@ -41,7 +41,7 @@ cross-compiling are covered in <xref linkend="ws.build.windows"/>.</para>
 optional server-side component. The library was initially written for
 client-side only. The server component was added shortly after the client code
 was completed. The two components are built from completely different networking
-designs, each suited their particular use-cases. The client architecture is
+designs, each suited to their particular use-cases. The client architecture is
 designed for single connections and operates synchronously, waiting for
 responses from the server. The server architecture is designed for many
 concurrent connections and operates asynchronously.</para>

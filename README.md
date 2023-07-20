@@ -144,7 +144,11 @@ Websockets API:
         vws_msg_free(reply);
     }
 
+    // Diconnect
     vws_disconnect(cnx);
+
+    // Free the connection
+    vws_cnx_free(cnx);
 
     return 0;
 }
@@ -230,7 +234,11 @@ int main()
     // Cleanup
     vrtql_msg_free(request);
 
+    // Diconnect
     vws_disconnect(cnx);
+
+    // Free the connection
+    vws_cnx_free(cnx);
 
     return 0;
 }

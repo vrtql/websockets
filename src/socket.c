@@ -122,7 +122,7 @@ bool vws_socket_set_timeout(vws_socket* s, int sec)
     }
 
     // Set socket attribute, this will apply to poll().
-    s->timeout = 10000;
+    s->timeout = sec;
 
     return true;
 }
@@ -135,6 +135,11 @@ bool socket_set_timeout(int fd, int sec)
     {
         vrtql.error(VE_RT, "Not connected");
         return false;
+    }
+
+    if (sec == -1)
+    {
+        sec = 0;
     }
 
     struct timeval tm;
@@ -167,6 +172,12 @@ bool socket_set_timeout(int fd, int sec)
 
     // Convert from sec to ms for Windows
     DWORD tm = sec * 1000;
+
+    if (sec == -1)
+    {
+        // Maximum value (136.17 years)
+        sec = 4294967295;
+    }
 
     // Set the send timeout
     if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (cstr)&tm, sizeof(tm)) < 0)

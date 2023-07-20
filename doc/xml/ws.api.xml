@@ -17,61 +17,242 @@
 
 <title>C API</title>
 
-<para>There are two APIs in the library: the WebSockts API and the Messaging
-API. The WebSockets API is built solely upon WebSocket constructs: frames,
-messages and connections, as you would expect. It intuitively follows the
-concepts and structure laid out in the standard. The Messaging API is built on
-top of the WebSockets API. While WebSockets provide a mechanism for real-time
-bidirectional communication, it doesn't inherently offer things like you would
-see in more heavyweight message protocols like AMQP. The Messaging API provides
-a small step in that direction, but without the heft.</para>
+<para>There are two APIs in the library: the Client API and the Server API. Both
+are built around WebSocket constructs: frames, messages and connections, as you
+would expect. Both are designed to be simple and intuitive, managing all the
+painful detail work behind the scenes so that you can focus on building the
+application. As mentioned in <link linkend="ws.intro">the introduction</link>,
+the two APIs are built from completely different networking designs, each suited
+to their particular context. The client architecture is designed for single
+connections and operates synchronously. The server architecture is designed for
+many concurrent connections and operates asynchronously. The client architecture
+builds on native operating networking services whereas the server architecture
+is built on <filename><link
+xlink:href="https://libuv.org/">libuv</link></filename>.</para>
 
 <section id="ws.api.ws"><title>The Client API</title>
 
-<para>There are three objects in the C API: connections given by the
-<classname><cr f="websocket.h">vws_cnx</cr></classname>, <classname><cr
-f="websocket.h">vws_frame</cr></classname> and <classname><cr
-f="websocket.h">vws_msg</cr></classname>. The following example illustrates the
-basic usage of the Client API:
+<para>There are three objects in the C API: connection (<classname><cr
+f="websocket.h">vws_cnx</cr></classname>), frame (<classname><cr
+f="websocket.h">vws_frame</cr></classname>) and message (<classname><cr
+f="websocket.h">vws_msg</cr></classname>). While frames are a concrete object in
+the standard, messages are not. Frames have the following binary form:
+
+<programlisting>
+            /* An RFC 6455 message frame
+            **
+            **    0                   1                   2                   3
+            **    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+            **   +-+-+-+-+-------+-+-------------+-------------------------------+
+            **   |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
+            **   |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
+            **   |N|V|V|V|       |S|             |   (if payload len==126/127)   |
+            **   | |1|2|3|       |K|             |                               |
+            **   +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+            **   |     Extended payload length continued, if payload len == 127  |
+            **   + - - - - - - - - - - - - - - - +-------------------------------+
+            **   |                               | Masking-key, if MASK set to 1 |
+            **   +-------------------------------+-------------------------------+
+            **   | Masking-key (continued)       |          Payload Data         |
+            **   +-------------------------------- - - - - - - - - - - - - - - - +
+            **   :                     Payload Data continued ...                :
+            **   + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+            **   |                     Payload Data continued ...                |
+            **   +---------------------------------------------------------------+
+            */
+</programlisting>
+
+Messages are expressed in terms of frames. Specifically, a message is one or
+more frames, terminated by a frame with the <literal>FIN</literal> bit set. So a
+message can consist of a single frame with the <literal>FIN</literal> bit
+set. Alternately, a message can consist of multiple frames, the last of which
+has the <literal>FIN</literal> bet set. In this latter case, the first frame
+contains the frame type (<literal>TEXT</literal> or
+<literal>BINARY</literal>). Subsequent frames in the chain are of type
+<literal>CONTINUATION</literal> (another frame type). The last frame composing
+the message will have the <literal>FIN</literal> bit set, signifying the end of
+the message. This covers the structural part of the API.</para>
+
+<para>The functional part of the API operates on these object &mdash;
+connections, frames and messages. Thus the functions are divided into three
+parts, based on the object they operate on. Of necessity the first object you
+must deal with is the connection. You must make a connection before you can send
+and receive anything. To this end there is the <function><cr
+f="websocket.h">vws_connect</cr>()</function> <function><cr
+f="websocket.h">vws_disconnect</cr>()</function> functions. You start by
+creating a connection object by calling <function><cr
+f="websocket.h">vws_cnx_new</cr>()</function>. Once you have that you can
+connect and disconnect. The following illustrates this process:
 
 <sourcecode href="ws.api.ws.example-1.cpp"/>
 
+The <function><cr f="socket.h">vws_socket_set_timeout</cr>()</function> is
+thrown in there for illustration purposes. This is how you can adjust your
+timeout value. If you want no timeout at all (blocking indefinitely until
+something happens on the socket), you can set the timeout to -1. Additionally,
+the <function><cr f="websocket.h">vws_socket_is_connected</cr>()</function> is
+the way to tell if your socket is still connected. Should you receive an error
+or a timeout when attempting to send or receive, you can use this function to
+determine if the connection has been terminated. Finally there is the
+<function><cr f="websocket.h">vws_socket_is_connected</cr>()</function> function
+which terminates the connection. The connection object can be reused to connect
+to another host. If you are done with it then you must call <function><cr
+f="websocket.h">vws_cnx_free</cr>()</function> to free its memory.</para>
+
+<note><title>Windows Timeout Limitation</title>
+
+  <para>There is a limitation to the timeout value of -1 in Windows with respect
+  to making connections. The timeout value is used in two places in the code:
+  (1) <function>setsockopt()</function> which affects the timeout of connecting
+  and (2) in <function>poll()</function> which affects timeout of socket reads
+  and writes. Using -1 for <function>poll()</function> works the same on all
+  platforms, causing it to block indefinitely. With respect to
+  <function>setsockopt()</function>, the code internally sets it to zero when
+  making this call to achive blocking. That is to say, when it sees a timeout of
+  -1, when calling <function>setsockopt()</function> it must pass it a value of
+  zero in order to make the socket blocking in this respect. It makes this
+  adjustment internally. However this does not work on Windows. This effectively
+  <emphasis>disables</emphasis> blocking. The only solution is to use the
+  maximum value which is determined by the Windows <literal>DWORD</literal> type
+  &mdash; a signed 32-bit integer. So in the case of Windows when you set the
+  timeout to -1, the library internally uses the max <literal>DWORD</literal>
+  value (4294967295) which sets the blocking timeout to 136.17 years. So while
+  this workaround is limited, should your program need to block for more than
+  136.17 years, you will likely not be around to see the bug in practice.</para>
+
+</note>
+
+<para>Next comes messages. The <function><cr
+f="websocket.h">vws_msg_send_text</cr>()</function>, <function><cr
+f="websocket.h">vws_msg_send_binary</cr>()</function>, <function><cr
+f="websocket.h">vws_msg_send_data</cr>()</function> and <function><cr
+f="websocket.h">vws_msg_recv</cr>()</function> deal in messages but work in
+terms of frames. The send functions send messages out as a single frame. The
+receive function collects incoming frames until it gets one with the
+<literal>FIN</literal> bit set. Then it concatenates the data from all frames in
+the sequence, forming a single message which it provides as the return
+value. The following illustrates using this API to send and receive messages:
+
+<sourcecode href="ws.api.ws.example-2.cpp"/>
+
 </para>
 
-<section id="ws.api.ws.msg"><title>Messages and Frames</title>
+<para>If you need more fine-grained control, you can deal directly in frames if
+you need to. There are equivalent functions to send and receive frames:
+<function><cr f="websocket.h">vws_frame_send_text</cr>()</function>, <function>
+<cr f="websocket.h">vws_frame_send_binary</cr>()</function>, <function> <cr
+f="websocket.h">vws_frame_send_data</cr>()</function> and <function><cr
+f="websocket.h">vws_frame_recv</cr>()</function>. The following illustrates
+using this API to send and receive frames (which is virtually identical to
+messages):
 
-<para>The <function><cr f="websocket.h">vws_msg_send_text</cr>()</function>,
-<function><cr f="websocket.h">vws_msg_send_binary</cr>()</function> and
-<function><cr f="websocket.h">vws_msg_recv</cr>()</function> work in terms of
-frames. The first two send messages out as a single frame. The latter continues
-to receive one or more frames back until it gets a frame with the FIN bit
-set. It then concatenates the data from all frames to form a single
-message.</para>
+<sourcecode href="ws.api.ws.example-3.cpp"/>
 
-<para>While the API is geared around messages, you can deal in frames if you
-need to. There are equivalent functions to send and receive frames:
-<function><cr f="websocket.h">vws_frame_send</cr>()</function>, <function>
-<cr f="websocket.h">vws_frame_recv</cr>()</function>, and <function> <cr
-f="websocket.h">vws_frame_send_data</cr>()</function>. As frames arrive in they
-are put on a receive queue. The <function><cr
-f="websocket.h">vws_frame_recv</cr>()</function> function checks this queue. If
-the queue is empty it performs a socket read until the queue has at least one
-complete frame. If no frame arrives, it blocks until its set timeout and will
-return NULL.</para>
+If you need even more control over that regarding your frame construction, you
+can use <function><cr f="websocket.h">vws_frame_send_data</cr>()</function> and
+<function><cr f="websocket.h">vws_frame_send</cr>()</function>. The first
+function takes data and a frame type, also referred to as the
+<literal>opcode</literal> (types are defined in the <classname><cr
+f="websocket.h">frame_type_t</cr></classname> enum). This will create a data
+frame of that type containing the data passed in and then send it out on the
+wire (with the <literal>FIN</literal> bit set). This works for creating single
+<literal>TEXT</literal>, <literal>BINARY</literal>, <literal>PING</literal> and
+<literal>PONG</literal> frames. However if you want to create a message spanning
+multiple frames, you will need to use <function><cr
+f="websocket.h">vws_frame_send</cr>()</function>, which allows you to modify the
+frame attributes explicitly to your liking doing things like setting the
+<literal>FIN</literal> but to zero. You first create a frame using <function><cr
+f="websocket.h">vws_frame_new</cr>()</function>. Once you have modified the
+frame to your liking, you send it out with <function><cr
+f="websocket.h">vws_frame_send</cr>()</function>. The following code illustrates
+using these functions to create a message spanning two frames:
 
-<para>While frames are a concrete object in the standard, messages are
-not. Messages are expressed in terms of frames. A message is one or more frames,
-terminated by a frame with the <literal>FIN</literal> bit set. So I message can
-be a single frame, which would have its <literal>FIN</literal> bit set. Or a
-message can be multiple frames the last of which has the <literal>FIN</literal>
-bet set. In the latter case, the first frame contains the content type (text,
-binary, etc.). Subsequent frames in the chain or continuation frames (another
-frame type). The last of these continuation frames will have the
-<literal>FIN</literal> bit set, signifying the end of the message. The
-<function><cr f="message.h">vrtql_msg_recv</cr>()</function> handles this logic
-and continues to collect frames in the queue until there is at least one
-complete message. It works almost identically <function><cr
-f="websocket.h">vws_frame_recv</cr>()</function> but on a message level.</para>
+<sourcecode href="ws.api.ws.example-4.cpp"/>
+
+</para>
+
+<para>As frames arrive they are put on a receive queue. The <function><cr
+f="websocket.h">vws_frame_recv</cr>()</function> function checks this queue and
+returns the first one it finds. If the queue is empty then it intiates a socket
+read and waits until the a frame arrives. If no frame arrives within the given
+timeout, it will return <literal>NULL</literal>. The <function><cr
+f="websocket.h">vws_msg_recv</cr>()</function> function works by the exact same
+logic but with messages.
+
+<note><title>Warning: Mixing frame and message functions</title>
+
+  <para>If you use both the frame and message functions together you will need
+  to be careful how you use them. If for example you pull a frame off the queue
+  via <function><cr f="websocket.h">vws_frame_recv</cr>()</function> and it
+  happens to be part of a series of frames composing a message, and then you
+  call <function><cr f="websocket.h">vws_msg_recv</cr>()</function> to pull a
+  message, you will get a corrupted message because you manually pulled one of
+  its frame out off the queue which should have been there as part of the
+  message. So if you use both of these functions together you will need to pay
+  attention to the frames you pull and take note of the message state based on
+  that frame’s type. If you see that that frame is part of a series of frames
+  containing a message, then you will need to manually pull the remaining frames
+  until you reach the last (<literal>FIN</literal>) frame. Once you are in that
+  state then you can resume using <function><cr
+  f="websocket.h">vws_msg_recv</cr>()</function> to pull messages as the queue
+  is in a consistent state.</para>
+
+</note>
+
+</para>
+
+<para>That covers the Client API with respect to connections, frames and
+messages. Putting it all together, the following example illustrates the basic
+usage:
+
+<sourcecode href="ws.api.ws.example-5.cpp"/>
+
+</para>
+
+<para>In summary, what you see here is a synchrounos (blocking) client
+connection model with an optional timeout. This keeps the API simple and
+intuitive. Typically from the client-side this is what you want. The underlying
+socket read (<function><cr f="socket.c">vws_socket_read</cr>()</function>) and
+write (<function><cr f="socket.c">vws_socket_write</cr>()</function>) operations
+are implemented using the operating systems’s <function>poll()</function>
+facility, which provides the combination of blocking and timeout. As such, you
+can send messages/frames and easily wait for responses to arrive with the option
+of a timeout for error detection. Concurrency in this model would be employed
+with threads rather than non-blocking I/O. Multiple connections can operate
+independently within the threads they are created in. The only limitation is
+that a connection should only be used within the thread it was created in, as it
+relies on a thread-local variable (<varname>vrtql</varname>) for error handling
+and tracing.</para>
+
+<section id="ws.api.msg"><title>The Message API</title>
+
+<para>Working atop the Client API is an optional Message API which provides
+additional features for the purpose of creating protocols similar to AMQP and
+MQTT. It consists of a specific message structure (<classname><cr
+f="message.h">vrtql_msg</cr></classname>) and functions to send (<function><cr
+f="message.h">vrtql_msg_send</cr>()</function>) and receive (<function><cr
+f="message.h">vrtql_msg_recv</cr>()</function>) it. The message structure
+includes two maps (hashtables of string key/value pairs) and a payload. One map,
+called <varname>routing</varname>, is designed to hold routing information for
+messaging applications. The other map, called <varname>headers</varname>, is for
+application use. The payload can hold both text and binary data.</para>
+
+<para>The Message API uses a normal WebSocket connection (<classname><cr
+f="websocket.h">vws_cnx</cr></classname>) to send and receive messages in the
+same way as the Client API. The only difference is that it deals in
+<classname><cr f="message.h">vrtql_msg</cr></classname> objects and
+automatically handles serialization and deserialization on and off the
+wire. Messages can be serialized in two formats: JSON and MessagePack. Both
+formats can be sent over the same connection on a message-by-message basis. That
+is, the Message API is able to auto-detect each incoming message’s format and
+deserialize accordingly. Thus connections support mixed-content messages: JSON
+and MessagePack.</para>
+
+<para>The following is a basic example of using the API.
+
+<sourcecode href="ws.api.msg.example-1.cpp"/>
+
+</para>
 
 </section>
 
@@ -83,13 +264,22 @@ f="websocket.h">vws_frame_recv</cr>()</function> but on a message level.</para>
 
 </section>
 
-<section id="ws.api.ws.memory"><title>Memory Managements</title>
+<section id="ws.api.ws.tracing"><title>Tracing</title>
 
 <para>
 
 </para>
 
 </section>
+
+<section id="ws.api.ws.memory"><title>Memory Management</title>
+
+<para>
+
+</para>
+
+</section>
+
 
 </section> <!-- ws.api.ws -->
 
@@ -116,11 +306,5 @@ deserialize accordingly. Thus connections support mixed-content messages: JSON
 and MessagePack.</para>
 
 <para>The following is a basic example of using the high-level messaging API.
-
-<sourcecode href="ws.api.msg.example-1.cpp"/>
-
-</para>
-
-</section> <!-- ws.api.msg -->
-
-</chapter> <!-- ws.api -->
+<sourcecode href="ws.api.msg.example-1.cpp"/> </para> </section> <!-- ws.api.msg
+--> </chapter> <!-- ws.api -->
