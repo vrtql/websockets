@@ -30,13 +30,15 @@ builds on native operating networking services whereas the server architecture
 is built on <filename><link
 xlink:href="https://libuv.org/">libuv</link></filename>.</para>
 
-<section id="ws.api.ws"><title>The Client API</title>
+<section id="ws.api.client"><title>The Client API</title>
+
+<section id="ws.api.client.structures"><title>Structures</title>
 
 <para>There are three objects in the C API: connection (<classname><cr
 f="websocket.h">vws_cnx</cr></classname>), frame (<classname><cr
 f="websocket.h">vws_frame</cr></classname>) and message (<classname><cr
-f="websocket.h">vws_msg</cr></classname>). While frames are a concrete object in
-the standard, messages are not. Frames have the following binary form:
+f="websocket.h">vws_msg</cr></classname>). Frames have the following binary
+form:
 
 <programlisting>
             /* An RFC 6455 message frame
@@ -62,16 +64,21 @@ the standard, messages are not. Frames have the following binary form:
             */
 </programlisting>
 
-Messages are expressed in terms of frames. Specifically, a message is one or
-more frames, terminated by a frame with the <literal>FIN</literal> bit set. So a
-message can consist of a single frame with the <literal>FIN</literal> bit
-set. Alternately, a message can consist of multiple frames, the last of which
-has the <literal>FIN</literal> bet set. In this latter case, the first frame
-contains the frame type (<literal>TEXT</literal> or
+While frames are a concrete object in the standard, messages are not. Messages
+are expressed in terms of frames. Specifically, a message is one or more frames,
+terminated by a frame with the <literal>FIN</literal> bit set. So a message can
+consist of a single frame with the <literal>FIN</literal> bit set. Alternately,
+a message can consist of multiple frames, the last of which has the
+<literal>FIN</literal> bet set. In this latter case, the first frame contains
+the frame type (<literal>TEXT</literal> or
 <literal>BINARY</literal>). Subsequent frames in the chain are of type
 <literal>CONTINUATION</literal> (another frame type). The last frame composing
 the message will have the <literal>FIN</literal> bit set, signifying the end of
 the message. This covers the structural part of the API.</para>
+
+</section> <!-- ws.api.client.structures -->
+
+<section id="ws.api.client.functions"><title>Functions</title>
 
 <para>The functional part of the API operates on these object &mdash;
 connections, frames and messages. Thus the functions are divided into three
@@ -84,9 +91,11 @@ creating a connection object by calling <function><cr
 f="websocket.h">vws_cnx_new</cr>()</function>. Once you have that you can
 connect and disconnect. The following illustrates this process:
 
-<sourcecode href="ws.api.ws.example-1.cpp"/>
+<sourcecode href="ws.api.client.ex-1.cpp"/>
 
-The <function><cr f="socket.h">vws_socket_set_timeout</cr>()</function> is
+</para>
+
+<para>The <function><cr f="socket.h">vws_socket_set_timeout</cr>()</function> is
 thrown in there for illustration purposes. This is how you can adjust your
 timeout value. If you want no timeout at all (blocking indefinitely until
 something happens on the socket), you can set the timeout to -1. Additionally,
@@ -133,7 +142,7 @@ receive function collects incoming frames until it gets one with the
 the sequence, forming a single message which it provides as the return
 value. The following illustrates using this API to send and receive messages:
 
-<sourcecode href="ws.api.ws.example-2.cpp"/>
+<sourcecode href="ws.api.client.ex-2.cpp"/>
 
 </para>
 
@@ -146,11 +155,13 @@ f="websocket.h">vws_frame_recv</cr>()</function>. The following illustrates
 using this API to send and receive frames (which is virtually identical to
 messages):
 
-<sourcecode href="ws.api.ws.example-3.cpp"/>
+<sourcecode href="ws.api.client.ex-3.cpp"/>
 
-If you need even more control over that regarding your frame construction, you
-can use <function><cr f="websocket.h">vws_frame_send_data</cr>()</function> and
-<function><cr f="websocket.h">vws_frame_send</cr>()</function>. The first
+</para>
+
+<para>If you need even more control over that regarding your frame construction,
+you can use <function><cr f="websocket.h">vws_frame_send_data</cr>()</function>
+and <function><cr f="websocket.h">vws_frame_send</cr>()</function>. The first
 function takes data and a frame type, also referred to as the
 <literal>opcode</literal> (types are defined in the <classname><cr
 f="websocket.h">frame_type_t</cr></classname> enum). This will create a data
@@ -167,7 +178,7 @@ frame to your liking, you send it out with <function><cr
 f="websocket.h">vws_frame_send</cr>()</function>. The following code illustrates
 using these functions to create a message spanning two frames:
 
-<sourcecode href="ws.api.ws.example-4.cpp"/>
+<sourcecode href="ws.api.client.ex-4.cpp"/>
 
 </para>
 
@@ -201,15 +212,19 @@ logic but with messages.
 
 </para>
 
+</section> <!-- ws.api.client.functions -->
+
+<section id="ws.api.client.summary"><title>Summary</title>
+
 <para>That covers the Client API with respect to connections, frames and
 messages. Putting it all together, the following example illustrates the basic
 usage:
 
-<sourcecode href="ws.api.ws.example-5.cpp"/>
+<sourcecode href="ws.api.client.ex-5.cpp"/>
 
 </para>
 
-<para>In summary, what you see here is a synchrounos (blocking) client
+<para>In summary, what you see here is a synchronous (blocking) client
 connection model with an optional timeout. This keeps the API simple and
 intuitive. Typically from the client-side this is what you want. The underlying
 socket read (<function><cr f="socket.c">vws_socket_read</cr>()</function>) and
@@ -223,6 +238,58 @@ independently within the threads they are created in. The only limitation is
 that a connection should only be used within the thread it was created in, as it
 relies on a thread-local variable (<varname>vrtql</varname>) for error handling
 and tracing.</para>
+
+</section> <!-- ws.api.client.summary -->
+
+</section> <!-- ws.api.client -->
+
+<section id="ws.api.aux"><title>Common Facilities</title>
+
+<para>The common facilities encompass error handling, memory management, and
+tracing. These are consolidated in a thread-local global variable named
+<classname><cr f="vrtql.h">vrtql</cr></classname>. As this variable is
+thread-local, each thread maintains its independent copy.</para>
+
+<section id="ws.api.aux.errors"><title>Error Handling</title>
+
+<para>Error handling in the API is facilitated through the usage of a code and a
+human-readable string. These are encapsulated within an instance of the
+<classname><cr f="vrtql.h">vrtql_error_value</cr></classname> structure, kept in
+<varname>vrtql.e</varname> member. Error handling is done through the
+<function>vrtql.error()</function> and
+<function>vrtql.process_error()</function> function pointers. The
+<function>vrtql.error()</function> function submits an error for processing and
+the <function>vrtql.process_error()</function> takes action on the error. You
+can customize both of these handlers by assiging them to different
+functions. The default implementation for <function>vrtql.error()</function> is
+<function><cr f="vrtql.c">vrtql_error_default_submit</cr>()</function> whereas
+the default implementation for <function>vrtql.process_error()</function> is
+<function><cr f="vrtql.c">vrtql_error_default_process</cr>()</function>.</para>
+
+</section> <!-- ws.api.aux.errors -->
+
+<section id="ws.api.aux.tracing"><title>Tracing</title>
+
+<para>Tracing is a mechanism for logging debug information and is managed by the
+<function>vrtql.trace()</function> function. Tracing outputs log messages
+associated with different severity levels (DEBUG, INFO, WARNING, ERROR), with
+the level determined by the first parameter of
+<varname>vrtql.tracelevel</varname>. The default level is zero which disables
+all tracing. Other levels are defined by the <classname><cr
+f="message.h">vrtql_tl_t</cr></classname> enum.</para>
+
+</section> <!-- ws.api.aux.tracing -->
+
+<section id="ws.api.aux.memory"><title>Memory Management</title>
+
+<para>The library provides memory management functions that include error
+handling mechanisms. These functions are <function>vrtql.malloc()</function>,
+<function>vrtql.calloc()</function> and
+<function>vrtql.realloc()</function>. These all call the underlying OS functions
+but you can provide alternate implementations by assiging new functions.</para>
+
+</section> <!-- ws.api.aux.memory -->
+</section> <!-- ws.api.memory -->
 
 <section id="ws.api.msg"><title>The Message API</title>
 
@@ -250,61 +317,96 @@ and MessagePack.</para>
 
 <para>The following is a basic example of using the API.
 
-<sourcecode href="ws.api.msg.example-1.cpp"/>
+<sourcecode href="ws.api.aux.msg.ex-1.cpp"/>
 
 </para>
 
-</section>
+</section> <!-- ws.api.msg -->
 
-<section id="ws.api.ws.errors"><title>Error Handling</title>
+<section id="ws.api.server"><title>The Server API</title>
+
+<section id="ws.api.server.arch"><title>Architecture</title>
+
+<para>The server architecture is layered according to the type of data its
+handling. The base server works completely on unstructred data. For instance you
+could use it to create an echo server, or handle protocols, provided you parse
+the data accordingly. The base server is implemented using the <classname><cr
+f="server.h">vrtql_svr</cr></classname> struct. Build on top of this is the
+WebSocket server (<classname><cr f="server.h">vrtql_ws_svr</cr></classname>). It
+works in the same way but deals in WebSocket frames and messages. On top of this
+is the messaging server (<classname><cr
+f="server.h">vrtql_ws_svr</cr></classname>) which works in terms of Messages
+API.</para>
+
+
+</section> <!-- ws.api.server.arch -->
+
+<section id="ws.api.server.core"><title>Core Server</title>
+
+<para>The core server API is the foundation on which all the other servers
+work. Once you understand how it works everything else is intuitive. The API
+simple and is designed to make it very each for you to focus on processing
+messages. There are only about three things you need to do it create server. You
+create server instance, defined a processing function to handle incoming data,
+all send data base to the remote peer. We will take each of these in
+turn.</para>
+
+<para>You create a server instance the same way as every other object in the
+library. In this case you use the <function><cr
+f="server.h">vrtql_svr_new</cr>()</function> function. This takes three
+arguments: The number of worker threads, the connection backlog, and the maximum
+message queue size. If you set the latter two arguments to zero it will use the
+defaults. The next thing you do is create a processing funciton. The signature
+of this function varies according to server. For the core server, which deals
+with unstructured data, this signature is given by the <function><cr
+f="server.h">vrtql_svr_process_data</cr></function> callback. It takes a single
+argument: a <classname><cr f="server.h">vrtql_svr_data</cr></classname>
+instances created on the heap. This structure simply holds a blob of data. You
+processing function makes sense of that data and sends whatever data back. The
+functions to send data back to the peer is <function><cr
+f="server.h">vrtql_svr_send</cr>()</function>. With all these things in place
+you call <function><cr f="server.h">vrtql_svr_run</cr>()</function> to start the
+server. The following illustrates writing a basic echo server:
+
+<sourcecode href="ws.api.server.core.ex-1.cpp"/>
+
+</para>
+
+</section> <!-- ws.api.server.core -->
+
+<section id="ws.api.server.vws"><title>WebSocket Server</title>
+
+<para>Writing a WebSocket server is even simpler. It follows the same pattern
+but uses <function><cr f="server.h">vws_svr_new</cr>()</function> to create the
+serve. The processing function signature is given by the <function><cr
+f="server.h">vws_svr_process_msg</cr></function> callback. The following
+illustates writing a WebSocket server:
+
+<sourcecode href="ws.api.server.vws.ex-1.cpp"/>
+
+</para>
+
+</section> <!-- ws.api.server.vws -->
+
+<section id="ws.api.server.msg"><title>Message Server</title>
+
+<para>The Message API server works in exactly the same way. The following
+illustrates creating an instance of it:
+
+<sourcecode href="ws.api.server.msg.ex-1.cpp"/>
+
+</para>
+
+</section> <!-- ws.api.server.msg -->
+
+</section> <!-- ws.api.server -->
+
+<section id="ws.api.rpc"><title>RPC API</title>
 
 <para>
 
 </para>
 
-</section>
+</section> <!-- ws.api.rpc -->
 
-<section id="ws.api.ws.tracing"><title>Tracing</title>
-
-<para>
-
-</para>
-
-</section>
-
-<section id="ws.api.ws.memory"><title>Memory Management</title>
-
-<para>
-
-</para>
-
-</section>
-
-
-</section> <!-- ws.api.ws -->
-
-<section id="ws.api.ws"><title>Message API</title>
-
-<para>The message structure operates with a higher-level connection API which
-works atop the native WebSocket API. It mainly provides a more structured
-message format with built-in serialization. The message structure includes two
-maps (hashtables of string key/value pairs) and a payload. One map, called
-<varname>routing</varname>, is designed to hold routing information for
-messaging applications. The other map, called <varname>headers</varname>, is for
-application use. The payload can hold both text and binary data.</para>
-
-<para>The associated connection API is really just two functions: <function><cr
-f="message.h">vrtql_msg_send</cr>()</function> and <function><cr
-f="message.h">vrtql_msg_recv</cr>()</function> calls which operate with these
-messages. They send and receive the messages, automatically handling
-serialization and deserialization on and off the wire.</para>
-
-<para>Messages can be serialized in two formats: JSON and MessagePack. Both
-formats can be sent over the same connection on a message-by-message basis. That
-is, the connection is able to auto-detect each incoming message's format and
-deserialize accordingly. Thus connections support mixed-content messages: JSON
-and MessagePack.</para>
-
-<para>The following is a basic example of using the high-level messaging API.
-<sourcecode href="ws.api.msg.example-1.cpp"/> </para> </section> <!-- ws.api.msg
---> </chapter> <!-- ws.api -->
+</chapter> <!-- ws.api -->

@@ -13,7 +13,7 @@ void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
 {
     vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
 
-    vrtql_trace(VL_INFO, "process_message (%p) %p", cnx, m);
+    vrtql.trace(VL_INFO, "process_message (%p) %p", cnx, m);
 
     // Echo back. Note: You should always set reply messages format to the
     // format of the connection.
@@ -37,9 +37,8 @@ void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
 void server_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
-
-    vrtql.trace   = VT_THREAD;
-    server->trace = vrtql.trace;
+    vrtql.tracelevel  = VT_THREAD;
+    server->trace     = vrtql.tracelevel;
 
     vrtql_svr_run(server, server_host, server_port);
 }

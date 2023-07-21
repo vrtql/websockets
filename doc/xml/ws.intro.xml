@@ -17,6 +17,8 @@
 
 <title>Introduction</title>
 
+<section id="ws.intro.about"><title>Project Overview</title>
+
 <para>VRTQL WebSockets is a robust and performance-oriented WebSocket client
 library written in C. It provides a simple yet flexible API for building
 WebSocket clients and servers. It supports all standard WebSocket features
@@ -46,14 +48,14 @@ designed for single connections and operates synchronously, waiting for
 responses from the server. The server architecture is designed for many
 concurrent connections and operates asynchronously.</para>
 
-<para>The client-side API is extremely simple and flexible. Connections wait
-(block) for responses and can employ a timeout in which to take action if a
-response does not arrive in a timely manner (or at all). The API is threadsafe
-in so far as each connection must be maintained in its own thread. All global
-structures and common services (error-reporting and tracing) use thread-local
-variables. The API runs atop the native operating system’s networking
-facilities, using <function>poll()</function> and thus no additional libraries
-are required.</para>
+<para>The client-side API is simple and flexible. Connections wait (block) for
+responses and can employ a timeout in which to take action if a response does
+not arrive in a timely manner (or at all). The API is threadsafe in so far as
+each connection must be maintained in its own thread. All global structures and
+common services (error-reporting and tracing) use thread-local variables. The
+API runs atop the native operating system’s networking facilities, using
+<function>poll()</function> and thus no additional libraries are
+required.</para>
 
 <para>The server-side API implements a non-blocking, multiplexing, multithreaded
 server atop <filename><link
@@ -73,6 +75,8 @@ operating system, it is not expected to be a requirement of this library, as its
 original intent was to provide client-side connections only. Thus if you want
 use the server-side API, you simple add a configuration switch at build time to
 include the code (covered in <xref linkend="ws.build"/>).</para>
+
+</section> <!-- ws.intro.about -->
 
 <section id="ws.intro.ws"><title>WebSocket Overview</title>
 
@@ -126,5 +130,150 @@ pong frames are responses to ping frames.</para>
 </section> <!-- ws.intro.ws.concepts-->
 
 </section> <!-- ws.intro.overview -->
+
+<section id="ws.build"><title>Building and Installing</title>
+
+<section id="ws.build.src"><title>Building from Source</title>
+
+<para>In order to build the code you need CMake version 3.0 or higher on your
+system. Build as follows:
+
+<screen>
+<prompt>$</prompt> git clone https://github.com/vrtql/websockets.git
+<prompt>$</prompt> cd websockets
+<prompt>$</prompt> cmake .
+<prompt>$</prompt> make
+<prompt>$</prompt> sudo make install
+</screen>
+
+</para>
+
+<para>Unit tests are located in <filename>test</filename>. As a basic test of
+operation, you can run the <filename>test_websockets</filename> test. To run it,
+first start the server as follows:
+
+<screen>
+<prompt>$</prompt> cd test
+<prompt>$</prompt> ./server
+</screen>
+
+This is just a simple echo server example from the <link
+xlink:href="https://mongoose.ws/">Mongoose project</link>, used for
+testing. There is simple Mongoose-based client program in the
+<filename>test</filename> directory as well called <filename>client</filename>
+which can be used to test general connectivity. After the server is started, run
+<filename>test_websockets</filename> to see that everything is working:
+
+<screen>
+<prompt>$</prompt> ./test_websockets
+TEST 1/4 test:send_receive
+
++----------------------------------------------------+
+| Frame Sent                                         |
++----------------------------------------------------+
+  header:   6 bytes
+  fin:      1
+  opcode:   1
+  mask:     1 (0xb95d570f)
+  payload:  7 bytes
+
+da 32 39 7b dc 33 23
+------------------------------------------------------
+
++----------------------------------------------------+
+| Frame Received                                     |
++----------------------------------------------------+
+  header:   2 bytes
+  fin:      1
+  opcode:   1
+  mask:     0 (0x00000000)
+  payload:  7 bytes
+
+  .
+  .
+  .
+</screen>
+
+This will connect to the server and run various send/receive tests dumping the
+frames sent to and received from the server to the console.</para>
+
+</section> <!-- ws.build.src -->
+
+<section id="ws.build.windows"><title>Cross Compiling</title>
+
+<para>You must have the requisite MinGW compiler and tools installed on your
+system. For Debian/Devuan you would install these as follows:
+
+<screen>
+<prompt>$</prompt> sudo apt-get install mingw-w64 mingw-w64-tools mingw-w64-common \
+                  g++-mingw-w64-x86-64 mingw-w64-x86-64-dev
+</screen>
+
+</para>
+
+<para>You will need to have OpenSSL for Windows on your system as well. If you
+don't have it you can build as follows. First download the version you want to
+build. Here we will use <filename>openssl-1.1.1u.tar.gz</filename> as an
+example. Create the install directory you intend to put OpenSSL in. For example:
+
+<screen>
+<prompt>$</prompt> mkdir ~/mingw
+</screen>
+
+Build OpenSSL. You want to ensure you set the <literal>--prefix</literal> to the
+directory you specified above. This is where OpenSSL will install to.
+
+<screen>
+<prompt>$</prompt> cd /tmp
+<prompt>$</prompt> tar xzvf openssl-1.1.1u.tar.gz
+<prompt>$</prompt> cd openssl-1.1.1u
+<prompt>$</prompt> ./Configure --cross-compile-prefix=x86_64-w64-mingw32- \
+              --prefix=~/mingw shared mingw64 no-tests
+<prompt>$</prompt> make
+<prompt>$</prompt> make DESTDIR=~/mingw install
+</screen>
+
+Now within the <filename>websockets</filename> project. Modify the
+<varname>CMAKE_FIND_ROOT_PATH</varname> in the
+<filename>config/windows-toolchain.cmake</filename> file to point to where you
+installed OpenSSL. The line to modify is shown in bold below:
+
+<programlisting>
+set(CMAKE_SYSTEM_NAME Windows)
+set(TOOLCHAIN_PREFIX x86_64-w64-mingw32)
+
+# cross compilers to use for C, C++
+set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}-gcc)
+set(CMAKE_CXX_COMPILER ${TOOLCHAIN_PREFIX}-g++)
+set(CMAKE_Fortran_COMPILER ${TOOLCHAIN_PREFIX}-gfortran)
+set(CMAKE_RC_COMPILER ${TOOLCHAIN_PREFIX}-windres)
+
+# Set to where you have it installed
+<strong>set(CMAKE_FIND_ROOT_PATH "/home/bubba/mingw/openssl")</strong>
+
+# modify default behavior of FIND_XXX() commands
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+</programlisting>
+
+In this example it would be
+<filename>~/mingw/openssl</filename> (you might want to use full path). Then
+invoke CMake as follows:
+
+<screen>
+<prompt>$</prompt> cmake -DCMAKE_TOOLCHAIN_FILE=config/windows-toolchain.cmake
+</screen>
+
+Then build as normal:
+
+<screen>
+  <prompt>$</prompt> make
+</screen>
+</para>
+
+</section> <!-- ws.build.windows -->
+
+</section> <!-- ws.build -->
 
 </chapter> <!-- ws.intro -->

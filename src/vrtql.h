@@ -53,6 +53,36 @@ typedef struct
     char* text;     /**< Error text */
 } vrtql_error_value;
 
+//------------------------------------------------------------------------------
+// Tracing
+//------------------------------------------------------------------------------
+
+/**
+ * @brief Enumerates the levels of logging.
+ */
+typedef enum
+{
+    VL_DEBUG,         /**< Debug level log       */
+    VL_INFO,          /**< Information level log */
+    VL_WARN,          /**< Warning level log     */
+    VL_ERROR,         /**< Error level log       */
+    VL_LEVEL_COUNT    /**< Count of log levels   */
+} vrtql_log_level_t;
+
+/**
+ * @brief Logs a trace message.
+ *
+ * @param level The level of the log
+ * @param format The format string for the message
+ * @param ... The arguments for the format string
+ */
+void vrtql_trace(vrtql_log_level_t level, const char* format, ...);
+
+/**
+ * @brief Callback for tracing
+ */
+typedef void (*vrtql_trace_cb)(vrtql_log_level_t level, const char* fmt, ...);
+
 /**
  * @brief Callback for memory allocation with malloc.
  */
@@ -143,7 +173,8 @@ typedef struct
     vrtql_error_clear_cb clear_error;     /**< Error clear function        */
     vrtql_error_clear_cb success;         /**< Error clear function        */
     vrtql_error_value e;                  /**< Last error value            */
-    uint8_t trace;                        /**< Tracing leve (0 is off)     */
+    vrtql_trace_cb trace;                 /**< Error clear function        */
+    uint8_t tracelevel;                   /**< Tracing leve (0 is off)     */
     uint64_t state;                       /**< Contains global state flags */
 } vrtql_env;
 
@@ -161,31 +192,6 @@ typedef struct vrtql_buffer
     size_t allocated;    /**< The amount of space allocated for the buffer */
     size_t size;         /**< The current size of the data in the buffer   */
 } vrtql_buffer;
-
-//------------------------------------------------------------------------------
-// Tracing
-//------------------------------------------------------------------------------
-
-/**
- * @brief Enumerates the levels of logging.
- */
-typedef enum
-{
-    VL_DEBUG,         /**< Debug level log       */
-    VL_INFO,          /**< Information level log */
-    VL_WARN,          /**< Warning level log     */
-    VL_ERROR,         /**< Error level log       */
-    VL_LEVEL_COUNT    /**< Count of log levels   */
-} vrtql_log_level_t;
-
-/**
- * @brief Logs a trace message.
- *
- * @param level The level of the log
- * @param format The format string for the message
- * @param ... The arguments for the format string
- */
-void vrtql_trace(vrtql_log_level_t level, const char* format, ...);
 
 //------------------------------------------------------------------------------
 // Buffer

@@ -580,10 +580,10 @@ int connect_to_host(const char* host, const char* port)
 
     if (error)
     {
-        if (vrtql.trace > 0)
+        if (vrtql.tracelevel > 0)
         {
             cstr msg = gai_strerror(error);
-            vrtql_trace(VL_ERROR, "getaddrinfo failed: %s: %s", host, msg);
+            vrtql.trace(VL_ERROR, "getaddrinfo failed: %s: %s", host, msg);
         }
 
         vrtql.error(VE_SYS, "getaddrinfo() failed");

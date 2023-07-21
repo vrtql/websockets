@@ -311,34 +311,34 @@ int vrtql_error_default_submit(int code, cstr format, ...)
 
 int vrtql_error_default_process(int code, cstr message)
 {
-    if (vrtql.trace == 1)
+    if (vrtql.tracelevel == 1)
     {
         switch (code)
         {
             case VE_TIMEOUT:
             case VE_WARN:
             {
-                vrtql_trace(VL_WARN, "Error %i: %s", code, message);
+                vrtql.trace(VL_WARN, "Error %i: %s", code, message);
                 break;
             }
 
             case VE_SYS:
             case VE_RT:
             {
-                vrtql_trace(VL_INFO, "Error %i: %s", code, message);
+                vrtql.trace(VL_INFO, "Error %i: %s", code, message);
                 break;
             }
 
             case VE_MEM:
             case VE_FATAL:
             {
-                vrtql_trace(VL_ERROR, "Error %i: %s", code, message);
+                vrtql.trace(VL_ERROR, "Error %i: %s", code, message);
                 break;
             }
 
             default:
             {
-                vrtql_trace(VL_INFO, "No error");
+                vrtql.trace(VL_INFO, "No error");
             }
         }
     }
@@ -394,7 +394,8 @@ __thread vrtql_env vrtql =
     .clear_error   = vrtql_error_clear_default,
     .success       = vrtql_error_success_default,
     .e             = {.code=VE_SUCCESS, .text=NULL},
-    .trace         = false,
+    .trace         = vrtql_trace,
+    .tracelevel    = 0,
     .state         = 0
 };
 

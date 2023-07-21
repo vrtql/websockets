@@ -17,9 +17,8 @@
 
 <bookinfo>
 
-  <title>VRTQL Websocket Client Library</title>
+  <title>VRTQL WebSocket Library</title>
 
-  <subtitle><strong>DRAFT: Work in Progress</strong></subtitle>
   <productnumber>1.0.0</productnumber>
   <edition>1</edition>
   <pubsnumber>0</pubsnumber>
@@ -34,8 +33,10 @@
 
   <xi:include href="ws.preface.xml" xmlns:xi="http://www.w3.org/2001/XInclude"/>
   <xi:include href="ws.intro.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
-  <xi:include href="ws.build.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
   <xi:include href="ws.api.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <xi:include href="ws.ops.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+
+  <xi:include href="ws.ex.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
 
   <index id="ws.index"/>
 

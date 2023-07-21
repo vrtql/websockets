@@ -11,7 +11,7 @@ void process_data(vrtql_svr_data* req)
 {
     vrtql_svr* server = req->cnx->server;
 
-    vrtql_trace(VL_INFO, "process_data (%p)", req);
+    vrtql.trace(VL_INFO, "process_data (%p)", req);
 
     //> Prepare the response: echo the data back
 
@@ -27,9 +27,9 @@ void process_data(vrtql_svr_data* req)
     // Free request
     vrtql_svr_data_free(req);
 
-    if (vrtql.trace >= VT_APPLICATION)
+    if (vrtql.tracelevel >= VT_APPLICATION)
     {
-        vrtql_trace( VL_INFO,
+        vrtql.trace( VL_INFO,
                      "process_data(%p): %i bytes",
                      reply->cnx,
                      reply->size);
@@ -43,8 +43,8 @@ void server_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
 
-    vrtql.trace   = VT_THREAD;
-    server->trace = vrtql.trace;
+    vrtql.tracelevel = VT_THREAD;
+    server->trace    = vrtql.tracelevel;
 
     vrtql_svr_run(server, server_host, server_port);
 }
@@ -52,10 +52,10 @@ void server_thread(void* arg)
 CTEST(test_server, echo)
 {
     vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
-    vrtql.trace        = VT_THREAD;
+    vrtql.tracelevel   = VT_THREAD;
     server->on_data_in = process_data;
 
-    vrtql_trace(VL_INFO, "[CLIENT] Starting server");
+    vrtql.trace(VL_INFO, "[CLIENT] Starting server");
 
     uv_thread_t server_tid;
     uv_thread_create(&server_tid, server_thread, server);
@@ -67,32 +67,32 @@ CTEST(test_server, echo)
     }
 
     // Connect
-    vrtql_trace(VL_INFO, "[CLIENT] Connecting");
+    vrtql.trace(VL_INFO, "[CLIENT] Connecting");
     vws_socket* s = vws_socket_new();
     ASSERT_TRUE(vws_socket_connect(s, server_host, server_port, false));
-    vrtql_trace(VL_INFO, "[CLIENT] Connected");
+    vrtql.trace(VL_INFO, "[CLIENT] Connected");
 
     // Send request
-    vrtql_trace(VL_INFO, "[CLIENT] Send: %s", content);
+    vrtql.trace(VL_INFO, "[CLIENT] Send: %s", content);
     vws_socket_write(s, content, strlen(content));
 
     // Get reply
     ssize_t n = vws_socket_read(s);
     ASSERT_TRUE(n > 0);
-    vrtql_trace(VL_INFO, "[CLIENT] Receive: %s", s->buffer->data);
+    vrtql.trace(VL_INFO, "[CLIENT] Receive: %s", s->buffer->data);
 
     // Disconnect and cleanup.
     vws_socket_free(s);
 
     // Shutdown server
 
-    vrtql_trace(VL_INFO, "[CLIENT] Stopping server");
+    vrtql.trace(VL_INFO, "[CLIENT] Stopping server");
 
     vrtql_svr_stop(server);
     uv_thread_join(&server_tid);
     vrtql_svr_free(server);
 
-    vrtql_trace(VL_INFO, "[CLIENT] Done");
+    vrtql.trace(VL_INFO, "[CLIENT] Done");
 }
 
 int main(int argc, const char* argv[])

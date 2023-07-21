@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<appendix version="5.0"
+    xml:id="ws.ex"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>Examples</title>
+
+<section id="ws.ex.daemons"><title>Daemons and Configuration</title>
+
+</section>
+
+<section id="ws.ex.server.rpc"><title>RPC Server</title>
+
+<para>
+
+</para>
+
+</section> <!-- ws.ex.server.rpc -->
+
+<section id="ws.ex.server.mq"><title>A Simple Message Broker</title>
+
+<para>
+
+</para>
+
+</section> <!-- ws.ex.server.mq -->
+
+</appendix>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<chapter version="5.0"
+    xml:id="ws.ops"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>Operations</title>
+
+<section id="ws.ops.config"><title>Daemons and Configuration</title>
+
+<para>
+
+</para>
+
+</section> <!-- ws.ops.config -->
+
+<section id="ws.ops.haproxy"><title>HAProxy and SSL Termination</title>
+
+<para>
+
+</para>
+
+</section> <!-- ws.ops.haproxy -->
+
+<section id="ws.ops.perpd"><title>Service Management</title>
+
+<para>
+
+</para>
+
+</section> <!-- ws.ops.perpd -->
+
+</chapter>

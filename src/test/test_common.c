@@ -108,17 +108,17 @@ CTEST(test, trace)
 {
     printf("\n");
 
-    vrtql_trace(VL_DEBUG,   "vrtql_trace(%s)",   "DEBUG");
-    vrtql_trace(VL_INFO,    "vrtql_trace(%s)",    "INFO");
-    vrtql_trace(VL_WARN,    "vrtql_trace(%s)", "WARNING");
-    vrtql_trace(VL_ERROR,   "vrtql_trace(%s)",   "ERROR");
+    vrtql.trace(VL_DEBUG,   "vrtql.trace(%s)",   "DEBUG");
+    vrtql.trace(VL_INFO,    "vrtql.trace(%s)",    "INFO");
+    vrtql.trace(VL_WARN,    "vrtql.trace(%s)", "WARNING");
+    vrtql.trace(VL_ERROR,   "vrtql.trace(%s)",   "ERROR");
 }
 
 CTEST(test, error)
 {
     printf("\n");
 
-    vrtql.trace = true;
+    vrtql.tracelevel = true;
     vrtql.error(VE_RT, "Handshake invalid");
 }
 

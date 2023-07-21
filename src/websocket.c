@@ -529,7 +529,7 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 
     vrtql_buffer* binary = vws_serialize(frame);
 
-    if (vrtql.trace >= VT_PROTOCOL)
+    if (vrtql.tracelevel >= VT_PROTOCOL)
     {
         printf("\n\n");
         printf("+----------------------------------------------------+\n");
@@ -1103,7 +1103,7 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
         vrtql_buffer* b  = c->base.buffer;
         vws_frame* frame = vws_frame_new(NULL, 0, TEXT_FRAME);
 
-        if (vrtql.trace >= VT_PROTOCOL)
+        if (vrtql.tracelevel >= VT_PROTOCOL)
         {
             printf("\n+----------------------------------------------------+\n");
             printf("| Frame Received                                     |\n");
