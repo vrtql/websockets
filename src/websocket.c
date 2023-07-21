@@ -531,6 +531,7 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 
     if (vrtql.tracelevel >= VT_PROTOCOL)
     {
+        vrtql_trace_lock();
         printf("\n\n");
         printf("+----------------------------------------------------+\n");
         printf("| Frame Sent                                         |\n");
@@ -538,6 +539,7 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 
         vws_dump_websocket_frame(binary->data, binary->size);
         printf("------------------------------------------------------\n");
+        vrtql_trace_unlock();
     }
 
     ssize_t n = 0;
@@ -1105,11 +1107,13 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
 
         if (vrtql.tracelevel >= VT_PROTOCOL)
         {
+            vrtql_trace_lock();
             printf("\n+----------------------------------------------------+\n");
             printf("| Frame Received                                     |\n");
             printf("+----------------------------------------------------+\n");
             vws_dump_websocket_frame(b->data, b->size);
             printf("------------------------------------------------------\n");
+            vrtql_trace_unlock();
         }
 
         fs_t rc = vws_deserialize(b->data, b->size, frame, &consumed);

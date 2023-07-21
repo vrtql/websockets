@@ -43,20 +43,8 @@ void server_thread(void* arg)
     vrtql_svr_run(server, server_host, server_port);
 }
 
-CTEST(test_msg_server, echo)
+void client_thread(void* arg)
 {
-    vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
-    server->process       = process_message;
-
-    uv_thread_t server_tid;
-    uv_thread_create(&server_tid, server_thread, server);
-
-    // Wait for server to start up
-    while (vrtql_svr_state((vrtql_svr*)server) != VS_RUNNING)
-    {
-        vrtql_msleep(100);
-    }
-
     vws_cnx* cnx = vws_cnx_new();
     ASSERT_TRUE(vws_connect(cnx, uri));
 
@@ -93,6 +81,38 @@ CTEST(test_msg_server, echo)
     // Disconnect
     vws_disconnect(cnx);
     vws_cnx_free(cnx);
+}
+
+CTEST(test_msg_server, echo)
+{
+    vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
+    server->process       = process_message;
+
+    uv_thread_t server_tid;
+    uv_thread_create(&server_tid, server_thread, server);
+
+    // Wait for server to start up
+    while (vrtql_svr_state((vrtql_svr*)server) != VS_RUNNING)
+    {
+        vrtql_msleep(100);
+    }
+
+    int nc = 10;
+    uv_thread_t* threads = vrtql.malloc(sizeof(uv_thread_t) * nc);
+
+    for (int i = 0; i < nc; i++)
+    {
+        uv_thread_create(&threads[i], client_thread, NULL);
+        vrtql.trace(VL_INFO, "started client thread %p", threads[i]);
+    }
+
+    for (int i = 0; i < nc; i++)
+    {
+        uv_thread_join(&threads[i]);
+        vrtql.trace(VL_INFO, "stopped client thread %p", threads[i]);
+    }
+
+    free(threads);
 
     // Shutdown
     vrtql_svr_stop((vrtql_svr*)server);

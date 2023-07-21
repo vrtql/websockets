@@ -80,6 +80,52 @@ static void unlock_mutex(void* arg)
     pthread_mutex_unlock((pthread_mutex_t*)arg);
 }
 
+void vrtql_trace_lock()
+{
+#if defined(__windows__)
+
+    DWORD tid = GetCurrentThreadId();
+
+    // Windows implementation using Windows API for thread synchronization
+    if (WaitForSingleObject(log_mutex, INFINITE) != WAIT_OBJECT_0)
+    {
+        vrtql_error_default_submit(VE_SYS, "WaitForSingleObject failed");
+        return;
+    }
+
+#else
+
+    pthread_t tid = pthread_self();
+
+    if (pthread_mutex_lock(&log_mutex) != 0)
+    {
+        vrtql_error_default_submit(VE_SYS, "pthread_mutex_lock failed");
+        return;
+    }
+
+#endif
+}
+
+void vrtql_trace_unlock()
+{
+#if defined(__windows__)
+
+    // Windows implementation using Windows API for thread synchronization
+    if (!ReleaseMutex(log_mutex))
+    {
+        vrtql_error_default_submit(VE_SYS, "ReleaseMutex failed");
+    }
+
+#else
+
+    if (pthread_mutex_unlock(&log_mutex) != 0)
+    {
+        vrtql_error_default_submit(VE_SYS, "pthread_mutex_unlock failed");
+    }
+
+#endif
+}
+
 void vrtql_trace(vrtql_log_level_t level, const char* format, ...)
 {
     if (level < 0 || level >= VL_LEVEL_COUNT)

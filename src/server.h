@@ -130,6 +130,13 @@ typedef struct vrtql_svr_cnx
     /**< The client associated with the connection */
     uv_stream_t* handle;
 
+    /* Flag holds the HTTP request that started connection. */
+    vrtql_http_req* http;
+
+    /** Flag that holds whether we have upgraded connection from HTTP to
+     *  WebSockets */
+    bool upgraded;
+
     /**< User-defined data associated with the connection */
     char* data;
 
@@ -353,13 +360,6 @@ typedef struct vrtql_ws_svr
 {
     /**< Base class */
     struct vrtql_svr base;
-
-    /** Flag that holds whether we have upgraded connection from HTTP to
-     *  WebSockets */
-    bool upgraded;
-
-    /* Flag holds the HTTP request that started connection. */
-    vrtql_http_req* http;
 
     /**< Function for processing data from the client */
     vrtql_svr_process_data on_data_in;

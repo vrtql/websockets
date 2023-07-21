@@ -358,6 +358,20 @@ static void ws_svr_client_connect(vrtql_svr_cnx* c);
 static void ws_svr_client_disconnect(vrtql_svr_cnx* c);
 
 /**
+ * @brief Callback for client read operations.
+ *
+ * This function is triggered when data is read from a client connection. It is
+ * responsible for processing the received data.
+ *
+ * @param c The connection that sent the data.
+ * @param size The size of the data that was read.
+ * @param buf The buffer containing the data that was read.
+ *
+ * @ingroup WebSocketServerFunctions
+ */
+static void ws_svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* buf);
+
+/**
  * @brief Callback for processing client data in (ingress) for msg server
  *
  * This function processes data arriving from client to worker thread. It
@@ -1136,6 +1150,10 @@ vrtql_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* handle)
     cnx->data          = NULL;
     cnx->format        = VM_MPACK_FORMAT;
 
+    // Initialize HTTP state
+    cnx->upgraded      = false;
+    cnx->http          = vrtql_http_req_new();
+
     return cnx;
 }
 
@@ -1143,6 +1161,11 @@ void svr_cnx_free(vrtql_svr_cnx* c)
 {
     if (c != NULL)
     {
+        if (c->http != NULL)
+        {
+            vrtql_http_req_free(c->http);
+        }
+
         free(c);
     }
 }
@@ -1482,32 +1505,32 @@ void vrtql_svr_close(vrtql_svr_cnx* cnx)
     vrtql_svr_send(cnx->server, reply);
 }
 
-void ws_svr_client_data_in(vrtql_svr_data* block)
+// Runs in uv_thread()
+void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
 {
-    //> Append data to connection buffer
+    vrtql_svr* server = cnx->server;
+    vws_cnx* c        = (vws_cnx*)cnx->data;
 
-    vrtql_svr_cnx* cnx   = block->cnx;
-    vrtql_ws_svr* server = (vrtql_ws_svr*)cnx->server;
-    vws_cnx* c           = (vws_cnx*)cnx->data;
-    vrtql_buffer_append(c->base.buffer, block->data, block->size);
+    // Add to client socket buffer
+    vrtql_buffer_append(c->base.buffer, buf->base, size);
 
-    // Free incoming data
-    vrtql_svr_data_free(block);
+    // Free libuv memory
+    free(buf->base);
 
     // If we are in HTTP mode
-    if (server->upgraded == false)
+    if (cnx->upgraded == false)
     {
         // Parse incoming data as HTTP request.
 
         cstr data   = c->base.buffer->data;
         size_t size = c->base.buffer->size;
-        ssize_t n   = vrtql_http_req_parse(server->http, data, size);
+        ssize_t n   = vrtql_http_req_parse(cnx->http, data, size);
 
         // Did we get a complete request?
-        if (server->http->complete == true)
+        if (cnx->http->complete == true)
         {
             // Check for parsing errors
-            enum http_errno err = HTTP_PARSER_ERRNO(server->http->parser);
+            enum http_errno err = HTTP_PARSER_ERRNO(cnx->http->parser);
 
             // If there was a parsing error, close connection
             if(err != HPE_OK)
@@ -1516,19 +1539,8 @@ void ws_svr_client_data_in(vrtql_svr_data* block)
                             http_errno_name(err),
                             http_errno_description(err) );
 
-                vrtql_svr_close(cnx);
-
-                /*
-                // Create reply
-                vrtql_svr_data* reply;
-                reply = vrtql_svr_data_own(cnx, NULL, 0);
-
-                // Set connection close flag
-                vrtql_set_flag(&reply->flags, VM_SVR_DATA_CLOSE);
-
-                // Queue the data to uv_thread() to send out on wire
-                vrtql_svr_send(cnx->server, reply);
-                */
+                // Close connection
+                uv_close((uv_handle_t*)cnx->handle, svr_on_close);
 
                 return;
             }
@@ -1540,7 +1552,7 @@ void ws_svr_client_data_in(vrtql_svr_data* block)
 
             vrtql_buffer* http = vrtql_buffer_new();
 
-            struct sc_map_str* headers = &server->http->headers;
+            struct sc_map_str* headers = &cnx->http->headers;
             cstr key   = vrtql_map_get(headers, "sec-websocket-key");
             cstr proto = vrtql_map_get(headers, "sec-websocket-protocol");
 
@@ -1571,20 +1583,20 @@ void ws_svr_client_data_in(vrtql_svr_data* block)
             vrtql_svr_data* reply;
             reply = vrtql_svr_data_new(cnx, http);
 
-            // Queue the data to uv_thread() to send out on wire
-            vrtql_svr_send(cnx->server, reply);
+            // Send directly out as we are in uv_thread()
+            server->on_data_out(reply);
 
             // Cleanup. Buffer data was passed to reply.
             vrtql_buffer_free(http);
 
             //> Change state to WebSocket mode
 
-            // Set the flag that we are in WebSockets mode
-            server->upgraded = true;
+            // Set the flag that we are in WebSocket mode
+            cnx->upgraded = true;
 
-            // Free HTTP request we don't need it
-            vrtql_http_req_free(server->http);
-            server->http = NULL;
+            // Free HTTP request as we don't need it anymore
+            vrtql_http_req_free(cnx->http);
+            cnx->http = NULL;
 
             // Do we have any data in the socket after consuming the HTTP
             // request? We shouldn't but if so this is WebSocket data.
@@ -1604,8 +1616,6 @@ void ws_svr_client_data_in(vrtql_svr_data* block)
         // WebSocket data to process (c->base.buffer->size > 0)
     }
 
-    //> Process connection buffer data for complete messages
-
     if (vws_cnx_ingress(c) > 0)
     {
         // Process as many messages as possible
@@ -1619,10 +1629,33 @@ void ws_svr_client_data_in(vrtql_svr_data* block)
                 return;
             }
 
-            // Process message
-            server->on_msg_in(cnx, wsm);
+            // Pass message pointer in block
+            vrtql_svr_data* block;
+            block = vrtql_svr_data_own(cnx, (ucstr)wsm, sizeof(vws_msg*));
+            queue_push(&server->requests, block);
         }
     }
+}
+
+// Runs in worker_thread()
+void ws_svr_client_data_in(vrtql_svr_data* block)
+{
+    //> Append data to connection buffer
+
+    vrtql_svr_cnx* cnx   = block->cnx;
+    vrtql_ws_svr* server = (vrtql_ws_svr*)cnx->server;
+    vws_cnx* c           = (vws_cnx*)cnx->data;
+
+    // Data simply contains a pointer to a websocket message
+    vws_msg* wsm = (vws_msg*)block->data;
+
+    // Free incoming data
+    block->data = NULL;
+    block->size = 0;
+    vrtql_svr_data_free(block);
+
+    //> Process connection buffer data for complete messages
+    server->on_msg_in(cnx, wsm);
 }
 
 void ws_svr_client_data_out( vrtql_svr_cnx* cnx,
@@ -1679,11 +1712,8 @@ void ws_svr_ctor(vrtql_ws_svr* server, int nt, int bl, int qs)
     // Server base function overrides
     server->base.on_connect    = ws_svr_client_connect;
     server->base.on_disconnect = ws_svr_client_disconnect;
+    server->base.on_read       = ws_svr_client_read;
     server->base.on_data_in    = ws_svr_client_data_in;
-
-    // Initialize HTTP state
-    server->upgraded           = false;
-    server->http               = vrtql_http_req_new();
 
     // Message handling
     server->on_msg_in          = ws_svr_client_msg_in;
@@ -1706,11 +1736,6 @@ void ws_svr_dtor(vrtql_ws_svr* server)
     if (server == NULL)
     {
         return;
-    }
-
-    if (server->http != NULL)
-    {
-        vrtql_http_req_free(server->http);
     }
 
     svr_dtor((vrtql_svr*)server);

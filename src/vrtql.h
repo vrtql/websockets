@@ -78,6 +78,52 @@ typedef enum
  */
 void vrtql_trace(vrtql_log_level_t level, const char* format, ...);
 
+
+/**
+ * @brief Lock the log mutex to synchronize access to the logging functionality.
+ *
+ * This function is responsible for locking the log mutex, which ensures that
+ * only one thread can access the logging functionality at a time. It uses
+ * platform-specific synchronization mechanisms depending on the platform:
+ *
+ * - On Windows, it uses the Windows API function WaitForSingleObject() to
+ *   lock the mutex.
+ * - On other platforms, it uses the pthread_mutex_lock() function to lock
+ *   the mutex.
+ *
+ * If an error occurs while trying to lock the mutex, this function will
+ * submit an error message using vrtql_error_default_submit() with a
+ * corresponding error code.
+ *
+ * @see vrtql_trace_unlock()
+ */
+void vrtql_trace_lock();
+
+/**
+ * @brief Unlock the log mutex to release synchronization after accessing
+ *        the logging functionality.
+ *
+ * This function is responsible for unlocking the log mutex, allowing other
+ * threads to access the logging functionality. It complements the
+ * vrtql_trace_lock() function and should be called after finishing the
+ * logging-related tasks to release the mutex.
+ *
+ * This function uses platform-specific synchronization mechanisms depending
+ * on the platform:
+ *
+ * - On Windows, it uses the Windows API function ReleaseMutex() to unlock
+ *   the mutex.
+ * - On other platforms, it uses the pthread_mutex_unlock() function to
+ *   unlock the mutex.
+ *
+ * If an error occurs while trying to unlock the mutex, this function will
+ * submit an error message using vrtql_error_default_submit() with a
+ * corresponding error code.
+ *
+ * @see vrtql_trace_lock()
+ */
+void vrtql_trace_unlock();
+
 /**
  * @brief Callback for tracing
  */
