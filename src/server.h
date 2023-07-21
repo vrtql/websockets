@@ -361,9 +361,6 @@ typedef struct vrtql_ws_svr
     /**< Base class */
     struct vrtql_svr base;
 
-    /**< Function for processing data from the client */
-    vrtql_svr_process_data on_data_in;
-
     /**< Function for processing an incoming frame */
     vws_svr_process_frame on_frame_in;
 

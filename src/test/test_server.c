@@ -49,23 +49,8 @@ void server_thread(void* arg)
     vrtql_svr_run(server, server_host, server_port);
 }
 
-CTEST(test_server, echo)
+void client_thread(void* arg)
 {
-    vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
-    vrtql.tracelevel   = VT_THREAD;
-    server->on_data_in = process_data;
-
-    vrtql.trace(VL_INFO, "[CLIENT] Starting server");
-
-    uv_thread_t server_tid;
-    uv_thread_create(&server_tid, server_thread, server);
-
-    // Wait for server to start up
-    while (server->state != VS_RUNNING)
-    {
-        vrtql_msleep(100);
-    }
-
     // Connect
     vrtql.trace(VL_INFO, "[CLIENT] Connecting");
     vws_socket* s = vws_socket_new();
@@ -83,11 +68,44 @@ CTEST(test_server, echo)
 
     // Disconnect and cleanup.
     vws_socket_free(s);
+}
+
+CTEST(test_server, echo)
+{
+    vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
+    vrtql.tracelevel   = VT_THREAD;
+    server->on_data_in = process_data;
+
+    vrtql.trace(VL_INFO, "[CLIENT] Starting server");
+
+    uv_thread_t server_tid;
+    uv_thread_create(&server_tid, server_thread, server);
+
+    // Wait for server to start up
+    while (server->state != VS_RUNNING)
+    {
+        vrtql_msleep(100);
+    }
+
+    int nc = 10;
+    uv_thread_t* threads = vrtql.malloc(sizeof(uv_thread_t) * nc);
+
+    for (int i = 0; i < nc; i++)
+    {
+        uv_thread_create(&threads[i], client_thread, NULL);
+        vrtql.trace(VL_INFO, "started client thread %p", threads[i]);
+    }
+
+    for (int i = 0; i < nc; i++)
+    {
+        uv_thread_join(&threads[i]);
+        vrtql.trace(VL_INFO, "stopped client thread %p", threads[i]);
+    }
+
+    free(threads);
 
     // Shutdown server
-
     vrtql.trace(VL_INFO, "[CLIENT] Stopping server");
-
     vrtql_svr_stop(server);
     uv_thread_join(&server_tid);
     vrtql_svr_free(server);
