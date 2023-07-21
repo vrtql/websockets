@@ -1342,6 +1342,13 @@ void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data)
         uv_cond_wait(&queue->cond, &queue->mutex);
     }
 
+    while (queue->state != VS_RUNNING)
+    {
+        uv_cond_signal(&queue->cond);
+        uv_mutex_unlock(&queue->mutex);
+        return;
+    }
+
     queue->buffer[queue->tail] = data;
     queue->tail = (queue->tail + 1) % queue->capacity;
     queue->size++;
