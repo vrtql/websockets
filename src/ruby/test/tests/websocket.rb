@@ -3,7 +3,7 @@ class WebsocketTest < Minitest::Test
   def setup
     # Establish a connection before each test
     @connection = VRTQL::WS::Connection.new()
-    @server     = 'ws://localhost:8000/websocket'
+    @server     = 'ws://localhost:8181/websocket'
 
     assert @connection.connect(@server) == true
   end

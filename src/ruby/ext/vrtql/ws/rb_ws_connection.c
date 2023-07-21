@@ -167,7 +167,7 @@ static VALUE m_send_text(VALUE self, VALUE text)
     Check_Type(text, T_STRING);
 
     // Call the vws_send_text function from the C API
-    int bytes_sent = vws_send_text(c, RSTRING_PTR(text));
+    int bytes_sent = vws_msg_send_text(c, RSTRING_PTR(text));
 
     // Return the number of bytes sent as a Ruby integer
     return INT2NUM(bytes_sent);
@@ -198,7 +198,7 @@ static VALUE m_send_binary(VALUE self, VALUE value)
     long size        = RSTRING_LEN(value);
 
     // Call the vws_send_binary function from the C API
-    int sent = vws_send_binary(c, data, size);
+    int sent = vws_msg_send_binary(c, data, size);
 
     // Return the number of bytes sent as a Ruby integer
     return INT2NUM(sent);
@@ -220,7 +220,7 @@ static VALUE m_recv_frame(VALUE self)
     ensure_connected(c);
 
     // Call the vws_recv_frame function from the C API
-    vws_frame* frame = vws_recv_frame(c);
+    vws_frame* frame = vws_frame_recv(c);
 
     if (frame == NULL)
     {
@@ -247,7 +247,7 @@ static VALUE m_recv_msg(VALUE self)
     ensure_connected(c);
 
     // Call the vws_recv_msg function from the C API
-    vws_msg* msg = vws_recv_msg(c);
+    vws_msg* msg = vws_msg_recv(c);
 
     if (msg == NULL)
     {

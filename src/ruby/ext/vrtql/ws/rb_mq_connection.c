@@ -88,7 +88,7 @@ static VALUE m_send(int argc, VALUE* argv, VALUE self)
     vr_mq_cnx* handle;
     Data_Get_Struct(self, vr_mq_cnx, handle);
 
-    vrtql_msg_format format;
+    vrtql_msg_format_t format;
 
     // Rest of your implementation...
 
@@ -129,7 +129,7 @@ static VALUE m_send(int argc, VALUE* argv, VALUE self)
     vrtql_msg* msg = vr_mq_get_object(value);
     msg->format = format;
     vrtql_buffer* binary = vrtql_msg_serialize(msg);
-    int sent = vws_send_binary(c, binary->data, binary->size);
+    int sent = vws_msg_send_binary(c, binary->data, binary->size);
     vrtql_buffer_free(binary);
 
     // Return the number of bytes sent as a Ruby integer
@@ -152,7 +152,7 @@ static VALUE m_receive(VALUE self)
     ensure_connected(c);
 
     // Call the vws_recv_msg function from the C API
-    vws_msg* m = vws_recv_msg(c);
+    vws_msg* m = vws_msg_recv(c);
 
     if (m == NULL)
     {
@@ -195,7 +195,7 @@ static VALUE m_set_format(VALUE self, VALUE format_value)
     vr_mq_cnx* handle;
     Data_Get_Struct(self, vr_mq_cnx, handle);
 
-    vrtql_msg_format format;
+    vrtql_msg_format_t format;
 
     if (SYM2ID(format_value) == rb_intern("json"))
     {
