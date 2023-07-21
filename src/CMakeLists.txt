@@ -15,6 +15,7 @@ endif()
 if (CMAKE_C_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wno-ignored-qualifiers)
   add_compile_options(-Wno-incompatible-pointer-types-discards-qualifiers)
+  add_compile_options(-Wno-unused-parameter)
 endif()
 
 include_directories(

@@ -43,7 +43,7 @@ int main(int argc, const char* argv[])
     }
 
     // Send a BINARY message
-    vws_msg_send_binary(cnx, "Hello, world!", 14);
+    vws_msg_send_binary(cnx, (ucstr)"Hello, world!", 14);
 
     // Receive websocket message
     reply = vws_msg_recv(cnx);

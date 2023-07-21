@@ -3,6 +3,8 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <poll.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #endif
 
 #if defined(__windows__)

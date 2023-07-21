@@ -82,7 +82,7 @@ CTEST2(test, message)
     ASSERT_TRUE(reply != NULL);
 
     // Check
-    cstr content = reply->content->data;
+    cstr content = (cstr)reply->content->data;
     size_t size  = reply->content->size;
     ASSERT_TRUE(strncmp(payload, content, size) == 0);
 

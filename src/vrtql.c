@@ -502,7 +502,7 @@ void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...)
     // Format the string into the buffer
     vsnprintf(data, length + 1, format, args);
 
-    vrtql_buffer_append(buffer, data, length);
+    vrtql_buffer_append(buffer, (ucstr)data, length);
 
     // Cleanup
     free(data);

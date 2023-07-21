@@ -1,5 +1,6 @@
 #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 #include <netinet/in.h>
+#include <sys/socket.h>
 #endif
 
 #if defined(__windows__)

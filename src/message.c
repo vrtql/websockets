@@ -449,7 +449,7 @@ vrtql_msg* vrtql_msg_recv(vws_cnx* c)
 
     // Deserialize VRTQL message
     vrtql_msg* m = vrtql_msg_new();
-    cstr data    = wsm->data->data;
+    ucstr data   = wsm->data->data;
     size_t size  = wsm->data->size;
     if (vrtql_msg_deserialize(m, data, size) == false)
     {
