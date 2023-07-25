@@ -5,7 +5,7 @@
 
 #include "vrtql.h"
 #include "message.h"
-#include "http_request.h"
+#include "http_message.h"
 
 /**
  * @file server.h
@@ -131,7 +131,7 @@ typedef struct vrtql_svr_cnx
     uv_stream_t* handle;
 
     /* Flag holds the HTTP request that started connection. */
-    vrtql_http_req* http;
+    vrtql_http_msg* http;
 
     /** Flag that holds whether we have upgraded connection from HTTP to
      *  WebSockets */

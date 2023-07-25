@@ -1,7 +1,7 @@
 #include <ctype.h>
 #include <stdio.h>
 
-#include "http_request.h"
+#include "http_message.h"
 
 //------------------------------------------------------------------------------
 // Internal functions
@@ -72,9 +72,44 @@ static int on_body(http_parser* p, cstr at, size_t l, int intr);
 // HTTP Request
 //------------------------------------------------------------------------------
 
-vrtql_http_req* vrtql_http_req_new()
+/**
+ * @brief Converts a string to lowercase.
+ * @param s The string to convert.
+ * @return The converted lowercase string.
+ */
+ucstr lcase(char* s)
 {
-    vrtql_http_req* req = vrtql.malloc(sizeof(vrtql_http_req));
+    for(int i = 0; s[i]; i++)
+    {
+        s[i] = tolower(s[i]);
+    }
+
+    return (ucstr)s;
+}
+
+static void process_header(vrtql_http_msg* req)
+{
+    if (req->value->size != 0)
+    {
+        // We've got a complete field-value pair.
+
+        // Null-terminate
+        vrtql_buffer_append(req->field, (ucstr)"\0", 1);
+        vrtql_buffer_append(req->value, (ucstr)"\0", 1);
+
+        ucstr field = lcase((cstr)req->field->data);
+        ucstr data  = req->value->data;
+        vrtql_map_set(&req->headers, (cstr)field, (cstr)data);
+
+        // Reset for the next field-value pair.
+        vrtql_buffer_clear(req->field);
+        vrtql_buffer_clear(req->value);
+    }
+}
+
+vrtql_http_msg* vrtql_http_msg_new(int mode)
+{
+    vrtql_http_msg* req = vrtql.malloc(sizeof(vrtql_http_msg));
     req->parser         = vrtql.malloc(sizeof(http_parser));
     req->settings       = vrtql.malloc(sizeof(http_parser_settings));
     req->parser->data   = req;
@@ -84,7 +119,7 @@ vrtql_http_req* vrtql_http_req_new()
     req->value          = vrtql_buffer_new();
     req->complete       = false;
 
-    http_parser_init(req->parser, HTTP_REQUEST);
+    http_parser_init(req->parser, mode);
     http_parser_settings_init(req->settings);
 
     http_parser_settings* s = req->settings;
@@ -101,7 +136,7 @@ vrtql_http_req* vrtql_http_req_new()
     return req;
 }
 
-void vrtql_http_req_free(vrtql_http_req* req)
+void vrtql_http_msg_free(vrtql_http_msg* req)
 {
     if (req == NULL)
     {
@@ -132,8 +167,11 @@ int on_message_begin(http_parser* p)
 
 int on_headers_complete(http_parser* p)
 {
-    vrtql_http_req* req = p->data;
+    vrtql_http_msg* req = p->data;
     req->complete       = true;
+
+    // Process final header, if any.
+    process_header(req);
 
     return 0;
 }
@@ -145,72 +183,42 @@ int on_message_complete(http_parser* p)
 
 int on_url(http_parser* p, cstr at, size_t l, int intr)
 {
-    vrtql_http_req* req = p->data;
-    vrtql_buffer_append(req->url, at, l);
+    vrtql_http_msg* req = p->data;
+    vrtql_buffer_append(req->url, (ucstr)at, l);
 
     return 0;
 }
 
-/**
- * @brief Converts a string to lowercase.
- * @param s The string to convert.
- * @return The converted lowercase string.
- */
-char* lcase(char* s)
-{
-    for(int i = 0; s[i]; i++)
-    {
-        s[i] = tolower(s[i]);
-    }
-
-    return s;
-}
-
 int on_header_field(http_parser* p, cstr at, size_t l, int intr)
 {
-    vrtql_http_req* req = p->data;
+    vrtql_http_msg* req = p->data;
 
-    if (req->value->size != 0)
-    {
-        // We've got a complete field-value pair.
-
-        // Null-terminate
-        vrtql_buffer_append(req->field, "\0", 1);
-        vrtql_buffer_append(req->value, "\0", 1);
-
-        cstr field = lcase(req->field->data);
-        cstr data  = req->value->data;
-        vrtql_map_set(&req->headers, field, data);
-
-        // Reset for the next field-value pair.
-        vrtql_buffer_clear(req->field);
-        vrtql_buffer_clear(req->value);
-    }
+    process_header(req);
 
     // Start new field
-    vrtql_buffer_append(req->field, at, l);
+    vrtql_buffer_append(req->field, (ucstr)at, l);
 
     return 0;
 }
 
 int on_header_value(http_parser* p, cstr at, size_t l, int intr)
 {
-    vrtql_http_req* req = p->data;
+    vrtql_http_msg* req = p->data;
 
-    vrtql_buffer_append(req->value, at, l);
+    vrtql_buffer_append(req->value, (ucstr)at, l);
 
     return 0;
 }
 
 int on_body(http_parser* p, cstr at, size_t l, int intr)
 {
-    vrtql_http_req* req = p->data;
-    vrtql_buffer_append(req->url, at, l);
+    vrtql_http_msg* req = p->data;
+    vrtql_buffer_append(req->url, (ucstr)at, l);
 
     return 0;
 }
 
-int vrtql_http_req_parse(vrtql_http_req* req, cstr data, size_t size)
+int vrtql_http_msg_parse(vrtql_http_msg* req, cstr data, size_t size)
 {
     http_parser* p          = req->parser;
     http_parser_settings* s = req->settings;

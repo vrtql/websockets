@@ -5,10 +5,10 @@
 #include "http_parser.h"
 
 /**
- * @struct vrtql_http_req
+ * @struct vrtql_http_msg
  * @brief Structure representing an HTTP request
  */
-typedef struct vrtql_http_req
+typedef struct vrtql_http_msg
 {
     /**< The parser */
     http_parser* parser;
@@ -34,27 +34,29 @@ typedef struct vrtql_http_req
     /** Flag indicates a complete message has been parsed. */
     bool complete;
 
-} vrtql_http_req;
+} vrtql_http_msg;
 
 /**
- * @brief Creates a new instance of vrtql_http_req.
- * @return The newly created vrtql_http_req instance.
+ * @brief Creates a new instance of vrtql_http_msg.
+ * @param mode Must be one of HTTP_REQUEST or HTTP_RESPONSE depending on the
+ *        message to parse.
+ * @return The newly created vrtql_http_msg instance.
  */
-vrtql_http_req* vrtql_http_req_new();
+vrtql_http_msg* vrtql_http_msg_new(int mode);
 
 /**
  * @brief Parses the provided data as an HTTP request.
- * @param req The vrtql_http_req instance.
+ * @param req The vrtql_http_msg instance.
  * @param data The data to parse.
  * @param size The size of the data.
  * @return The number of bytes parsed, or a negative value on error.
  */
-int vrtql_http_req_parse(vrtql_http_req* req, cstr data, size_t size);
+int vrtql_http_msg_parse(vrtql_http_msg* req, cstr data, size_t size);
 
 /**
- * @brief Frees the resources associated with the vrtql_http_req instance.
- * @param req The vrtql_http_req instance to free.
+ * @brief Frees the resources associated with the vrtql_http_msg instance.
+ * @param req The vrtql_http_msg instance to free.
  */
-void vrtql_http_req_free(vrtql_http_req* req);
+void vrtql_http_msg_free(vrtql_http_msg* req);
 
-#endif /* VRTQL_HTTP_REQUEST_DECLARE */
+#endif /* VRTQL_HTTP_MSG_DECLARE */

@@ -20,13 +20,14 @@ typedef const unsigned char* ucstr;
  */
 typedef enum
 {
-    VE_SUCCESS = 0,   /**< No error */
-    VE_TIMEOUT = 1,   /**< Socket timeout */
-    VE_WARN    = 2,   /**< Warning */
-    VE_SYS     = 10,  /**< System call error */
-    VE_RT      = 11,  /**< Runtime error */
-    VE_MEM     = 100, /**< Memory failure */
-    VE_FATAL   = 200, /**< Fatal error */
+    VE_SUCCESS    = 0,   /**< No error */
+    VE_TIMEOUT    = 1,   /**< Socket timeout */
+    VE_WARN       = 2,   /**< Warning */
+    VE_DISCONNECT = 3,   /**< Socket disconnect */
+    VE_SYS        = 10,  /**< System call error */
+    VE_RT         = 11,  /**< Runtime error */
+    VE_MEM        = 100, /**< Memory failure */
+    VE_FATAL      = 200, /**< Fatal error */
 } vrtql_error_code_t;
 
 // Trace levels

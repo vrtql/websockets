@@ -11,6 +11,7 @@
 
 #include <openssl/rand.h>
 
+#include "http_message.h"
 #include "websocket.h"
 
 #define MAX_BUFFER_SIZE 1024
@@ -370,7 +371,7 @@ bool socket_handshake(vws_socket* s)
     vws_cnx* c = (vws_cnx*)s;
 
     // Send the WebSocket handshake request
-    const char* websocket_handshake =
+    const char* rt =
         "GET %s HTTP/1.1\r\n"
         "Host: %s\r\n"
         "Cache-Control: no-cache\r\n"
@@ -382,58 +383,116 @@ bool socket_handshake(vws_socket* s)
         "\r\n";
 
     char req[MAX_BUFFER_SIZE];
-    snprintf( req,
-              sizeof(req),
-              websocket_handshake,
-              c->url.path,
-              c->url.host,
-              c->origin,
-              c->key);
+    snprintf(req, sizeof(req), rt, c->url.path, c->url.host, c->origin, c->key);
 
-    ssize_t n = send(s->sockfd, req, strlen(req), 0);
+    ssize_t n;
+    size_t total = 0;
+    size_t size  = strlen(req);
 
-    if (n == -1)
+    while (true)
     {
-#if defined(__windows__)
-        if (WSAGetLastError() == WSAETIMEDOUT)
-#else
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-#endif
+        n = vws_socket_write(s, (ucstr)req, size);
+
+        if (IS_CONNECTED(c) == false)
         {
-            vrtql.error(VE_TIMEOUT, "connection timed out");
-        }
-        else
-        {
-            vrtql.error(VE_SYS, "send() failed");
+            vrtql.error(VE_DISCONNECT, "disconnect");
+
+            return false;
         }
 
-        return false;
+        if (n > 0)
+        {
+            total += n;
+
+            if (total == size)
+            {
+                break;
+            }
+        }
+
+        if (n == 0)
+        {
+            if (vrtql.e.code == VE_TIMEOUT)
+            {
+                return false;
+            }
+        }
+
+        if (n < 0)
+        {
+            return false;
+        }
     }
 
-    // Receive the WebSocket handshake response
-    char buffer[MAX_BUFFER_SIZE] = {0};
+    // Create HTTP response message
+    vrtql_http_msg* http = vrtql_http_msg_new(HTTP_RESPONSE);
 
-    n = recv(s->sockfd, buffer, sizeof(buffer) - 1, 0);
-
-    if (n == -1)
+    // Read until full HTTP response is received
+    while (true)
     {
-#if defined(__windows__)
-        if (WSAGetLastError() == WSAETIMEDOUT)
-#else
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-#endif
+        n = vws_socket_read(s);
+
+        if (IS_CONNECTED(c) == false)
         {
-            vrtql.error(VE_TIMEOUT, "connection timed out");
-        }
-        else
-        {
-            vrtql.error(VE_SYS, "recv() failed");
+            vrtql.error(VE_DISCONNECT, "disconnect");
+
+            // Clear the socket buffer of anything that did arrive,
+            // otherwise it will possibly be in inconsistent state.
+            vrtql_buffer_clear(c->base.buffer);
+
+            // Free HTTP response
+            vrtql_http_msg_free(http);
+
+            return false;
         }
 
-        return false;
+        // If there was a timeout
+        if (n == 0)
+        {
+            // Fail
+            if (vrtql.e.code == VE_TIMEOUT)
+            {
+                // Clear the socket buffer of anything that did arrive,
+                // otherwise it will possibly be in inconsistent state.
+                vrtql_buffer_clear(c->base.buffer);
+
+                // Free HTTP response
+                vrtql_http_msg_free(http);
+
+                return false;
+            }
+        }
+
+        if (n < 0)
+        {
+            // Clear the socket buffer of anything that did arrive,
+            // otherwise it will possibly be in inconsistent state.
+            vrtql_buffer_clear(c->base.buffer);
+
+            // Free HTTP response
+            vrtql_http_msg_free(http);
+
+            return false;
+        }
+
+        if (s->buffer->size > 0)
+        {
+            cstr data   = (cstr)s->buffer->data;
+            size_t size = s->buffer->size;
+            ssize_t n   = vrtql_http_msg_parse(http, data, size);
+
+            if (http->complete == true)
+            {
+                // Drain HTTP request data from socket buffer
+                vrtql_buffer_drain(c->base.buffer, n);
+
+                break;
+            }
+        }
     }
 
-    cstr accept_key = extract_websocket_accept_key(buffer);
+    struct sc_map_str* headers = &http->headers;
+    cstr accept_key = vrtql_map_get(headers, "sec-websocket-accept");
 
     if (accept_key == NULL)
     {
@@ -449,7 +508,7 @@ bool socket_handshake(vws_socket* s)
         return false;
     }
 
-    free(accept_key);
+    vrtql_http_msg_free(http);
 
     return true;
 }
@@ -549,6 +608,11 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
     {
         n = vws_socket_write((vws_socket*)c, binary->data, binary->size);
         vrtql_buffer_free(binary);
+
+        if (IS_CONNECTED(c) == false)
+        {
+            return -1;
+        }
     }
 
     vrtql.success();
@@ -598,7 +662,7 @@ vws_msg* vws_msg_recv(vws_cnx* c)
             return msg;
         }
 
-        if (socket_wait_for_frame(c) == false)
+        if (socket_wait_for_frame(c) <= 0)
         {
             break;
         }
@@ -667,7 +731,7 @@ vws_frame* vws_frame_recv(vws_cnx* c)
             return sc_queue_del_last(&c->queue);
         }
 
-        if (socket_wait_for_frame(c) == false)
+        if (socket_wait_for_frame(c) <= 0)
         {
             break;
         }
@@ -985,35 +1049,6 @@ char* generate_websocket_key()
     return encoded_key;
 }
 
-char* extract_websocket_accept_key(const char* response)
-{
-    const char* key_prefix   = "Sec-WebSocket-Accept: ";
-    size_t key_prefix_length = strlen(key_prefix);
-    const char* key_start    = strstr(response, key_prefix);
-
-    if (key_start == NULL)
-    {
-        return NULL;
-    }
-
-    key_start += key_prefix_length;
-
-    const char* key_end = strchr(key_start, '\r');
-
-    if (key_end == NULL)
-    {
-        return NULL;
-    }
-
-    size_t key_length = key_end - key_start;
-    char* accept_key  = (char*)vrtql.malloc(key_length + 1);
-
-    strncpy(accept_key, key_start, key_length);
-    accept_key[key_length] = '\0';
-
-    return accept_key;
-}
-
 cstr vws_accept_key(cstr key)
 {
     // Concatenate the key and WebSocket GUID
@@ -1067,16 +1102,10 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
         memset(buf, 0, 1024);
         n = vws_socket_read((vws_socket*)c);
 
-        if (n < 0)
+        if (n <= 0)
         {
-            vrtql.error(VE_RT, "Connection closed");
-            vws_socket_close((vws_socket*)c);
+            // Error already set
             return n;
-        }
-
-        if (n == 0)
-        {
-            return 0;
         }
 
         if (vws_cnx_ingress(c) > 0)

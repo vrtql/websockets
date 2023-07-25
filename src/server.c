@@ -235,6 +235,13 @@ static vrtql_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* c);
 static void svr_cnx_free(vrtql_svr_cnx* c);
 
 /**
+ * @brief Actively close a client connection
+ *
+ * @param c The connection
+ */
+static void svr_cnx_close(vrtql_svr_cnx* c);
+
+/**
  * @brief Callback for client connection.
  *
  * This function is triggered when a new client connection is established.  It
@@ -716,10 +723,16 @@ void uv_thread(uv_async_t* handle)
     {
         vrtql_svr_data* data = queue_pop(&server->responses);
 
+        if ((data == NULL) || (server->responses.state != VS_RUNNING))
+        {
+            return;
+        }
+
         if (vrtql_is_flag(&data->flags, VM_SVR_DATA_CLOSE))
         {
             // Close connection
-            uv_close((uv_handle_t*)data->cnx->handle, svr_on_close);
+            //uv_close((uv_handle_t*)data->cnx->handle, svr_on_close);
+            svr_cnx_close(data->cnx);
         }
         else
         {
@@ -871,7 +884,6 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     //> Shutdown server
 
     // Close the listening socket handle
-    //socket->data = (void*)-2;
     uv_close((uv_handle_t*)socket, svr_on_close);
 
     if (vrtql.tracelevel >= VT_SERVICE)
@@ -1152,7 +1164,7 @@ vrtql_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* handle)
 
     // Initialize HTTP state
     cnx->upgraded      = false;
-    cnx->http          = vrtql_http_req_new();
+    cnx->http          = vrtql_http_msg_new(HTTP_REQUEST);
 
     return cnx;
 }
@@ -1163,12 +1175,19 @@ void svr_cnx_free(vrtql_svr_cnx* c)
     {
         if (c->http != NULL)
         {
-            vrtql_http_req_free(c->http);
+            vrtql_http_msg_free(c->http);
         }
 
         free(c);
     }
 }
+
+void svr_cnx_close(vrtql_svr_cnx* c)
+{
+    //uv_close((uv_handle_t*)c->handle, svr_on_close);
+    svr_cnx_close(c);
+}
+
 
 void svr_shutdown(vrtql_svr* server)
 {
@@ -1335,6 +1354,12 @@ void queue_destroy(vrtql_svr_queue* queue)
 
 void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data)
 {
+    if (queue->state != VS_RUNNING)
+    {
+        free(data);
+        return;
+    }
+
     uv_mutex_lock(&queue->mutex);
 
     while (queue->size == queue->capacity)
@@ -1531,7 +1556,7 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
 
         cstr data   = c->base.buffer->data;
         size_t size = c->base.buffer->size;
-        ssize_t n   = vrtql_http_req_parse(cnx->http, data, size);
+        ssize_t n   = vrtql_http_msg_parse(cnx->http, data, size);
 
         // Did we get a complete request?
         if (cnx->http->complete == true)
@@ -1547,7 +1572,7 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
                             http_errno_description(err) );
 
                 // Close connection
-                uv_close((uv_handle_t*)cnx->handle, svr_on_close);
+                svr_cnx_close(cnx);
 
                 return;
             }
@@ -1602,7 +1627,7 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
             cnx->upgraded = true;
 
             // Free HTTP request as we don't need it anymore
-            vrtql_http_req_free(cnx->http);
+            vrtql_http_msg_free(cnx->http);
             cnx->http = NULL;
 
             // Do we have any data in the socket after consuming the HTTP
@@ -1768,7 +1793,7 @@ void msg_svr_client_ws_msg_in(vrtql_svr_cnx* cnx, vws_msg* wsm)
 {
     // Deserialize message
 
-    vrtql_msg* msg = vrtql_msg_new();
+    vrtql_msg* msg = vrtql_msg_new(HTTP_REQUEST);
     cstr data      = wsm->data->data;
     size_t size    = wsm->data->size;
 

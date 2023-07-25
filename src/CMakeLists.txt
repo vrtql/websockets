@@ -42,11 +42,13 @@ file(GLOB mpack_files mpack/*.c)
 file(GLOB util_files util/*.c)
 
 set(core_sources
+  http_message.c
+  http_parser.c
   message.c
-  vrtql.c
-  websocket.c
   rpc.c
   socket.c
+  vrtql.c
+  websocket.c
   ${mpack_files}
   ${util_files}
 )
@@ -62,7 +64,7 @@ if(BUILD_SERVER)
   find_package(LibUV REQUIRED)
   include_directories(${LIBUV_INCLUDE_DIRS})
   list(APPEND OS_LIBS ${LIBUV_LIBRARIES})
-  list(APPEND core_sources server.c http_parser.c http_request.c)
+  list(APPEND core_sources server.c)
 endif()
 
 if(ASAN)

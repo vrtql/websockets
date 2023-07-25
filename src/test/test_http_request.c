@@ -1,6 +1,6 @@
 #include "common.h"
 
-#include "http_request.h"
+#include "http_message.h"
 
 CTEST(test_rpc, call)
 {
@@ -10,9 +10,9 @@ CTEST(test_rpc, call)
                  "Accept: */*\r\n"
                  "\r\n";
 
-    vrtql_http_req* req = vrtql_http_req_new();
+    vrtql_http_msg* req = vrtql_http_msg_new(HTTP_REQUEST);
 
-    vrtql_http_req_parse(req, data, strlen(data));
+    vrtql_http_msg_parse(req, data, strlen(data));
     ASSERT_TRUE(req->complete == true);
 
     printf("\n");
@@ -23,7 +23,7 @@ CTEST(test_rpc, call)
         printf("Header: %s: %s\n", key, value);
     }
 
-    vrtql_http_req_free(req);
+    vrtql_http_msg_free(req);
 }
 
 int main(int argc, const char* argv[])

@@ -13,6 +13,9 @@
 #include <ws2tcpip.h>
 #endif
 
+#include <assert.h>
+#include <string.h>
+
 #include <openssl/rand.h>
 
 #include "socket.h"
@@ -76,6 +79,7 @@ vws_socket* vws_socket_new()
 
 vws_socket* vws_socket_ctor(vws_socket* s)
 {
+    s->sockfd  = -1;
     s->buffer  = vrtql_buffer_new();
     s->ssl     = NULL;
     s->ssl_ctx = NULL;
@@ -252,7 +256,7 @@ bool vws_socket_is_connected(vws_socket* c)
         return false;
     }
 
-    return c->sockfd > 0;
+    return c->sockfd > -1;
 }
 
 bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
@@ -263,6 +267,9 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
         vrtql.error(VE_RT, "Invalid connection pointer()");
         return false;
     }
+
+    // Clear socket buffer in case it was previously used in other connection.
+    vrtql_buffer_clear(c->buffer);
 
     if (ssl == true)
     {
@@ -327,6 +334,23 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
         }
     }
 
+#if defined(__bsd__)
+
+    // Disable SIGPIPE
+    int val = 1;
+    setsockopt(c->sockfd, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof(val));
+
+#endif
+
+    // Go into non-blocking mode as we are using poll() for socket_read() and
+    // socket_write().
+    if (socket_set_nonblocking(c->sockfd) == false)
+    {
+        // Error already set
+        vws_socket_close(c);
+        return false;
+    }
+
     // Check if handshake handler is registered
     if (c->hs != NULL)
     {
@@ -336,15 +360,6 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
             vws_socket_close(c);
             return false;
         }
-    }
-
-    // Go into non-blocking mode as we are using poll() for socket_read() and
-    // socket_write().
-    if (socket_set_nonblocking(c->sockfd) == false)
-    {
-        // Error already set
-        vws_socket_close(c);
-        return false;
     }
 
     vrtql.success();
@@ -382,7 +397,7 @@ ssize_t vws_socket_read(vws_socket* c)
     fds.fd     = c->sockfd;
     fds.events = POLLIN;
 
-    int poll_result = poll(&fds, 1, c->timeout);
+    int rc = poll(&fds, 1, c->timeout);
 
 #elif defined(__windows__)
 
@@ -390,28 +405,27 @@ ssize_t vws_socket_read(vws_socket* c)
     fds.fd     = c->sockfd;
     fds.events = POLLIN;
 
-    int poll_result = WSAPoll(&fds, 1, c->timeout);
+    int rc = WSAPoll(&fds, 1, c->timeout);
 
 #else
     #error Platform not supported
 #endif
 
-    if (poll_result == -1)
+    if (rc == -1)
     {
         vrtql.error(VE_RT, "poll() failed");
         return -1;
     }
 
-    if (poll_result == 0)
+    if (rc == 0)
     {
         vrtql.error(VE_WARN, "timeout");
         return 0;
     }
 
     unsigned char data[1024];
-    int size = 1024;
+    int size  = 1024;
     ssize_t n = 0;
-
     if (fds.revents & POLLIN)
     {
         if (c->ssl != NULL)
@@ -422,22 +436,71 @@ ssize_t vws_socket_read(vws_socket* c)
         else
         {
             // Non-SSL socket is readable, perform recv() operation
+            #if defined(__linux__) || defined(__sunos__)
+            n = recv(c->sockfd, data, size, MSG_NOSIGNAL);
+            #else
             n = recv(c->sockfd, data, size, 0);
-
-            if (n == -1)
-            {
-                vrtql.error(VE_WARN, "recv() failed");
-            }
+            #endif
         }
-    }
 
-    if (n > 0)
-    {
-        vrtql_buffer_append(c->buffer, data, n);
+        if (n == 0)
+        {
+            vrtql.error(VE_DISCONNECT, "disconnect");
+
+            // Close socket
+            vws_socket_close(c);
+
+            return -1;
+        }
+
+        if (n <= -1)
+        {
+            #if defined(__windows__)
+            int err = WSAGetLastError();
+
+            if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
+            {
+                // No data.
+                return 0;
+            }
+
+            #else
+
+            if ((errno == EWOULDBLOCK) || (errno == EAGAIN))
+            {
+                // No data.
+                return 0;
+            }
+            else
+            {
+                // Error
+                char buf[256];
+                strerror_r(errno, buf, sizeof(buf));
+                vrtql.error(VE_WARN, "recv() or SSL_read() failed: %s", buf);
+
+                // Close socket
+                vws_socket_close(c);
+
+                return -1;
+            }
+            #endif
+        }
     }
     else
     {
-        vrtql.error(VE_WARN, "Unexpected event in poll()");
+        // Something wierd happened.
+        vrtql.error(VE_WARN, "recv() or SSL_read() failed");
+
+        // Close socket
+        vws_socket_close(c);
+
+        return -1;
+    }
+
+    // Should always be true if we get here
+    if (n > 0)
+    {
+        vrtql_buffer_append(c->buffer, data, n);
     }
 
     return n;
@@ -450,7 +513,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
 
     if (vws_socket_is_connected(c) == false)
     {
-        vrtql.error(VE_RT, "Not connected");
+        vrtql.error(VE_DISCONNECT, "Not connected");
         return -1;
     }
 
@@ -461,33 +524,33 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         return -1;
     }
 
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+    #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
     struct pollfd fds;
     fds.fd     = c->sockfd;
     fds.events = POLLOUT;
 
-    int poll_result = poll(&fds, 1, c->timeout);
+    int rc = poll(&fds, 1, c->timeout);
 
-#elif defined(__windows__)
+    #elif defined(__windows__)
 
     WSAPOLLFD fds;
     fds.fd     = c->sockfd;
     fds.events = POLLOUT;
 
-    int poll_result = WSAPoll(&fds, 1, c->timeout);
+    int rc = WSAPoll(&fds, 1, c->timeout);
 
-#else
-    #error Platform not supported
-#endif
+    #else
+        #error Platform not supported
+    #endif
 
-    if (poll_result == -1)
+    if (rc == -1)
     {
         vrtql.error(VE_SYS, "poll() failed");
         return -1;
     }
 
-    if (poll_result == 0)
+    if (rc == 0)
     {
         vrtql.error(VE_TIMEOUT, "timeout");
         return 0;
@@ -503,17 +566,45 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         else
         {
             // Non-SSL socket is writable, perform send() operation
-            ssize_t bytes_sent = send(c->sockfd, data, size, 0);
-            if (bytes_sent == -1)
+            #if defined(__linux__) || defined(__sunos__)
+
+            ssize_t n = send(c->sockfd, data, size, MSG_NOSIGNAL);
+
+            #else
+
+            ssize_t n = send(c->sockfd, data, size, 0);
+
+            #endif
+
+            if (n <= -1)
             {
-                vrtql.error(VE_SYS, "send() failed");
+                #if defined(__windows__)
+                int err = WSAGetLastError();
+                if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
+                {
+                    // The socket is still open but would block on send
+                    return 0;
+                }
+                #else
+                if (errno == EWOULDBLOCK || errno == EAGAIN)
+                {
+                    // The socket is still open but would block on send
+                    return 0;
+                }
+                #endif
+
+                // An error occurred, and the socket might be closed
+                vrtql.error(VE_SYS, "send() error");
+
+                // Close socket
+                vws_socket_close(c);
+
+                return -1;
             }
 
-            return bytes_sent;
+            return n;
         }
     }
-
-    vrtql.error(VE_SYS, "Unexpected event in poll()");
 
     return -1;
 }
@@ -545,15 +636,18 @@ void vws_socket_close(vws_socket* c)
         c->ssl_ctx = NULL;
     }
 
-    if (c->sockfd > 0)
+    if (c->sockfd >= 0)
     {
 #if defined(__windows__)
-        if (closesocket(c->sockfd) == SOCKET_ERROR)
+        if (closesocket(c->sockfd) == SOCKET_ERROR
+            )
 #else
         if (close(c->sockfd) == -1)
 #endif
         {
-            vrtql.error(VE_SYS, "Socket close failed");
+            char buf[256];
+            strerror_r(errno, buf, sizeof(buf));
+            vrtql.error(VE_WARN, "Socket close failed: %s", buf);
         }
 
 #if defined(__windows__)
