@@ -137,10 +137,12 @@ static VALUE m_is_connected(VALUE self)
 static VALUE m_close(VALUE self, VALUE url)
 {
     vws_cnx* c = get_object(self);
-    ensure_connected(c);
 
-    // Connect to the specified host URL.
-    // Check if the connection was successful
+    if (vws_socket_is_connected((vws_socket*)c) == false)
+    {
+        return Qnil;
+    }
+
     vws_disconnect(c);
 
     return Qnil;

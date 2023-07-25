@@ -50,6 +50,9 @@ typedef struct vws_socket
     /**< User-defined handshake function to be called on connect */
     vws_socket_hs hs;
 
+    /** Flag to force writes to poll() until all data is flushed. Default true. */
+    bool flush;
+
 } vws_socket;
 
 /**

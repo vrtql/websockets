@@ -86,6 +86,7 @@ vws_socket* vws_socket_ctor(vws_socket* s)
     s->timeout = 10000;
     s->data    = NULL;
     s->hs      = NULL;
+    s->flush   = true;
 
     return s;
 }
@@ -432,6 +433,27 @@ ssize_t vws_socket_read(vws_socket* c)
         {
             // SSL socket is readable, perform SSL_read() operation
             n = SSL_read(c->ssl, data, size);
+
+            if (n <= 0)
+            {
+                int err = SSL_get_error(c->ssl, n);
+                if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
+                {
+                    // The SSL socket is still open but would block on read
+                    return 0;
+                }
+
+                // Get the latest OpenSSL error
+                char buf[256];
+                unsigned long ssl_err = ERR_get_error();
+                ERR_error_string_n(ssl_err, buf, sizeof(buf));
+                vrtql.error(VE_DISCONNECT, "SSL_read() failed: %s", buf);
+
+                // Close socket
+                vws_socket_close(c);
+
+                return -1;
+            }
         }
         else
         {
@@ -441,60 +463,50 @@ ssize_t vws_socket_read(vws_socket* c)
             #else
             n = recv(c->sockfd, data, size, 0);
             #endif
-        }
 
-        if (n == 0)
-        {
-            vrtql.error(VE_DISCONNECT, "disconnect");
-
-            // Close socket
-            vws_socket_close(c);
-
-            return -1;
-        }
-
-        if (n <= -1)
-        {
-            #if defined(__windows__)
-            int err = WSAGetLastError();
-
-            if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
+            if (n == 0)
             {
-                // No data.
-                return 0;
-            }
-
-            #else
-
-            if ((errno == EWOULDBLOCK) || (errno == EAGAIN))
-            {
-                // No data.
-                return 0;
-            }
-            else
-            {
-                // Error
-                char buf[256];
-                strerror_r(errno, buf, sizeof(buf));
-                vrtql.error(VE_WARN, "recv() or SSL_read() failed: %s", buf);
+                vrtql.error(VE_DISCONNECT, "disconnect");
 
                 // Close socket
                 vws_socket_close(c);
 
                 return -1;
             }
-            #endif
+
+            if (n <= -1)
+            {
+                #if defined(__windows__)
+                int err = WSAGetLastError();
+
+                if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
+                {
+                    // No data.
+                    return 0;
+                }
+
+                #else
+
+                if ((errno == EWOULDBLOCK) || (errno == EAGAIN))
+                {
+                    // No data.
+                    return 0;
+                }
+                else
+                {
+                    // Error
+                    char buf[256];
+                    strerror_r(errno, buf, sizeof(buf));
+                    vrtql.error(VE_WARN, "recv() failed: %s", buf);
+
+                    // Close socket
+                    vws_socket_close(c);
+
+                    return -1;
+                }
+                #endif
+            }
         }
-    }
-    else
-    {
-        // Something wierd happened.
-        vrtql.error(VE_WARN, "recv() or SSL_read() failed");
-
-        // Close socket
-        vws_socket_close(c);
-
-        return -1;
     }
 
     // Should always be true if we get here
@@ -524,89 +536,131 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         return -1;
     }
 
-    #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-
-    struct pollfd fds;
-    fds.fd     = c->sockfd;
-    fds.events = POLLOUT;
-
-    int rc = poll(&fds, 1, c->timeout);
-
-    #elif defined(__windows__)
-
-    WSAPOLLFD fds;
-    fds.fd     = c->sockfd;
-    fds.events = POLLOUT;
-
-    int rc = WSAPoll(&fds, 1, c->timeout);
-
-    #else
-        #error Platform not supported
-    #endif
-
-    if (rc == -1)
+    // But default we will keep looping until we have sent all the data
+    size_t sent    = 0;
+    int iterations = 0;
+    while (sent < size)
     {
-        vrtql.error(VE_SYS, "poll() failed");
-        return -1;
-    }
-
-    if (rc == 0)
-    {
-        vrtql.error(VE_TIMEOUT, "timeout");
-        return 0;
-    }
-
-    if (fds.revents & POLLOUT)
-    {
-        if (c->ssl != NULL)
+        // If we attempted at east one poll()/send()
+        if (iterations++ > 0)
         {
-            // SSL socket is writable, perform SSL_write() operation
-            return SSL_write(c->ssl, data, size);
-        }
-        else
-        {
-            // Non-SSL socket is writable, perform send() operation
-            #if defined(__linux__) || defined(__sunos__)
-
-            ssize_t n = send(c->sockfd, data, size, MSG_NOSIGNAL);
-
-            #else
-
-            ssize_t n = send(c->sockfd, data, size, 0);
-
-            #endif
-
-            if (n <= -1)
+            // And we are not set to flush mode, then we will return here,
+            // sending back how much data we sent. The caller will need to
+            // adjust the buffer accordingly.
+            if (c->flush == false)
             {
-                #if defined(__windows__)
-                int err = WSAGetLastError();
-                if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
+                break;
+            }
+        }
+
+        #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+
+        struct pollfd fds;
+        fds.fd     = c->sockfd;
+        fds.events = POLLOUT;
+
+        int rc = poll(&fds, 1, c->timeout);
+
+        #elif defined(__windows__)
+
+        WSAPOLLFD fds;
+        fds.fd     = c->sockfd;
+        fds.events = POLLOUT;
+
+        int rc = WSAPoll(&fds, 1, c->timeout);
+
+        #else
+            #error Platform not supported
+        #endif
+
+        if (rc == -1)
+        {
+            vrtql.error(VE_SYS, "poll() failed");
+            return -1;
+        }
+
+        // If nothing is ready, then there was a timeout. In this case we
+        // simply restart loop.
+
+        if (rc == 0)
+        {
+            continue;
+        }
+
+        ssize_t n = 0;
+        if (fds.revents & POLLOUT)
+        {
+            if (c->ssl != NULL)
+            {
+                // SSL socket is writable, perform SSL_write() operation
+                n = SSL_write(c->ssl, data + sent, size - sent);
+
+                if (n <= 0)
                 {
-                    // The socket is still open but would block on send
-                    return 0;
+                    int err = SSL_get_error(c->ssl, n);
+                    if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
+                    {
+                        // The SSL socket is still open but would block on write
+                        continue;
+                    }
+
+                    // An error occurred, and the socket might be closed
+                    vrtql.error(VE_SYS, "SSL_write() error");
+
+                    // Close socket
+                    vws_socket_close(c);
+
+                    return -1;
                 }
+            }
+            else
+            {
+                // Non-SSL socket is writable, perform send() operation
+                #if defined(__linux__) || defined(__sunos__)
+
+                n = send(c->sockfd, data + sent, size - sent, MSG_NOSIGNAL);
+
                 #else
-                if (errno == EWOULDBLOCK || errno == EAGAIN)
-                {
-                    // The socket is still open but would block on send
-                    return 0;
-                }
+
+                n = send(c->sockfd, data + sent, size - sent, 0);
+
                 #endif
 
-                // An error occurred, and the socket might be closed
-                vrtql.error(VE_SYS, "send() error");
+                if (n <= -1)
+                {
+                    #if defined(__windows__)
+                    int err = WSAGetLastError();
+                    if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
+                    {
+                        // The socket is still open but would block on send
+                        continue;
+                    }
+                    #else
+                    if (errno == EWOULDBLOCK || errno == EAGAIN)
+                    {
+                        // The socket is still open but would block on send
+                        continue;
+                    }
+                    #endif
 
-                // Close socket
-                vws_socket_close(c);
+                    // An error occurred, and the socket might be closed
+                    vrtql.error(VE_SYS, "send() error");
 
-                return -1;
+                    // Close socket
+                    vws_socket_close(c);
+
+                    return -1;
+                }
             }
 
-            return n;
+            if (n > 0)
+            {
+                sent += n;
+            }
         }
     }
 
-    return -1;
+    return sent;
 }
 
 void vws_socket_close(vws_socket* c)
