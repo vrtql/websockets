@@ -53,6 +53,8 @@ File.open('platform.h', 'w') do |file|
 end
 
 vrtql_files = [
+  'vrtql/http_message.c',
+  'vrtql/http_parser.c',
   'vrtql/message.c',
   'vrtql/socket.c',
   'vrtql/vrtql.c',

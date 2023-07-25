@@ -617,7 +617,7 @@ void vws_socket_close(vws_socket* c)
 
         if (rc == 0)
         {
-            // the shutdown is not yet finished
+            // The shutdown is not yet finished
             rc = SSL_shutdown(c->ssl);
         }
 

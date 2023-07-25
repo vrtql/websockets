@@ -53,6 +53,8 @@ include_directories(${RUBY_INCLUDE_DIRS})
 #-------------------------------------------------------------------------------
 
 file(GLOB core_files
+  ../http_message.c
+  ../http_parser.c
   ../message.c
   ../socket.c
   ../vrtql.c

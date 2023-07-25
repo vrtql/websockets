@@ -141,7 +141,7 @@ CTEST(test_msg_server, echo)
         vrtql_msleep(100);
     }
 
-    client_test(5, 10);
+    client_test(5, 50);
 
     // Shutdown
     vrtql_svr_stop((vrtql_svr*)server);
