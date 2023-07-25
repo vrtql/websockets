@@ -385,6 +385,12 @@ ssize_t vws_socket_read(vws_socket* c)
     // Default success unless error
     vrtql.success();
 
+    if (vws_socket_is_connected(c) == false)
+    {
+        vrtql.error(VE_DISCONNECT, "Not connected");
+        return -1;
+    }
+
     // Validate input parameters
     if (c == NULL)
     {
@@ -604,8 +610,11 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
                         continue;
                     }
 
-                    // An error occurred, and the socket might be closed
-                    vrtql.error(VE_SYS, "SSL_write() error");
+                    // Get the latest OpenSSL error
+                    char buf[256];
+                    unsigned long ssl_err = ERR_get_error();
+                    ERR_error_string_n(ssl_err, buf, sizeof(buf));
+                    vrtql.error(VE_DISCONNECT, "SSL_write() failed: %s", buf);
 
                     // Close socket
                     vws_socket_close(c);
