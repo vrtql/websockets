@@ -117,7 +117,7 @@ vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg)
 
         int size  = msg->content->size;
         cstr data = (cstr)msg->content->data;
-        mpack_write_bin(&writer, data, size);
+        mpack_write_str(&writer, data, size);
 
         // Close array
         mpack_finish_array(&writer);
@@ -554,7 +554,7 @@ int32_t msg_parse_content(mpack_reader_t* reader, vrtql_buffer* buffer)
         return -1;
     }
 
-    if (mpack_tag_type(&tag) != mpack_type_bin)
+    if (mpack_tag_type(&tag) != mpack_type_str)
     {
         return -1;
     }

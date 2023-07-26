@@ -1,6 +1,6 @@
 #include "util/mongoose.h"
 
-static const char* s_listen_on = "wss://localhost:8181";
+static const char* s_listen_on = "ws://localhost:8181";
 static const char* s_web_root = ".";
 
 // This RESTful server implements the following endpoints:

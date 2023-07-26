@@ -447,34 +447,57 @@ openssl_reread:
         return 0;
     }
 
-    unsigned char data[1024];
-    int size        = 1024;
-    ssize_t n       = 0;
+    ssize_t      n = 0;
+    ucstr data   = &vrtql.sslbuf[0];
+    ssize_t size = sizeof(vrtql.sslbuf);
+
     if (fds.revents & poll_events)
     {
+        // We need running total bc we may make multiple SSL_read() calls.
+        int total = 0;
+
         if (c->ssl != NULL)
         {
-            // SSL socket is readable, perform SSL_read() operation
-            n = SSL_read(c->ssl, data, size);
+            // Drain all data from SSL buffer
+            while ((n = SSL_read(c->ssl, data, size)) > 0)
+            {
+                // Process received data stored in buf
+                total += n;
+                vrtql_buffer_append(c->buffer, data, n);
 
+                if (n < size)
+                {
+                    // All available data has been read, break the loop.
+                    break;
+                }
+            }
+
+            // Check for error conditions
             if (n <= 0)
             {
                 int err = SSL_get_error(c->ssl, n);
 
                 if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
                 {
-                    // The SSL socket is still open but would block on write
+                    // SSL needs to do something on socket in order to continue.
 
+                    // If it wants to read data
                     if (err == SSL_ERROR_WANT_READ)
                     {
-                        poll_events = POLLIN;
-                    }
-                    else
-                    {
-                        poll_events = POLLOUT;
+                        // We are done. We have emptied the read buffer.
+                        return total;
                     }
 
-                    goto openssl_reread;
+                    // If it wants to write data
+                    if (err == SSL_ERROR_WANT_WRITE)
+                    {
+                        // It's doing some internal negotiation and we need to
+                        // help it along by running poll() for writes. Then we
+                        // will return to SSL_read() in which SSL will send out
+                        // the data it needs to.
+                        poll_events = POLLOUT;
+                        goto openssl_reread;
+                    }
                 }
 
                 // Get the latest OpenSSL error
@@ -488,9 +511,6 @@ openssl_reread:
 
                 return -1;
             }
-
-            // Reset
-            poll_events = POLLIN;
         }
         else
         {
@@ -543,13 +563,13 @@ openssl_reread:
                 }
                 #endif
             }
-        }
-    }
 
-    // Should always be true if we get here
-    if (n > 0)
-    {
-        vrtql_buffer_append(c->buffer, data, n);
+            // Should always be true if we get here
+            if (n > 0)
+            {
+                vrtql_buffer_append(c->buffer, data, n);
+            }
+        }
     }
 
     return n;
@@ -631,9 +651,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
             return -1;
         }
 
-        // If nothing is ready, then there was a timeout. In this case we
-        // simply restart loop.
-
+        // There was a timeout. Restart loop.
         if (rc == 0)
         {
             continue;

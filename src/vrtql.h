@@ -228,6 +228,7 @@ typedef struct
     vrtql_trace_cb trace;                 /**< Error clear function        */
     uint8_t tracelevel;                   /**< Tracing leve (0 is off)     */
     uint64_t state;                       /**< Contains global state flags */
+    unsigned char sslbuf[4096];           /**< Thread-local SSL buffer */
 } vrtql_env;
 
 /**
