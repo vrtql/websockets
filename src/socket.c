@@ -82,7 +82,6 @@ vws_socket* vws_socket_ctor(vws_socket* s)
     s->sockfd  = -1;
     s->buffer  = vrtql_buffer_new();
     s->ssl     = NULL;
-    s->ssl_ctx = NULL;
     s->timeout = 10000;
     s->data    = NULL;
     s->hs      = NULL;
@@ -280,27 +279,27 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
             RAND_poll();
             SSL_load_error_strings();
 
-            c->ssl_ctx = SSL_CTX_new(TLS_method());
+            vrtql_ssl_ctx = SSL_CTX_new(TLS_method());
 
-            if (c->ssl_ctx == NULL)
+            if (vrtql_ssl_ctx == NULL)
             {
                 vrtql.error(VE_SYS, "Failed to create new SSL context");
                 return false;
             }
 
-            SSL_CTX_set_options(c->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
-
-            c->ssl = SSL_new(c->ssl_ctx);
-
-            if (c->ssl == NULL)
-            {
-                vrtql.error(VE_SYS, "Failed to create new SSL object");
-                vws_socket_close(c);
-                return false;
-            }
-
-            vrtql_set_flag(&vrtql.state, CNX_SSL_INIT);
+            SSL_CTX_set_options(vrtql_ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
         }
+
+        c->ssl = SSL_new(vrtql_ssl_ctx);
+
+        if (c->ssl == NULL)
+        {
+            vrtql.error(VE_SYS, "Failed to create new SSL object");
+            vws_socket_close(c);
+            return false;
+        }
+
+        vrtql_set_flag(&vrtql.state, CNX_SSL_INIT);
     }
 
     char port_str[20];
@@ -398,15 +397,26 @@ ssize_t vws_socket_read(vws_socket* c)
         return -1;
     }
 
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
-
     struct pollfd fds;
+    int poll_events = POLLIN;
+
+openssl_reread:
+
+    #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+
     fds.fd     = c->sockfd;
-    fds.events = POLLIN;
+    fds.events = poll_events;
 
     int rc = poll(&fds, 1, c->timeout);
 
-#elif defined(__windows__)
+    if (fds.revents & (POLLERR | POLLHUP | POLLNVAL))
+    {
+        vrtql.error(VE_DISCONNECT, "Socket error during poll()");
+        vws_socket_close(c);
+        return -1;
+    }
+
+    #elif defined(__windows__)
 
     WSAPOLLFD fds;
     fds.fd     = c->sockfd;
@@ -414,9 +424,16 @@ ssize_t vws_socket_read(vws_socket* c)
 
     int rc = WSAPoll(&fds, 1, c->timeout);
 
-#else
-    #error Platform not supported
-#endif
+    if (rc == SOCKET_ERROR)
+    {
+        vrtql.error(VE_DISCONNECT, "Socket error during WSAPoll()");
+        vws_socket_close(c);
+        return -1;
+    }
+
+    #else
+        #error Platform not supported
+    #endif
 
     if (rc == -1)
     {
@@ -431,9 +448,9 @@ ssize_t vws_socket_read(vws_socket* c)
     }
 
     unsigned char data[1024];
-    int size  = 1024;
-    ssize_t n = 0;
-    if (fds.revents & POLLIN)
+    int size        = 1024;
+    ssize_t n       = 0;
+    if (fds.revents & poll_events)
     {
         if (c->ssl != NULL)
         {
@@ -443,10 +460,21 @@ ssize_t vws_socket_read(vws_socket* c)
             if (n <= 0)
             {
                 int err = SSL_get_error(c->ssl, n);
+
                 if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
                 {
-                    // The SSL socket is still open but would block on read
-                    return 0;
+                    // The SSL socket is still open but would block on write
+
+                    if (err == SSL_ERROR_WANT_READ)
+                    {
+                        poll_events = POLLIN;
+                    }
+                    else
+                    {
+                        poll_events = POLLOUT;
+                    }
+
+                    goto openssl_reread;
                 }
 
                 // Get the latest OpenSSL error
@@ -460,6 +488,9 @@ ssize_t vws_socket_read(vws_socket* c)
 
                 return -1;
             }
+
+            // Reset
+            poll_events = POLLIN;
         }
         else
         {
@@ -543,8 +574,9 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
     }
 
     // But default we will keep looping until we have sent all the data
-    size_t sent    = 0;
-    int iterations = 0;
+    size_t sent     = 0;
+    int poll_events = POLLOUT;
+    int iterations  = 0;
     while (sent < size)
     {
         // If we attempted at east one poll()/send()
@@ -563,17 +595,31 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
 
         struct pollfd fds;
         fds.fd     = c->sockfd;
-        fds.events = POLLOUT;
+        fds.events = poll_events;
 
         int rc = poll(&fds, 1, c->timeout);
+
+        if (fds.revents & (POLLERR | POLLHUP | POLLNVAL))
+        {
+            vrtql.error(VE_DISCONNECT, "Socket error during poll()");
+            vws_socket_close(c);
+            return -1;
+        }
 
         #elif defined(__windows__)
 
         WSAPOLLFD fds;
         fds.fd     = c->sockfd;
-        fds.events = POLLOUT;
+        fds.events = poll_events;
 
         int rc = WSAPoll(&fds, 1, c->timeout);
+
+        if (rc == SOCKET_ERROR)
+        {
+            vrtql.error(VE_DISCONNECT, "Socket error during WSAPoll()");
+            vws_socket_close(c);
+            return -1;
+        }
 
         #else
             #error Platform not supported
@@ -594,7 +640,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         }
 
         ssize_t n = 0;
-        if (fds.revents & POLLOUT)
+        if (fds.revents & poll_events)
         {
             if (c->ssl != NULL)
             {
@@ -604,9 +650,20 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
                 if (n <= 0)
                 {
                     int err = SSL_get_error(c->ssl, n);
+
                     if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
                     {
                         // The SSL socket is still open but would block on write
+
+                        if (err == SSL_ERROR_WANT_READ)
+                        {
+                            poll_events = POLLIN;
+                        }
+                        else
+                        {
+                            poll_events = POLLOUT;
+                        }
+
                         continue;
                     }
 
@@ -621,6 +678,9 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
 
                     return -1;
                 }
+
+                // Reset
+                poll_events = POLLOUT;
             }
             else
             {
@@ -676,28 +736,29 @@ void vws_socket_close(vws_socket* c)
 {
     if (c->ssl != NULL)
     {
+        // Unidirectional shutdown
         int rc = SSL_shutdown(c->ssl);
 
-        if (rc == 0)
+        if (rc < 0)
         {
-            // The shutdown is not yet finished
-            rc = SSL_shutdown(c->ssl);
-        }
-
-        if (rc != 1)
-        {
-            vrtql.error(VE_WARN, "SSL_shutdown failed");
+            // Get the latest OpenSSL error
+            char buf[256];
+            unsigned long ssl_err = ERR_get_error();
+            ERR_error_string_n(ssl_err, buf, sizeof(buf));
+            vrtql.error(VE_WARN, "SSL_shutdown failed: %s", buf);
         }
 
         SSL_free(c->ssl);
         c->ssl = NULL;
     }
 
-    if (c->ssl_ctx != NULL)
+    /*
+    if (vrtql_ssl_ctx != NULL)
     {
-        SSL_CTX_free(c->ssl_ctx);
-        c->ssl_ctx = NULL;
+        SSL_CTX_free(vrtql_ssl_ctx);
+        vrtql_ssl_ctx = NULL;
     }
+    */
 
     if (c->sockfd >= 0)
     {

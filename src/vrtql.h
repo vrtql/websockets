@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <openssl/ssl.h>
+
 #include "common.h"
 #include "util/sc_map.h"
 
@@ -53,6 +55,9 @@ typedef struct
     int code;       /**< Error code */
     char* text;     /**< Error text */
 } vrtql_error_value;
+
+/**< The SSL context for the connection. */
+SSL_CTX* vrtql_ssl_ctx;
 
 //------------------------------------------------------------------------------
 // Tracing

@@ -32,9 +32,6 @@ typedef struct vws_socket
     /**< The socket file descriptor. */
     int sockfd;
 
-    /**< The SSL context for the connection. */
-    SSL_CTX* ssl_ctx;
-
     /**< The SSL connection instance. */
     SSL* ssl;
 

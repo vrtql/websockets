@@ -16,7 +16,7 @@
 #include "common.h"
 
 cstr content = "content";
-cstr uri     = "ws://localhost:8181/websocket";
+cstr uri     = "wss://localhost:8181/websocket";
 
 #define check_reply(c, value)                                             \
 {                                                                         \
