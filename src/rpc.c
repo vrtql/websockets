@@ -71,13 +71,13 @@ void vrtql_rpc_module_free(vrtql_rpc_module* m)
         cstr key; vrtql_rpc_call* call;
         sc_map_foreach(&m->calls, key, call)
         {
-            free(key);
+            vrtql.free(key);
         }
 
         sc_map_term_sv(&m->calls);
 
-        free(m->name);
-        free(m);
+        vrtql.free(m->name);
+        vrtql.free(m);
     }
 }
 
@@ -112,7 +112,7 @@ void vrtql_rpc_system_free(vrtql_rpc_system* s)
         sc_map_foreach(&s->modules, key, module)
         {
             vrtql_rpc_module_free(module);
-            free(key);
+            vrtql.free(key);
 
             /*
             sys_map_clear( &s->modules,
@@ -123,7 +123,7 @@ void vrtql_rpc_system_free(vrtql_rpc_system* s)
 
         sc_map_term_sv(&s->modules);
 
-        free(s);
+        vrtql.free(s);
     }
 }
 
@@ -205,8 +205,8 @@ vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
         vrtql.error(VE_RT, "RPC does not exist");
 
         vrtql_msg_free(m);
-        free(mn);
-        free(fn);
+        vrtql.free(mn);
+        vrtql.free(fn);
 
         return NULL;
     }
@@ -219,14 +219,14 @@ vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
         vrtql.error(VE_RT, "RPC does not exist");
 
         vrtql_msg_free(m);
-        free(mn);
-        free(fn);
+        vrtql.free(mn);
+        vrtql.free(fn);
 
         return NULL;
     }
 
-    free(mn);
-    free(fn);
+    vrtql.free(mn);
+    vrtql.free(fn);
 
     // Invoke RPC
     vrtql_msg* reply = rpc(e, m);

@@ -200,6 +200,20 @@ struct vws_cnx;
  */
 typedef void (*vws_process_frame)(struct vws_cnx* cnx, vws_frame* frame);
 
+typedef struct vrtql_url_data {
+  char *href;
+  char *protocol;
+  char *host;
+  char *auth;
+  char *hostname;
+  char *pathname;
+  char *search;
+  char *path;
+  char *hash;
+  char *query;
+  char *port;
+} vrtql_url_data;
+
 /**
  * @brief A WebSocket connection.
  */
@@ -212,7 +226,7 @@ typedef struct vws_cnx
     uint64_t flags;
 
     /**< The URL of the websocket server. */
-    vrtql_url url;
+    vrtql_url_data* url;
 
     /**< The WebSocket origin. */
     char* origin;

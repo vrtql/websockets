@@ -66,7 +66,7 @@ void vrtql_msg_free(vrtql_msg* msg)
 
     vrtql_buffer_free(msg->content);
 
-    free(msg);
+    vrtql.free(msg);
     msg = NULL;
 }
 
@@ -184,7 +184,7 @@ vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg)
             // Assuming vrtql_buffer_write takes a char* and size, writes the
             // data to the buffer
             vrtql_buffer_append(buffer, (ucstr)json, strlen(json));
-            free((void*)json);
+            vrtql.free((void*)json);
         }
 
         // Free the doc

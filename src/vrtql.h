@@ -57,7 +57,7 @@ typedef struct
 } vrtql_error_value;
 
 /**< The SSL context for the connection. */
-SSL_CTX* vrtql_ssl_ctx;
+extern SSL_CTX* vrtql_ssl_ctx;
 
 //------------------------------------------------------------------------------
 // Tracing
@@ -136,9 +136,14 @@ void vrtql_trace_unlock();
 typedef void (*vrtql_trace_cb)(vrtql_log_level_t level, const char* fmt, ...);
 
 /**
- * @brief Callback for memory allocation with malloc.
+ * @brief Callback for memory allocation with malloc().
  */
 typedef void* (*vrtql_malloc_cb)(size_t size);
+
+/**
+ * @brief Callback for memory deallocatiion with free().
+ */
+typedef void (*vrtql_free_cb)(void* memory);
 
 /**
  * @brief Callback for malloc failure. This is called when vrtql.malloc() fails
@@ -220,6 +225,7 @@ typedef struct
     vrtql_calloc_error_cb calloc_error;   /**< calloc error hanlding       */
     vrtql_realloc_cb realloc;             /**< realloc function            */
     vrtql_realloc_error_cb realloc_error; /**< calloc error hanlding       */
+    vrtql_free_cb free;                   /**< free function               */
     vrtql_error_submit_cb error;          /**< Error submission function   */
     vrtql_error_process_cb process_error; /**< Error processing function   */
     vrtql_error_clear_cb clear_error;     /**< Error clear function        */

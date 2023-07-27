@@ -1,6 +1,7 @@
 #include "common.h"
 
 #include "vrtql.h"
+#include "url.h"
 #include "util/sc_map.h"
 #include "util/sc_queue.h"
 
@@ -34,6 +35,24 @@ CTEST_TEARDOWN(test)
 CTEST2(test, error_callbacks)
 {
     vrtql.error(VE_SUCCESS, "No error");
+}
+
+CTEST2(test, test_url)
+{
+    cstr value = "http://user:pass@host.com:8080/path/to/something?query=string#hash";
+    url_data_t* url = url_parse(value);
+
+    vrtql.trace(VL_INFO, "url protocol: %s", url->protocol);
+    vrtql.trace(VL_INFO, "url host:     %s", url->host);
+    vrtql.trace(VL_INFO, "url auth:     %s", url->auth);
+    vrtql.trace(VL_INFO, "url hostname: %s", url->hostname);
+    vrtql.trace(VL_INFO, "url pathname: %s", url->pathname);
+    vrtql.trace(VL_INFO, "url search:   %s", url->search);
+    vrtql.trace(VL_INFO, "url path:     %s", url->path);
+    vrtql.trace(VL_INFO, "url query:    %s", url->query);
+    vrtql.trace(VL_INFO, "url port:     %s", url->port);
+
+    url_free(url);
 }
 
 CTEST2(test, base64)

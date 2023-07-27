@@ -146,8 +146,8 @@ void vrtql_http_msg_free(vrtql_http_msg* req)
     cstr key; cstr value;
     sc_map_foreach(&req->headers, key, value)
     {
-        free(key);
-        free(value);
+        vrtql.free(key);
+        vrtql.free(value);
     }
 
     sc_map_term_str(&req->headers);
@@ -155,9 +155,9 @@ void vrtql_http_msg_free(vrtql_http_msg* req)
     vrtql_buffer_free(req->body);
     vrtql_buffer_free(req->field);
     vrtql_buffer_free(req->value);
-    free(req->parser);
-    free(req->settings);
-    free(req);
+    vrtql.free(req->parser);
+    vrtql.free(req->settings);
+    vrtql.free(req);
 }
 
 int on_message_begin(http_parser* p)

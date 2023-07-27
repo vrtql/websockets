@@ -773,8 +773,8 @@ void vrtql_svr_data_free(vrtql_svr_data* t)
 {
     if (t != NULL)
     {
-        free(t->data);
-        free(t);
+        vrtql.free(t->data);
+        vrtql.free(t);
     }
 }
 
@@ -797,7 +797,7 @@ void vrtql_svr_free(vrtql_svr* server)
     }
 
     svr_dtor(server);
-    free(server);
+    vrtql.free(server);
 }
 
 int vrtql_svr_send(vrtql_svr* server, vrtql_svr_data* data)
@@ -1008,7 +1008,7 @@ void svr_dtor(vrtql_svr* server)
     }
 
     svr_shutdown(server);
-    free(server->threads);
+    vrtql.free(server->threads);
 
     // Close the server async handle
     uv_close((uv_handle_t*)server->wakeup, svr_on_close);
@@ -1028,7 +1028,7 @@ void svr_dtor(vrtql_svr* server)
     }
 
     // Free loop
-    free(server->loop);
+    vrtql.free(server->loop);
 
     //> Free connection map
 
@@ -1119,7 +1119,7 @@ void svr_cnx_map_remove(vrtql_svr_cnx_map* map, uv_stream_t* key)
         cnx->server->on_disconnect(cnx);
 
         // Cleanup
-        free(cnx);
+        vrtql.free(cnx);
     }
 }
 
@@ -1148,7 +1148,7 @@ void svr_cnx_map_clear(vrtql_svr_cnx_map* map)
     sc_map_foreach(map, key, cnx)
     {
         cnx->server->on_disconnect(cnx);
-        free(cnx);
+        vrtql.free(cnx);
     }
 
     sc_map_clear_64v(map);
@@ -1178,7 +1178,7 @@ void svr_cnx_free(vrtql_svr_cnx* c)
             vrtql_http_msg_free(c->http);
         }
 
-        free(c);
+        vrtql.free(c);
     }
 }
 
@@ -1271,7 +1271,7 @@ void svr_on_read(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf)
     if (nread < 0)
     {
         uv_close((uv_handle_t*)client, svr_on_close);
-        free(buf->base);
+        vrtql.free(buf->base);
         return;
     }
 
@@ -1287,7 +1287,7 @@ void svr_on_read(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf)
 void svr_on_write_complete(uv_write_t* req, int status)
 {
     vrtql_svr_data_free((vrtql_svr_data*)req->data);
-    free(req);
+    vrtql.free(req);
 }
 
 void svr_on_close(uv_handle_t* handle)
@@ -1308,10 +1308,10 @@ void svr_on_close(uv_handle_t* handle)
         sc_map_del_64v(map, (uint64_t)handle);
 
         // Cleanup
-        free(cnx);
+        vrtql.free(cnx);
     }
 
-    free(handle);
+    vrtql.free(handle);
 }
 
 void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf)
@@ -1343,10 +1343,10 @@ void queue_destroy(vrtql_svr_queue* queue)
 {
     if (queue->buffer != NULL)
     {
-        free(queue->name);
+        vrtql.free(queue->name);
         uv_mutex_destroy(&queue->mutex);
         uv_cond_destroy(&queue->cond);
-        free(queue->buffer);
+        vrtql.free(queue->buffer);
         queue->buffer = NULL;
         queue->state  = VS_HALTED;
     }
@@ -1356,7 +1356,7 @@ void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data)
 {
     if (queue->state != VS_RUNNING)
     {
-        free(data);
+        vrtql.free(data);
         return;
     }
 
@@ -1547,7 +1547,7 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
     vrtql_buffer_append(c->base.buffer, buf->base, size);
 
     // Free libuv memory
-    free(buf->base);
+    vrtql.free(buf->base);
 
     // If we are in HTTP mode
     if (cnx->upgraded == false)
@@ -1594,7 +1594,7 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
 
             cstr ac = vws_accept_key(key);
             vrtql_buffer_printf(http, "Sec-WebSocket-Accept: %s\r\n", ac);
-            free(ac);
+            vrtql.free(ac);
 
             vrtql_buffer_printf(http, "Sec-WebSocket-Version: 13\r\n");
 
@@ -1781,7 +1781,7 @@ void vrtql_ws_svr_free(vrtql_ws_svr* server)
     }
 
     ws_svr_dtor(server);
-    free(server);
+    vrtql.free(server);
 }
 
 //------------------------------------------------------------------------------
@@ -1881,5 +1881,5 @@ void vrtql_msg_svr_free(vrtql_msg_svr* server)
     }
 
     ws_svr_dtor((vrtql_ws_svr*)server);
-    free(server);
+    vrtql.free(server);
 }

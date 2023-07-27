@@ -113,7 +113,7 @@ void vws_socket_dtor(vws_socket* s)
     }
 
     // Free connection
-    free(s);
+    vrtql.free(s);
 }
 
 //------------------------------------------------------------------------------

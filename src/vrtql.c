@@ -250,6 +250,11 @@ void* vrtql_malloc_error(size_t size)
     return NULL;
 }
 
+void vrtql_free(void* data)
+{
+    free(data);
+}
+
 void* vrtql_calloc(size_t nmemb, size_t size)
 {
     void* ptr = calloc(nmemb, size);
@@ -303,7 +308,7 @@ void vrtql_set_error(vrtql_error_code_t code, const char* message)
 {
     if (vrtql.e.text != NULL)
     {
-        free(vrtql.e.text);
+        vrtql.free(vrtql.e.text);
         vrtql.e.text = NULL;
     }
 
@@ -349,7 +354,7 @@ int vrtql_error_default_submit(int code, cstr format, ...)
     fprintf(stderr, "%s", buffer);
 
     // Cleanup
-    free(buffer);
+    vrtql.free(buffer);
     va_end(args);
 
     return 0;
@@ -425,6 +430,9 @@ void vrtql_error_success_default()
     vrtql_set_error(VE_SUCCESS, NULL);
 }
 
+// Global SSL context
+SSL_CTX* vrtql_ssl_ctx = NULL;
+
 // Initialization of the vrtql environment. The environment is initialized with
 // default error handling functions and the trace flag is turned off
 __thread vrtql_env vrtql =
@@ -435,6 +443,7 @@ __thread vrtql_env vrtql =
     .calloc_error  = vrtql_calloc_error,
     .realloc       = vrtql_realloc,
     .realloc_error = vrtql_realloc_error,
+    .free          = vrtql_free,
     .error         = vrtql_error_default_submit,
     .process_error = vrtql_error_default_process,
     .clear_error   = vrtql_error_clear_default,
@@ -466,7 +475,7 @@ void vrtql_buffer_clear(vrtql_buffer* buffer)
     {
         if (buffer->data != NULL)
         {
-            free(buffer->data);
+            vrtql.free(buffer->data);
         }
 
         buffer->data      = NULL;
@@ -480,7 +489,7 @@ void vrtql_buffer_free(vrtql_buffer* buffer)
     if (buffer != NULL)
     {
         vrtql_buffer_clear(buffer);
-        free(buffer);
+        vrtql.free(buffer);
     }
 }
 
@@ -505,7 +514,7 @@ void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...)
     vrtql_buffer_append(buffer, (ucstr)data, length);
 
     // Cleanup
-    free(data);
+    vrtql.free(data);
     va_end(args);
 }
 
@@ -591,7 +600,7 @@ void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value)
 
     if (sc_map_found(map) == true)
     {
-        free(v);
+        vrtql.free(v);
     }
 }
 
@@ -602,7 +611,7 @@ void vrtql_map_remove(struct sc_map_str* map, cstr key)
 
     if (sc_map_found(map) == true)
     {
-        free(v);
+        vrtql.free(v);
     }
 
     sc_map_del_str(map, key);
@@ -613,8 +622,8 @@ void vrtql_map_clear(struct sc_map_str* map)
     cstr key; cstr value;
     sc_map_foreach(map, key, value)
     {
-        free(key);
-        free(value);
+        vrtql.free(key);
+        vrtql.free(value);
     }
 
     sc_map_clear_str(map);
@@ -768,309 +777,3 @@ void vrtql_clear_flag(uint64_t* flags, uint64_t flag)
     *flags &= ~flag;
 }
 
-//------------------------------------------------------------------------------
-// URL Parsing
-//------------------------------------------------------------------------------
-
-static char* url_extract_part(const char* url, const char* sep, char** rest)
-{
-    const char* part_end = strstr(url, sep);
-    if (part_end == NULL)
-    {
-        return NULL;
-    }
-
-    size_t part_length = part_end - url;
-    char* part = vrtql.malloc(part_length + 1);
-
-    strncpy(part, url, part_length);
-    part[part_length] = '\0';
-
-    *rest = strdup(part_end + strlen(sep));
-    if (*rest == NULL)
-    {
-        vrtql.error(VE_MEM, "strdup()");
-        free(part);
-        return NULL;
-    }
-
-    return part;
-}
-
-#if defined(__windows__)
-char* strndup(const char* s, size_t n)
-{
-    size_t len = strlen(s);
-    if (n < len)
-    {
-        len = n;
-    }
-
-    char* new_str = (char*)vrtql.malloc(len + 1);
-
-    if (new_str != NULL)
-    {
-        memcpy(new_str, s, len);
-        new_str[len] = '\0';
-    }
-
-    return new_str;
-}
-#endif
-
-static char* vrtql_url_extract_port(char** host)
-{
-    char* port_start = strchr(*host, ':');
-    if (port_start == NULL)
-    {
-        return NULL;
-    }
-
-    char* port = strdup(port_start + 1);
-    if (port == NULL)
-    {
-        vrtql.error(VE_MEM, "strdup()");
-        return NULL;
-    }
-
-    char* truncated_host = strndup(*host, port_start - *host);
-    if (truncated_host == NULL)
-    {
-        vrtql.error(VE_MEM, "strndup()");
-        free(port);
-        return NULL;
-    }
-
-    free(*host);
-    *host = truncated_host;
-
-    return port;
-}
-
-vrtql_url vrtql_url_parse(const char* url)
-{
-    vrtql_url parts = { NULL, NULL, NULL, NULL, NULL, NULL };
-
-    // Extract the scheme
-
-    parts.scheme = url_extract_part(url, "://", (char**)&url);
-
-    if (parts.scheme == NULL)
-    {
-        url = strdup(url);
-
-        if (url == NULL)
-        {
-            vrtql.error(VE_MEM, "strdup()");
-        }
-    }
-
-    // Extract the fragment
-
-    char* rest = NULL;
-    parts.fragment = url_extract_part(url, "#", &rest);
-
-    if (parts.fragment != NULL)
-    {
-        free(url);
-        url = rest;
-    }
-    else if (rest != NULL)
-    {
-        free(rest);
-    }
-
-    // Extract the query
-
-    rest = NULL;
-    parts.query = url_extract_part(url, "?", &rest);
-
-    if (parts.query != NULL)
-    {
-        free(url);
-        url = rest;
-    }
-    else if (rest != NULL)
-    {
-        free(rest);
-    }
-
-    // The remaining URL is the host and path
-
-    rest = NULL;
-    parts.host = url_extract_part(url, "/", &rest);
-
-    if (parts.host != NULL)
-    {
-        free(url);
-        url  = rest;
-        rest = NULL;
-    }
-    else
-    {
-        if (parts.host == NULL)
-        {
-            vrtql.error(VE_MEM, "strdup()");
-        }
-
-        parts.host = strdup(url);
-        free(url);
-
-        if (rest != NULL)
-        {
-            free(rest);
-        }
-    }
-
-    // The rest of the URL is the path. Add leading slash manually.
-    size_t path_len = strlen(url);
-
-    // Allocate memory for '/' + url + '\0'
-    parts.path = (char*)vrtql.malloc((path_len + 2) * sizeof(char));
-
-    if (url[0] != '/')
-    {
-        parts.path[0] = '/';
-        strcpy(parts.path + 1, url);
-    }
-    else
-    {
-        strcpy(parts.path, url);
-    }
-
-    free(url);
-
-    // Extract the port from the host
-    parts.port = vrtql_url_extract_port(&parts.host);
-
-    return parts;
-}
-
-vrtql_url vrtql_url_new()
-{
-    vrtql_url url;
-
-    url.scheme   = NULL;
-    url.host     = NULL;
-    url.port     = NULL;
-    url.path     = NULL;
-    url.query    = NULL;
-    url.fragment = NULL;
-
-    return url;
-}
-
-void vrtql_url_free(vrtql_url url)
-{
-    if (url.scheme != NULL)
-    {
-        free(url.scheme);
-        url.scheme = NULL;
-    }
-
-    if (url.host != NULL)
-    {
-        free(url.host);
-        url.host = NULL;
-    }
-
-    if (url.port != NULL)
-    {
-        free(url.port);
-        url.port = NULL;
-    }
-
-    if (url.path != NULL)
-    {
-        free(url.path);
-        url.path = NULL;
-    }
-
-    if (url.query != NULL)
-    {
-        free(url.query);
-        url.query = NULL;
-    }
-
-    if (url.fragment != NULL)
-    {
-        free(url.fragment);
-        url.fragment = NULL;
-    }
-}
-
-char* vrtql_url_build(const vrtql_url* parts)
-{
-    // Calculate the total length needed for the URL
-    size_t total_length = 1; // for null-terminating character '\0'
-
-    if (parts->scheme != NULL)
-    {
-        total_length += strlen(parts->scheme) + 3; // "://"
-    }
-
-    if (parts->host != NULL)
-    {
-        total_length += strlen(parts->host);
-    }
-
-    if (parts->port != NULL)
-    {
-        total_length += strlen(parts->port) + 1; // ":"
-    }
-
-    if (parts->path != NULL)
-    {
-        total_length += strlen(parts->path);
-    }
-
-    if (parts->query != NULL)
-    {
-        total_length += strlen(parts->query) + 1; // "?"
-    }
-
-    if (parts->fragment != NULL)
-    {
-        total_length += strlen(parts->fragment) + 1; // "#"
-    }
-
-    // Allocate memory for the URL string
-    char* url = (char*)vrtql.malloc(total_length);
-
-    url[0] = '\0'; // Start with an empty string
-
-    // Use snprintf to append to the string, which is safer and potentially
-    // faster than strcat
-
-    if (parts->scheme != NULL)
-    {
-        snprintf(url + strlen(url), total_length, "%s://", parts->scheme);
-    }
-
-    if (parts->host != NULL)
-    {
-        snprintf(url + strlen(url), total_length, "%s", parts->host);
-    }
-
-    if (parts->port != NULL)
-    {
-        snprintf(url + strlen(url), total_length, ":%s", parts->port);
-    }
-
-    if (parts->path != NULL)
-    {
-        snprintf(url + strlen(url), total_length, "%s", parts->path);
-    }
-
-    if (parts->query != NULL)
-    {
-        snprintf(url + strlen(url), total_length, "?%s", parts->query);
-    }
-
-    if (parts->fragment != NULL)
-    {
-        snprintf(url + strlen(url), total_length, "#%s", parts->fragment);
-    }
-
-    return url;
-}

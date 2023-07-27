@@ -13,6 +13,7 @@
 
 #include "http_message.h"
 #include "websocket.h"
+#include "url.h"
 
 #define MAX_BUFFER_SIZE 1024
 
@@ -282,7 +283,7 @@ vws_cnx* vws_cnx_new()
 
     c->base.hs = socket_handshake;
     c->flags   = CNX_CLOSED;
-    c->url     = vrtql_url_new();
+    c->url     = NULL;
     c->origin  = NULL;
     c->key     = generate_websocket_key();
     c->process = process_frame;
@@ -304,7 +305,7 @@ void vws_cnx_free(vws_cnx* c)
 
     if (c->origin != NULL)
     {
-        free(c->origin);
+        vrtql.free(c->origin);
     }
 
     // Free receive queue contents
@@ -318,10 +319,14 @@ void vws_cnx_free(vws_cnx* c)
     sc_queue_term(&c->queue);
 
     // Free URL
-    vrtql_url_free(c->url);
+    if (c->url != NULL)
+    {
+        url_free((url_data_t*)c->url);
+        c->url = NULL;
+    }
 
     // Free websocket key
-    free(c->key);
+    vrtql.free(c->key);
 
     // Call base constructor
     vws_socket_dtor((vws_socket*)c);
@@ -341,10 +346,14 @@ bool vws_connect(vws_cnx* c, cstr uri)
         return false;
     }
 
-    vrtql_url_free(c->url);
-    c->url = vrtql_url_parse(uri);
+    if (c->url != NULL)
+    {
+        url_free((url_data_t*)c->url);
+    }
 
-    if (c->url.host == NULL)
+    c->url = (vrtql_url_data*)url_parse(uri);
+
+    if (c->url->host == NULL)
     {
         vrtql.error(VE_MEM, "Invalid or missing host");
         return false;
@@ -354,16 +363,16 @@ bool vws_connect(vws_cnx* c, cstr uri)
     c->origin = strdup(uri);
 
     // Connect to the server
-    cstr default_port = strcmp(c->url.scheme, "wss") == 0 ? "443" : "80";
-    cstr port = c->url.port != NULL ? c->url.port : default_port;
+    cstr default_port = strcmp(c->url->protocol, "wss") == 0 ? "443" : "80";
+    cstr port = c->url->port != NULL ? c->url->port : default_port;
 
     bool ssl = false;
-    if (strcmp(c->url.scheme, "wss") == 0)
+    if (strcmp(c->url->protocol, "wss") == 0)
     {
         ssl = true;
     }
 
-    return vws_socket_connect((vws_socket*)c, c->url.host, atoi(port), ssl);
+    return vws_socket_connect((vws_socket*)c, c->url->host, atoi(port), ssl);
 }
 
 bool socket_handshake(vws_socket* s)
@@ -383,7 +392,7 @@ bool socket_handshake(vws_socket* s)
         "\r\n";
 
     char req[MAX_BUFFER_SIZE];
-    snprintf(req, sizeof(req), rt, c->url.path, c->url.host, c->origin, c->key);
+    snprintf(req, sizeof(req), rt, c->url->path, c->url->host, c->origin, c->key);
 
     ssize_t n;
     size_t total = 0;
@@ -504,7 +513,7 @@ bool socket_handshake(vws_socket* s)
     if (verify_handshake(c->key, accept_key) == false)
     {
         vrtql.error(VE_RT, "Handshake verification failed");
-        free(accept_key);
+        vrtql.free(accept_key);
         return false;
     }
 
@@ -638,7 +647,7 @@ void vws_msg_free(vws_msg* m)
     if (m != NULL)
     {
         vrtql_buffer_free(m->data);
-        free(m);
+        vrtql.free(m);
     }
 }
 
@@ -703,13 +712,13 @@ void vws_frame_free(vws_frame* f)
     {
         if (f->data != NULL)
         {
-            free(f->data);
+            vrtql.free(f->data);
             f->data = NULL;
         }
 
         f->size = 0;
 
-        free(f);
+        vrtql.free(f);
     }
 }
 
@@ -823,7 +832,7 @@ vrtql_buffer* vws_serialize(vws_frame* f)
         if (RAND_bytes(masking_key, sizeof(masking_key)) != 1)
         {
             vrtql.error(VE_RT, "RAND_bytes() failed");
-            free(frame_data);
+            vrtql.free(frame_data);
             return NULL;
         }
 
@@ -1069,7 +1078,7 @@ cstr vws_accept_key(cstr key)
     // Base64-encode the hash
     char* encoded_hash = vrtql_base64_encode(hash, sizeof(hash));
 
-    free(input);
+    vrtql.free(input);
 
     return encoded_hash;
 }
@@ -1078,7 +1087,7 @@ int verify_handshake(const char* key, const char* response)
 {
     char* hash = vws_accept_key(key);
     int result = strcmp(hash, response);
-    free(hash);
+    vrtql.free(hash);
 
     return result == 0;
 }
@@ -1188,7 +1197,7 @@ vrtql_buffer* vws_generate_close_frame()
     *data        = htons(WS_CLOSE_NORMAL);
     vws_frame* f = vws_frame_new((ucstr)data, size, CLOSE_FRAME);
 
-    free(data);
+    vrtql.free(data);
 
     return vws_serialize(f);
 }
