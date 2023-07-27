@@ -453,11 +453,11 @@ openssl_reread:
 
     if (fds.revents & poll_events)
     {
-        // We need running total bc we may make multiple SSL_read() calls.
-        int total = 0;
-
         if (c->ssl != NULL)
         {
+            // We need running total bc we may make multiple SSL_read() calls.
+            int total = 0;
+
             // Drain all data from SSL buffer
             while ((n = SSL_read(c->ssl, data, size)) > 0)
             {

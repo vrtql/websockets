@@ -19,11 +19,11 @@
 
 <section id="ws.intro.about"><title>Project Overview</title>
 
-<para>VRTQL WebSockets is a robust and performance-oriented WebSocket client
-library written in C. It provides a simple yet flexible API for building
-WebSocket clients and servers. It supports all standard WebSocket features
-including text and binary messages, ping/pong frames, control frames and
-includes built-in OpenSSL support.</para>
+<para>VRTQL WebSockets is a robust and performance-oriented WebSocket library
+written in C. It provides a simple yet flexible API for building WebSocket
+clients and servers. It supports all standard WebSocket features including text
+and binary messages, ping/pong frames, control frames and includes built-in
+OpenSSL support.</para>
 
 <para>The motivation behind the project is to have a portable WebSockets client
 library under a permissive license (MIT) which feels like a traditional socket

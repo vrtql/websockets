@@ -1,27 +1,56 @@
-# VRTQL Websockets Client Library
+# VRTQL Websockets Library
 
 ## Description
 
-This is a WebSocket client library written in C. It provides a simple yet
-flexible API for building WebSocket clients and supports all standard WebSocket
-features, including text and binary messages, ping/pong frames, and connection
-control frames. It supports both plain and encrypted connections (via
-OpenSSL).
+This is a robust and performance-oriented WebSocket library written in C. It
+provides a simple yet flexible API for building WebSocket clients and
+servers. It supports all standard WebSocket features including text and binary
+messages, ping/pong frames, control frames and includes built-in OpenSSL
+support.
 
 The motivation behind the project is to have a portable WebSockets client
-library under a permissive license which can also provide a foundation for some
-additional messaging features similar to (but lighter weight than) AMQP and
-MQTT. As a client-side library, connections are blocking with optional
-timeout. The API is threadsafe in so far as each connection must be maintained
-in its own thread. All global structures and common services (error-reporting
-and tracing) use thread-local variables.
+library under a permissive license (MIT) which feels like a traditional socket
+API (blocking with optional timeout) which can also provide a foundation for
+some additional messaging features similar to (but lighter weight than) AMQP and
+MQTT.
 
 The code compiles and runs on Linux, FreeBSD, NetBSD, OpenBSD, OS X,
-Illumos/Solaris and Windows. It is fully commented and well-documented. Released
-under the MIT license, the code can be freely used in commercial (closed-source)
-applications. The build system (CMake) includes built-in support to for
-cross-compiling from Linux/BSD to Windows, provided MinGW compiler and tools are
-installed on the host system.
+Illumos/Solaris and Windows. It is fully commented and well-documented.
+Furthermore, the code is under a permissive license (MIT) allowing its use in
+commercial (closed-source) applications. The build system (CMake) includes
+built-in support to for cross-compiling from Linux/BSD to Windows, provided
+MinGW compiler and tools are installed on the host system.
+
+There are two parts to the library: a client-side component and an optional
+server-side component. The two are built from completely different networking
+designs, each suited to their particular use-cases. The client architecture is
+designed for single connections and operates synchronously, waiting for
+responses from the server. The server architecture is designed for many
+concurrent connections and operates asynchronously.
+
+The client-side API is simple and flexible. Connections wait (block) for
+responses and can employ a timeout in which to take action if a response does
+not arrive in a timely manner (or at all). The API is threadsafe in so far as
+each connection must be maintained in its own thread. All global structures and
+common services (error-reporting and tracing) use thread-local variables. The
+API runs atop the native operating system’s networking facilities, using
+`poll()` and thus no additional libraries are required.
+
+The server-side API implements a non-blocking, multiplexing, multithreaded
+server atop [`libuv`](https://libuv.org/). The server consists of a main
+networking thread and a pool of worker threads that process the data. The
+networking thread runs the `libuv` loop to handle socket I/O and evenly
+distributes incoming data to the worker threads via a synchronized queue. The
+worker threads process the data and optionally send back replies via a separate
+queue. The server takes care of all the WebSocket protocol serialization and
+communication between the the network and worker threads. Developers only need
+to focus on the actual message processing logic to service incoming messages.
+
+The requirement of `libuv` is what makes the server component optional. While
+`libuv` runs on every major operating system, it is not expected to be a
+requirement of this library, as its original intent was to provide client-side
+connections only. Thus if you want use the server-side API, you simple add a
+configuration switch at build time to include the code
 
 ## Webockets Overview
 
@@ -69,16 +98,14 @@ close frames, ping frames, and pong frames. The close frame is used to terminate
 a connection, ping frames are for checking the liveness of the connection, and
 pong frames are responses to ping frames.
 
-## Library API
-
-There are two APIs in the library: the WebSockts API and the Messaging API.
+## Usage
 
 For working examples beyond that shown here, see the `test_websocket.c` file in
 the `src/test` directory. After building the project, stop into that directory
 and run `./server` which starts a simple websocket server. Then run
 `test_websocket`.
 
-### Websockets API
+### Client API
 
 The WebSockets API is built solely upon WebSocket constructs: frames, messages
 and connections, as you would expect. It intuitively follows the concepts and
@@ -247,7 +274,7 @@ int main()
 ## Documentation
 
 Full documentation is located [here](https://vrtql.github.io/ws/ws.html). Source
-code documentation is located [here](https://vrtql.github.io/ws-code-doc/root/).
+code annotation is located [here](https://vrtql.github.io/ws-code-doc/root/).
 
 ## Feature Summary
 
