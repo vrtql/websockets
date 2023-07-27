@@ -135,7 +135,7 @@ bool vws_socket_set_timeout(vws_socket* s, int sec)
 
 bool socket_set_timeout(int fd, int sec)
 {
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+    #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
     if (fd < 0)
     {
@@ -168,7 +168,7 @@ bool socket_set_timeout(int fd, int sec)
         return false;
     }
 
-#elif defined(__windows__)
+    #elif defined(__windows__)
 
     if (fd == INVALID_SOCKET)
     {
@@ -201,9 +201,9 @@ bool socket_set_timeout(int fd, int sec)
         return false;
     }
 
-#else
+    #else
     #error Platform not supported
-#endif
+    #endif
 
     vrtql.success();
 
@@ -212,7 +212,7 @@ bool socket_set_timeout(int fd, int sec)
 
 bool socket_set_nonblocking(int sockfd)
 {
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+    #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
     int flags = fcntl(sockfd, F_GETFL, 0);
 
@@ -230,7 +230,7 @@ bool socket_set_nonblocking(int sockfd)
         return false;
     }
 
-#elif defined(__windows__)
+    #elif defined(__windows__)
 
     unsigned long arg = 1;
     if (ioctlsocket(sockfd, FIONBIO, &arg) == SOCKET_ERROR)
@@ -240,9 +240,9 @@ bool socket_set_nonblocking(int sockfd)
         return false;
     }
 
-#else
+    #else
     #error Platform not supported
-#endif
+    #endif
 
     vrtql.success();
 
@@ -334,13 +334,13 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
         }
     }
 
-#if defined(__bsd__)
+    #if defined(__bsd__)
 
     // Disable SIGPIPE
     int val = 1;
     setsockopt(c->sockfd, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof(val));
 
-#endif
+    #endif
 
     // Go into non-blocking mode as we are using poll() for socket_read() and
     // socket_write().
@@ -432,7 +432,7 @@ openssl_reread:
     }
 
     #else
-        #error Platform not supported
+    #error Platform not supported
     #endif
 
     if (rc == -1)
@@ -642,7 +642,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         }
 
         #else
-            #error Platform not supported
+        #error Platform not supported
         #endif
 
         if (rc == -1)
@@ -770,31 +770,21 @@ void vws_socket_close(vws_socket* c)
         c->ssl = NULL;
     }
 
-    /*
-    if (vrtql_ssl_ctx != NULL)
-    {
-        SSL_CTX_free(vrtql_ssl_ctx);
-        vrtql_ssl_ctx = NULL;
-    }
-    */
-
     if (c->sockfd >= 0)
     {
-#if defined(__windows__)
-        if (closesocket(c->sockfd) == SOCKET_ERROR
-            )
-#else
+        #if defined(__windows__)
+        if (closesocket(c->sockfd) == SOCKET_ERROR)
+        #else
         if (close(c->sockfd) == -1)
-#endif
+        #endif
         {
             char buf[256];
             strerror_r(errno, buf, sizeof(buf));
             vrtql.error(VE_WARN, "Socket close failed: %s", buf);
         }
-
-#if defined(__windows__)
+        #if defined(__windows__)
         WSACleanup();
-#endif
+        #endif
 
         c->sockfd = -1;
     }
@@ -804,7 +794,7 @@ int connect_to_host(const char* host, const char* port)
 {
     int sockfd = -1;
 
-#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+    #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
     // Resolve the host
     struct addrinfo hints, *res, *res0;
@@ -853,7 +843,7 @@ int connect_to_host(const char* host, const char* port)
 
     freeaddrinfo(res0); // Free the addrinfo structure for this host
 
-#elif defined(__windows__)
+    #elif defined(__windows__)
 
     // Windows specific implementation
     // Please refer to Windows Socket programming guide
@@ -918,9 +908,9 @@ int connect_to_host(const char* host, const char* port)
         return -1;
     }
 
-#else
+    #else
     #error Platform not supported
-#endif
+    #endif
 
     vrtql.success();
 
