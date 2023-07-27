@@ -1,4 +1,4 @@
-# VRTQL Websockets Library
+# VRTQL WebSockets Library
 
 ## Description
 

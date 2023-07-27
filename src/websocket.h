@@ -284,6 +284,15 @@ vws_cnx* vws_cnx_new();
 void vws_cnx_free(vws_cnx* c);
 
 /**
+ * @brief Checks connection state
+ *
+ * @param c The websocket connection.
+ * @return Returns true if connection is established, false otherwise. If false,
+ * sets vrtql.e to VE_DISCONNECT.
+ */
+bool vws_cnx_is_connected(vws_cnx* c);
+
+/**
  * @brief Sets the connection to server mode
  *
  * @param c The websocket connection.
@@ -316,7 +325,7 @@ ssize_t vws_cnx_ingress(vws_cnx* c);
  * @param string The text to send.
  * @return Returns the number of bytes sent.
  */
-int vws_frame_send_text(vws_cnx* c, cstr string);
+ssize_t vws_frame_send_text(vws_cnx* c, cstr string);
 
 /**
  * @brief Sends a BINARY frame
@@ -326,7 +335,7 @@ int vws_frame_send_text(vws_cnx* c, cstr string);
  * @param size The size of the data in bytes.
  * @return Returns the number of bytes sent.
  */
-int vws_frame_send_binary(vws_cnx* c, ucstr string, size_t size);
+ssize_t vws_frame_send_binary(vws_cnx* c, ucstr string, size_t size);
 
 /**
  * @brief Sends custom frame containing data
@@ -357,7 +366,7 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame);
  * @param string The text to send.
  * @return Returns the number of bytes sent.
  */
-int vws_msg_send_text(vws_cnx* c, cstr string);
+ssize_t vws_msg_send_text(vws_cnx* c, cstr string);
 
 /**
  * @brief Sends a BINARY message
@@ -367,7 +376,7 @@ int vws_msg_send_text(vws_cnx* c, cstr string);
  * @param size The size of the data in bytes.
  * @return Returns the number of bytes sent.
  */
-int vws_msg_send_binary(vws_cnx* c, ucstr string, size_t size);
+ssize_t vws_msg_send_binary(vws_cnx* c, ucstr string, size_t size);
 
 /**
  * @brief Sends custom message containing

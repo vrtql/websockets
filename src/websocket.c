@@ -194,9 +194,6 @@ static bool socket_handshake(vws_socket* s);
  */
 static ssize_t socket_wait_for_frame(vws_cnx* c);
 
-#define IS_CONNECTED(c) vws_socket_is_connected((vws_socket*) c)
-
-
 /**
  * @defgroup FrameFunctions
  *
@@ -375,6 +372,17 @@ bool vws_connect(vws_cnx* c, cstr uri)
     return vws_socket_connect((vws_socket*)c, c->url->host, atoi(port), ssl);
 }
 
+bool vws_cnx_is_connected(vws_cnx* c)
+{
+    if (vws_socket_is_connected((vws_socket*)c) == false)
+    {
+        vrtql.error(VE_DISCONNECT, "Not connected");
+        return false;
+    }
+
+    return true;
+}
+
 bool socket_handshake(vws_socket* s)
 {
     vws_cnx* c = (vws_cnx*)s;
@@ -402,10 +410,8 @@ bool socket_handshake(vws_socket* s)
     {
         n = vws_socket_write(s, (ucstr)req, size);
 
-        if (IS_CONNECTED(c) == false)
+        if (vws_cnx_is_connected(c) == false)
         {
-            vrtql.error(VE_DISCONNECT, "disconnect");
-
             return false;
         }
 
@@ -441,10 +447,8 @@ bool socket_handshake(vws_socket* s)
     {
         n = vws_socket_read(s);
 
-        if (IS_CONNECTED(c) == false)
+        if (vws_cnx_is_connected(c) == false)
         {
-            vrtql.error(VE_DISCONNECT, "disconnect");
-
             // Clear the socket buffer of anything that did arrive,
             // otherwise it will possibly be in inconsistent state.
             vrtql_buffer_clear(c->base.buffer);
@@ -526,7 +530,7 @@ void vws_disconnect(vws_cnx* c)
 {
     vws_socket* s = (vws_socket*)c;
 
-    if (IS_CONNECTED(c) == false)
+    if (vws_cnx_is_connected(c) == false)
     {
         return;
     }
@@ -556,12 +560,12 @@ void vws_disconnect(vws_cnx* c)
 //> Messaging API
 //------------------------------------------------------------------------------
 
-int vws_frame_send_text(vws_cnx* c, cstr data)
+ssize_t vws_frame_send_text(vws_cnx* c, cstr data)
 {
     return vws_frame_send_data(c, (ucstr)data, strlen(data), 0x1);
 }
 
-int vws_frame_send_binary(vws_cnx* c, ucstr data, size_t size)
+ssize_t vws_frame_send_binary(vws_cnx* c, ucstr data, size_t size)
 {
     return vws_frame_send_data(c, data, size, 0x2);
 }
@@ -571,12 +575,12 @@ ssize_t vws_frame_send_data(vws_cnx* c, ucstr data, size_t size, int oc)
     return vws_frame_send(c, vws_frame_new(data, size, oc));
 }
 
-int vws_msg_send_text(vws_cnx* c, cstr data)
+ssize_t vws_msg_send_text(vws_cnx* c, cstr data)
 {
     return vws_frame_send_data(c, (ucstr)data, strlen(data), 0x1);
 }
 
-int vws_msg_send_binary(vws_cnx* c, ucstr data, size_t size)
+ssize_t vws_msg_send_binary(vws_cnx* c, ucstr data, size_t size)
 {
     return vws_frame_send_data(c, data, size, 0x2);
 }
@@ -588,11 +592,8 @@ ssize_t vws_msg_send_data(vws_cnx* c, ucstr data, size_t size, int oc)
 
 ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 {
-    vws_socket* s = (vws_socket*)c;
-
-    if (vws_socket_is_connected(s) == false)
+    if (vws_cnx_is_connected(c) == false)
     {
-        vrtql.error(VE_RT, "Not connected");
         return -1;
     }
 
@@ -618,7 +619,7 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
         n = vws_socket_write((vws_socket*)c, binary->data, binary->size);
         vrtql_buffer_free(binary);
 
-        if (IS_CONNECTED(c) == false)
+        if (vws_cnx_is_connected(c) == false)
         {
             return -1;
         }
@@ -656,9 +657,8 @@ vws_msg* vws_msg_recv(vws_cnx* c)
     // Default success unless error
     vrtql.success();
 
-    if (IS_CONNECTED(c) == false)
+    if (vws_cnx_is_connected(c) == false)
     {
-        vrtql.error(VE_RT, "Not connected");
         return NULL;
     }
 
@@ -727,9 +727,8 @@ vws_frame* vws_frame_recv(vws_cnx* c)
     // Default success unless error
     vrtql.success();
 
-    if (IS_CONNECTED(c) == false)
+    if (vws_cnx_is_connected(c) == false)
     {
-        vrtql.error(VE_RT, "Not connected");
         return NULL;
     }
 
@@ -1097,9 +1096,8 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
     // Default success unless error
     vrtql.success();
 
-    if (IS_CONNECTED(c) == false)
+    if (vws_cnx_is_connected(c) == false)
     {
-        vrtql.error(VE_RT, "Not connected");
         return -1;
     }
 
