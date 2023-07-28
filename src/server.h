@@ -115,9 +115,9 @@ typedef struct
     /**< Queue name */
     cstr name;
 
-} vrtql_svr_queue;
+} vws_svr_queue;
 
-struct vrtql_svr;
+struct vws_tcp_svr;
 
 /**
  * @brief Represents a client connection.
@@ -125,7 +125,7 @@ struct vrtql_svr;
 typedef struct vws_svr_cnx
 {
     /**< The server associated with the connection */
-    struct vrtql_svr* server;
+    struct vws_tcp_svr* server;
 
     /**< The client associated with the connection */
     uv_stream_t* handle;
@@ -151,13 +151,13 @@ typedef struct vws_svr_cnx
  * @brief Callback for a new connection connection
  * @param c The connection structure
  */
-typedef void (*vrtql_svr_connect)(vws_svr_cnx* c);
+typedef void (*vws_tcp_svr_connect)(vws_svr_cnx* c);
 
 /**
  * @brief Callback for connection disconnection
  * @param c The connection structure
  */
-typedef void (*vrtql_svr_disconnect)(vws_svr_cnx* c);
+typedef void (*vws_tcp_svr_disconnect)(vws_svr_cnx* c);
 
 /**
  * @brief Callback for connection read
@@ -165,14 +165,14 @@ typedef void (*vrtql_svr_disconnect)(vws_svr_cnx* c);
  * @param n The number of bytes in the buffer
  * @param b The buffer
  */
-typedef void (*vrtql_svr_read)(vws_svr_cnx* c, ssize_t n, const uv_buf_t* b);
+typedef void (*vws_tcp_svr_read)(vws_svr_cnx* c, ssize_t n, const uv_buf_t* b);
 
 /**
  * @brief Callback for data processing within a worker thread
  * @param s The server instance
  * @param t The incoming request to process
  */
-typedef void (*vrtql_svr_process_data)(vws_svr_data* t);
+typedef void (*vws_tcp_svr_process_data)(vws_svr_data* t);
 
 /**
  * @brief Enumerates server states
@@ -188,7 +188,7 @@ typedef enum
     /**< Server is not running */
     VS_HALTED  = 2,
 
-} vrtql_svr_state_t;
+} vws_tcp_svr_state_t;
 
 /** Abbreviation for the connection map */
 typedef struct sc_map_64v vws_svr_cnx_map;
@@ -197,7 +197,7 @@ typedef struct sc_map_64v vws_svr_cnx_map;
  * @brief Struct representing a basic server. It does not do anything but
  * process raw data. It does not have any knowledge of WebSockets.
  */
-typedef struct vrtql_svr
+typedef struct vws_tcp_svr
 {
     /**< Current state of the server */
     uint8_t state;
@@ -209,10 +209,10 @@ typedef struct vrtql_svr
     uv_loop_t* loop;
 
     /**< Request queue */
-    vrtql_svr_queue requests;
+    vws_svr_queue requests;
 
     /**< Response queue */
-    vrtql_svr_queue responses;
+    vws_svr_queue responses;
 
     /**< Maximum connections allowed */
     int backlog;
@@ -227,24 +227,24 @@ typedef struct vrtql_svr
     vws_svr_cnx_map cnxs;
 
     /**< Callback function for connect */
-    vrtql_svr_connect on_connect;
+    vws_tcp_svr_connect on_connect;
 
     /**< Callback function for disconnect */
-    vrtql_svr_disconnect on_disconnect;
+    vws_tcp_svr_disconnect on_disconnect;
 
     /**< Callback function for reading incoming data */
-    vrtql_svr_read on_read;
+    vws_tcp_svr_read on_read;
 
     /**< Function for processing data from the client */
-    vrtql_svr_process_data on_data_in;
+    vws_tcp_svr_process_data on_data_in;
 
     /**< Function for processing data from the worker back to the client */
-    vrtql_svr_process_data on_data_out;
+    vws_tcp_svr_process_data on_data_out;
 
     /**< Tracing leve (0 is off) */
     uint8_t trace;
 
-} vrtql_svr;
+} vws_tcp_svr;
 
 /**
  * @brief Creates a new thread data. This TAKES OWNERSHIP of the buffer data and
@@ -284,14 +284,14 @@ void vws_svr_data_free(vws_svr_data* t);
  *   is set to 0, it will use the default (1024).
  * @return A new VRTQL server.
  */
-vrtql_svr* vrtql_svr_new(int pool_size, int backlog, int queue_size);
+vws_tcp_svr* vws_tcp_svr_new(int pool_size, int backlog, int queue_size);
 
 /**
  * @brief Frees the resources allocated to a VRTQL server.
  *
  * @param s The server to free.
  */
-void vrtql_svr_free(vrtql_svr* s);
+void vws_tcp_svr_free(vws_tcp_svr* s);
 
 /**
  * @brief Starts a VRTQL server.
@@ -301,7 +301,7 @@ void vrtql_svr_free(vrtql_svr* s);
  * @param port The port to bind the server.
  * @return 0 if successful, an error code otherwise.
  */
-int vrtql_svr_run(vrtql_svr* server, cstr host, int port);
+int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port);
 
 /**
  * @brief Sends data from a VRTQL server.
@@ -310,29 +310,29 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port);
  * @param data The data to be sent.
  * @return 0 if successful, an error code otherwise.
  */
-int vrtql_svr_send(vrtql_svr* server, vws_svr_data* data);
+int vws_tcp_svr_send(vws_tcp_svr* server, vws_svr_data* data);
 
 /**
  * @brief Close a VRTQL server connection.
  *
  * @param cnx The server connection to close.
  */
-void vrtql_svr_close(vws_svr_cnx* cnx);
+void vws_tcp_svr_close(vws_svr_cnx* cnx);
 
 /**
  * @brief Stops a VRTQL server.
  *
  * @param server The server to stop.
  */
-void vrtql_svr_stop(vrtql_svr* server);
+void vws_tcp_svr_stop(vws_tcp_svr* server);
 
 /**
  * @brief Returns the server operational state.
  *
  * @param server The server to check.
- * @return The state of the server in the form of the vrtql_svr_state_t enum.
+ * @return The state of the server in the form of the vws_tcp_svr_state_t enum.
  */
-uint8_t vrtql_svr_state(vrtql_svr* server);
+uint8_t vws_tcp_svr_state(vws_tcp_svr* server);
 
 //------------------------------------------------------------------------------
 // WebSocket Server
@@ -359,7 +359,7 @@ typedef void (*vws_svr_process_msg)(vws_svr_cnx* s, vws_msg* f);
 typedef struct vws_svr
 {
     /**< Base class */
-    struct vrtql_svr base;
+    struct vws_tcp_svr base;
 
     /**< Function for processing an incoming frame */
     vws_svr_process_frame on_frame_in;

@@ -9,7 +9,7 @@
 // Internal functions
 //------------------------------------------------------------------------------
 
-typedef void (*vrtql_rpc_map_free)(void* e);
+typedef void (*vws_rpc_map_free)(void* e);
 
 /**
  * @brief Retrieves a value from the map using a string key.
@@ -20,7 +20,7 @@ typedef void (*vrtql_rpc_map_free)(void* e);
  * @param key The string key to use for retrieval.
  * @return A constant pointer to the value associated with the key.
  */
-static void* sys_map_get(vrtql_rpc_map* map, cstr key);
+static void* sys_map_get(vws_rpc_map* map, cstr key);
 
 /**
  * @brief Sets a value in the map using a string key and value.
@@ -31,7 +31,7 @@ static void* sys_map_get(vrtql_rpc_map* map, cstr key);
  * @param key The string key to use for setting.
  * @param value The value to set.
  */
-static void sys_map_set(vrtql_rpc_map* map, cstr key, void* value);
+static void sys_map_set(vws_rpc_map* map, cstr key, void* value);
 
 /**
  * @brief Removes a key-value pair from the map using a string key.
@@ -41,22 +41,22 @@ static void sys_map_set(vrtql_rpc_map* map, cstr key, void* value);
  * @param map The map from which to remove the key-value pair.
  * @param key The string key to use for removal.
  */
-static void sys_map_clear(vrtql_rpc_map* map, cstr key, vrtql_rpc_map_free cb);
+static void sys_map_clear(vws_rpc_map* map, cstr key, vws_rpc_map_free cb);
 
 //------------------------------------------------------------------------------
 // RPC Module
 //------------------------------------------------------------------------------
 
-vrtql_rpc_module* vrtql_rpc_module_new(cstr name)
+vws_rpc_module* vws_rpc_module_new(cstr name)
 {
     if (name == NULL)
     {
         vws.error(VE_RT, "module name cannot be NULL");
     }
 
-    vrtql_rpc_module* m;
+    vws_rpc_module* m;
 
-    m = (vrtql_rpc_module*)vws.malloc(sizeof(vrtql_rpc_module));
+    m = (vws_rpc_module*)vws.malloc(sizeof(vws_rpc_module));
 
     m->name = strdup(name);
     sc_map_init_sv(&m->calls, 0, 0);
@@ -64,11 +64,11 @@ vrtql_rpc_module* vrtql_rpc_module_new(cstr name)
     return m;
 }
 
-void vrtql_rpc_module_free(vrtql_rpc_module* m)
+void vws_rpc_module_free(vws_rpc_module* m)
 {
     if (m != NULL)
     {
-        cstr key; vrtql_rpc_call* call;
+        cstr key; vws_rpc_call* call;
         sc_map_foreach(&m->calls, key, call)
         {
             vws.free(key);
@@ -81,12 +81,12 @@ void vrtql_rpc_module_free(vrtql_rpc_module* m)
     }
 }
 
-void vrtql_rpc_module_set(vrtql_rpc_module* m, cstr n, vrtql_rpc_call c)
+void vws_rpc_module_set(vws_rpc_module* m, cstr n, vws_rpc_call c)
 {
     sys_map_set(&m->calls, n, c);
 }
 
-vrtql_rpc_call vrtql_rpc_module_get(vrtql_rpc_module* m, cstr n)
+vws_rpc_call vws_rpc_module_get(vws_rpc_module* m, cstr n)
 {
     return sys_map_get(&m->calls, n);
 }
@@ -95,29 +95,29 @@ vrtql_rpc_call vrtql_rpc_module_get(vrtql_rpc_module* m, cstr n)
 // RPC System
 //------------------------------------------------------------------------------
 
-vrtql_rpc_system* vrtql_rpc_system_new()
+vws_rpc_system* vws_rpc_system_new()
 {
-    vrtql_rpc_system* s;
-    s = (vrtql_rpc_system*)vws.malloc(sizeof(vrtql_rpc_system));
+    vws_rpc_system* s;
+    s = (vws_rpc_system*)vws.malloc(sizeof(vws_rpc_system));
     sc_map_init_sv(&s->modules, 0, 0);
 
     return s;
 }
 
-void vrtql_rpc_system_free(vrtql_rpc_system* s)
+void vws_rpc_system_free(vws_rpc_system* s)
 {
     if (s != NULL)
     {
-        cstr key; vrtql_rpc_module* module;
+        cstr key; vws_rpc_module* module;
         sc_map_foreach(&s->modules, key, module)
         {
-            vrtql_rpc_module_free(module);
+            vws_rpc_module_free(module);
             vws.free(key);
 
             /*
             sys_map_clear( &s->modules,
                            key,
-                           (vrtql_rpc_map_free)vrtql_rpc_module_free);
+                           (vws_rpc_map_free)vws_rpc_module_free);
             */
         }
 
@@ -127,12 +127,12 @@ void vrtql_rpc_system_free(vrtql_rpc_system* s)
     }
 }
 
-void vrtql_rpc_system_set(vrtql_rpc_system* s, vrtql_rpc_module* m)
+void vws_rpc_system_set(vws_rpc_system* s, vws_rpc_module* m)
 {
     sys_map_set(&s->modules, m->name, m);
 }
 
-vrtql_rpc_module* vrtql_rpc_system_get(vrtql_rpc_system* s, cstr n)
+vws_rpc_module* vws_rpc_system_get(vws_rpc_system* s, cstr n)
 {
     return sys_map_get(&s->modules, n);
 }
@@ -171,7 +171,7 @@ bool parse_rpc_string(const char* input, char** module, char** function)
     return false;
 }
 
-vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
+vrtql_msg* vws_rpc(vws_rpc_system* s, vws_rpc_env* e, vrtql_msg* m)
 {
     vws.success();
 
@@ -198,7 +198,7 @@ vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
     }
 
     // Lookup module in system
-    vrtql_rpc_module* module = vrtql_rpc_system_get(s, mn);
+    vws_rpc_module* module = vws_rpc_system_get(s, mn);
 
     if (module == NULL)
     {
@@ -212,7 +212,7 @@ vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
     }
 
     // Lookup RPC in module
-    vrtql_rpc_call rpc = vrtql_rpc_module_get(module, fn);
+    vws_rpc_call rpc = vws_rpc_module_get(module, fn);
 
     if (rpc == NULL)
     {
@@ -242,7 +242,7 @@ vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
 // Internal Functions
 //------------------------------------------------------------------------------
 
-void* sys_map_get(vrtql_rpc_map* map, cstr key)
+void* sys_map_get(vws_rpc_map* map, cstr key)
 {
     // See if we have an existing entry
     cstr v = sc_map_get_sv(map, key);
@@ -255,7 +255,7 @@ void* sys_map_get(vrtql_rpc_map* map, cstr key)
     return v;
 }
 
-void sys_map_set(vrtql_rpc_map* map, cstr key, void* value)
+void sys_map_set(vws_rpc_map* map, cstr key, void* value)
 {
     // See if we have an existing entry
     sc_map_get_sv(map, key);
@@ -269,7 +269,7 @@ void sys_map_set(vrtql_rpc_map* map, cstr key, void* value)
     sc_map_put_sv(map, key, value);
 }
 
-void sys_map_clear(vrtql_rpc_map* map, cstr key, vrtql_rpc_map_free cb)
+void sys_map_clear(vws_rpc_map* map, cstr key, vws_rpc_map_free cb)
 {
     // See if we have an existing entry
     cstr v = sc_map_get_sv(map, key);

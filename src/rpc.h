@@ -1,5 +1,5 @@
-#ifndef VRTQL_RPC_DECLARE
-#define VRTQL_RPC_DECLARE
+#ifndef VWS_RPC_DECLARE
+#define VWS_RPC_DECLARE
 
 #include "vws.h"
 #include "message.h"
@@ -14,54 +14,54 @@
 /**
  * @brief Struct representing a RPC environment
  */
-typedef struct vrtql_rpc_env
+typedef struct vws_rpc_env
 {
     /**< The data */
     char* data;
 
-} vrtql_rpc_env;
+} vws_rpc_env;
 
 /**
  * @brief Callback for RPC call
  * @param e The RPC environment
  * @param m The incoming message to process
  */
-typedef vrtql_msg* (*vrtql_rpc_call)(vrtql_rpc_env* e, vrtql_msg* m);
+typedef vrtql_msg* (*vws_rpc_call)(vws_rpc_env* e, vrtql_msg* m);
 
 /** Abbreviation for generic RPC map This is used to store registry of modules
  * for the module system and registry of RPC calls for each module. */
-typedef struct sc_map_sv vrtql_rpc_map;
+typedef struct sc_map_sv vws_rpc_map;
 
-typedef struct vrtql_rpc_module
+typedef struct vws_rpc_module
 {
     /**< Module name. */
     cstr name;
 
-    /**< Map of RPC calls. Key is call name. Value is vrtql_rpc_call. */
-    vrtql_rpc_map calls;
+    /**< Map of RPC calls. Key is call name. Value is vws_rpc_call. */
+    vws_rpc_map calls;
 
-} vrtql_rpc_module;
+} vws_rpc_module;
 
-typedef struct vrtql_rpc_system
+typedef struct vws_rpc_system
 {
     /**< Map of RPC modules. Key is module name. Value is module instance. */
-    vrtql_rpc_map modules;
+    vws_rpc_map modules;
 
-} vrtql_rpc_system;
+} vws_rpc_system;
 
 /**
  * @brief Creates a new RPC module.
  *
  * @return A new thread RPC module.
  */
-vrtql_rpc_module* vrtql_rpc_module_new(cstr name);
+vws_rpc_module* vws_rpc_module_new(cstr name);
 
 /**
  * @brief Frees the resources allocated to a RPC module
  *
  * @param m The RPC module
  */
-void vrtql_rpc_module_free(vrtql_rpc_module* m);
+void vws_rpc_module_free(vws_rpc_module* m);
 
 /**
  * @brief Adds an RPC to module.
@@ -70,7 +70,7 @@ void vrtql_rpc_module_free(vrtql_rpc_module* m);
  * @param n The name of the The RPC module
  * @param c The RPC call
  */
-void vrtql_rpc_module_set(vrtql_rpc_module* m, cstr n, vrtql_rpc_call c);
+void vws_rpc_module_set(vws_rpc_module* m, cstr n, vws_rpc_call c);
 
 /**
  * @brief Adds an RPC to module .
@@ -79,21 +79,21 @@ void vrtql_rpc_module_set(vrtql_rpc_module* m, cstr n, vrtql_rpc_call c);
  * @param n The name of the The RPC module
  * @return c The RPC call if exists, NULL otherwise
  */
-vrtql_rpc_call vrtql_rpc_module_get(vrtql_rpc_module* m, cstr n);
+vws_rpc_call vws_rpc_module_get(vws_rpc_module* m, cstr n);
 
 /**
  * @brief Creates a new RPC system.
  *
  * @return A new RPC system.
  */
-vrtql_rpc_system* vrtql_rpc_system_new();
+vws_rpc_system* vws_rpc_system_new();
 
 /**
  * @brief Frees the resources allocated to a RPC system
  *
  * @param s The RPC system
  */
-void vrtql_rpc_system_free(vrtql_rpc_system* s);
+void vws_rpc_system_free(vws_rpc_system* s);
 
 /**
  * @brief Adds a module to a system.
@@ -101,7 +101,7 @@ void vrtql_rpc_system_free(vrtql_rpc_system* s);
  * @param s The RPC system
  * @param m The RPC module
  */
-void vrtql_rpc_system_set(vrtql_rpc_system* s, vrtql_rpc_module* m);
+void vws_rpc_system_set(vws_rpc_system* s, vws_rpc_module* m);
 
 /**
  * @brief Gets a module from a system.
@@ -110,7 +110,7 @@ void vrtql_rpc_system_set(vrtql_rpc_system* s, vrtql_rpc_module* m);
  * @param n The name of the The RPC module
  * @return m The RPC module if exists, NULL otherwise
  */
-vrtql_rpc_module* vrtql_rpc_system_get(vrtql_rpc_system* s, cstr n);
+vws_rpc_module* vws_rpc_system_get(vws_rpc_system* s, cstr n);
 
 /**
  * @brief Invoke an RPC call
@@ -118,6 +118,6 @@ vrtql_rpc_module* vrtql_rpc_system_get(vrtql_rpc_system* s, cstr n);
  * @param e The RPC environment
  * @param m The incoming message to process
  */
-vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m);
+vrtql_msg* vws_rpc(vws_rpc_system* s, vws_rpc_env* e, vrtql_msg* m);
 
-#endif /* VRTQL_RPC_DECLARE */
+#endif /* VWS_RPC_DECLARE */

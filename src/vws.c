@@ -375,7 +375,7 @@ int vws_error_default_process(int code, cstr message)
                 break;
             }
 
-            case VE_DISCONNECT:
+            case VE_SOCKET:
             {
                 vws.trace(VL_WARN, "Disconnect: %s", message);
                 break;
@@ -754,6 +754,7 @@ void vws_msleep(unsigned int ms)
     usleep(ms * 1000);
 
 #elif defined(__bsd__)
+
     usleep(ms * 1000);
 
 #elif defined(__sunos__)

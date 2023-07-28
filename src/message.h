@@ -17,7 +17,16 @@ typedef enum
 } vrtql_msg_state_t;
 
 /**
+ * @defgroup MessageFunctions
+ *
+ * @brief Functions that manage VRTQL messages
+ *
+ */
+
+/**
  * @brief Represents a message with routing, headers, and content.
+ *
+ * @ingroup MessageFunctions
  */
 typedef struct vrtql_msg
 {
@@ -31,12 +40,16 @@ typedef struct vrtql_msg
 /**
  * @brief Creates a new vrtql_msg instance.
  * @return A pointer to the new vrtql_msg instance.
+ *
+ * @ingroup MessageFunctions
  */
 vrtql_msg* vrtql_msg_new();
 
 /**
  * @brief Frees a vrtql_msg instance.
  * @param msg The vrtql_msg instance to be freed.
+ *
+ * @ingroup MessageFunctions
  */
 void vrtql_msg_free(vrtql_msg* msg);
 
@@ -45,6 +58,8 @@ void vrtql_msg_free(vrtql_msg* msg);
  * @param msg The vrtql_msg instance.
  * @param key The header key.
  * @return The header value. Returns NULL if the key doesn't exist.
+ *
+ * @ingroup MessageFunctions
  */
 cstr vrtql_msg_get_header(vrtql_msg* msg, cstr key);
 
@@ -53,6 +68,8 @@ cstr vrtql_msg_get_header(vrtql_msg* msg, cstr key);
  * @param msg The vrtql_msg instance.
  * @param key The header key.
  * @param value The header value.
+ *
+ * @ingroup MessageFunctions
  */
 void vrtql_msg_set_header(vrtql_msg* msg, cstr key, cstr value);
 
@@ -60,6 +77,8 @@ void vrtql_msg_set_header(vrtql_msg* msg, cstr key, cstr value);
  * @brief Removes a header key-value pair.
  * @param msg The vrtql_msg instance.
  * @param key The header key to be removed.
+ *
+ * @ingroup MessageFunctions
  */
 void vrtql_msg_clear_header(vrtql_msg* msg, cstr key);
 
@@ -68,6 +87,8 @@ void vrtql_msg_clear_header(vrtql_msg* msg, cstr key);
  * @param msg The vrtql_msg instance.
  * @param key The routing key.
  * @return The routing value. Returns NULL if the key doesn't exist.
+ *
+ * @ingroup MessageFunctions
  */
 cstr vrtql_msg_get_routing(vrtql_msg* msg, cstr key);
 
@@ -76,6 +97,8 @@ cstr vrtql_msg_get_routing(vrtql_msg* msg, cstr key);
  * @param msg The vrtql_msg instance.
  * @param key The routing key.
  * @param value The routing value.
+ *
+ * @ingroup MessageFunctions
  */
 void vrtql_msg_set_routing(vrtql_msg* msg, cstr key, cstr value);
 
@@ -83,6 +106,8 @@ void vrtql_msg_set_routing(vrtql_msg* msg, cstr key, cstr value);
  * @brief Removes a routing key-value pair.
  * @param msg The vrtql_msg instance.
  * @param key The routing key to be removed.
+ *
+ * @ingroup MessageFunctions
  */
 void vrtql_msg_clear_routing(vrtql_msg* msg, cstr key);
 
@@ -90,6 +115,8 @@ void vrtql_msg_clear_routing(vrtql_msg* msg, cstr key);
  * @brief Gets the content of the message.
  * @param msg The vrtql_msg instance.
  * @return The content of the message. Returns NULL if no content is set.
+ *
+ * @ingroup MessageFunctions
  */
 cstr vrtql_msg_get_content(vrtql_msg* msg);
 
@@ -97,6 +124,8 @@ cstr vrtql_msg_get_content(vrtql_msg* msg);
  * @brief Gets the size of the content.
  * @param msg The vrtql_msg instance.
  * @return The size of the content in bytes.
+ *
+ * @ingroup MessageFunctions
  */
 size_t vrtql_msg_get_content_size(vrtql_msg* msg);
 
@@ -104,6 +133,8 @@ size_t vrtql_msg_get_content_size(vrtql_msg* msg);
  * @brief Sets the content of the message from a string.
  * @param msg The vrtql_msg instance.
  * @param value The content to be set.
+ *
+ * @ingroup MessageFunctions
  */
 void vrtql_msg_set_content(vrtql_msg* msg, cstr value);
 
@@ -112,12 +143,16 @@ void vrtql_msg_set_content(vrtql_msg* msg, cstr value);
  * @param msg The vrtql_msg instance.
  * @param value The content to be set.
  * @param size The size of the content in bytes.
+ *
+ * @ingroup MessageFunctions
  */
 void vrtql_msg_set_content_binary(vrtql_msg* msg, cstr value, size_t size);
 
 /**
  * @brief Clears the content of the message.
  * @param msg The vrtql_msg instance.
+ *
+ * @ingroup MessageFunctions
  */
 void vrtql_msg_clear_content(vrtql_msg* msg);
 
@@ -125,6 +160,8 @@ void vrtql_msg_clear_content(vrtql_msg* msg);
  * @brief Serializes a vrtql_msg instance to a buffer.
  * @param msg The vrtql_msg instance.
  * @return A buffer containing the serialized message.
+ *
+ * @ingroup MessageFunctions
  */
 vws_buffer* vrtql_msg_serialize(vrtql_msg* msg);
 
@@ -134,6 +171,8 @@ vws_buffer* vrtql_msg_serialize(vrtql_msg* msg);
  * @param data The buffer containing the serialized message.
  * @param length The length of the buffer in bytes.
  * @return true on success, false on failure.
+ *
+ * @ingroup MessageFunctions
  */
 bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length);
 
@@ -145,7 +184,10 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length);
  * @param c The connection.
  * @param string The data to send.
  * @param size The size of the data in bytes.
- * @return Returns the number of bytes sent.
+ * @return Returns the number of bytes sent or -1 on error. In the case of
+ *         error, check vws.e for details, especially for VE_SOCKET.
+ *
+ * @ingroup MessageFunctions
  */
 ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg);
 
@@ -154,9 +196,12 @@ ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg);
  *
  * @param c The connection.
  * @return Returns the most recent message or NULL if the socket timed out
- *   without receiving a full message.
+ *   without receiving a full message. In the case of NULL, You should also
+ *   check for socket error (vws.e.code == VE_SOCKET or
+ *   vws_cnx_is_connected()).
+ *
+ * @ingroup MessageFunctions
  */
 vrtql_msg* vrtql_msg_recv(vws_cnx* c);
-
 
 #endif /* VRTQL_MSG_DECLARE */

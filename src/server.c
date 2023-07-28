@@ -74,7 +74,7 @@ static void worker_thread(void* arg);
 /**
  * @brief Server instance constructor
  *
- * Constructs a new server instance. This takes a new, empty vrtql_svr instance
+ * Constructs a new server instance. This takes a new, empty vws_tcp_svrt instance
  * and initializes all of its members. It is used by derived structs as well
  * (vrtql_msg_svr) to construct the base struct.
  *
@@ -84,12 +84,12 @@ static void worker_thread(void* arg);
  * @ingroup ServerFunctions
  */
 
-static vrtql_svr* svr_ctor(vrtql_svr* s, int nt, int backlog, int queue_size);
+static vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* s, int nt, int bl, int qs);
 
 /**
  * @brief Server instance destructor
  *
- * Destructs an initialized server instance. This vrtql_svr instance and
+ * Destructs an initialized server instance. This vws_tcp_svr instance and
  * deallocates all of its members -- everything but the top-level struct. This
  * is used by derived structs as well (vrtql_msg_svr) to destruct the base
  * struct.
@@ -99,12 +99,12 @@ static vrtql_svr* svr_ctor(vrtql_svr* s, int nt, int backlog, int queue_size);
  * @ingroup ServerFunctions
  */
 
-static void svr_dtor(vrtql_svr* s);
+static void tcp_svr_dtor(vws_tcp_svr* s);
 
 /**
  * @brief Initiates the server shutdown process.
  *
- * This function is responsible for shutting down a vrtql_svr server instance.
+ * This function is responsible for shutting down a vws_tcp_svr server instance.
  * It stops the server if it's currently running, performs necessary cleanup,
  * shuts down the libuv event loop, frees memory, and clears the connection map.
  * It signals all worker threads to stop processing new data and to finish any
@@ -114,7 +114,7 @@ static void svr_dtor(vrtql_svr* s);
  *
  * @ingroup ServerFunctions
  */
-static void svr_shutdown(vrtql_svr* server);
+static void svr_shutdown(vws_tcp_svr* server);
 
 /**
  * @brief Handles the close event for a libuv handle.
@@ -223,7 +223,7 @@ static void svr_on_write_complete(uv_write_t* req, int status);
  *
  * @ingroup ServerFunctions
  */
-static vws_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* c);
+static vws_svr_cnx* svr_cnx_new(vws_tcp_svr* s, uv_stream_t* c);
 
 /**
  * @brief Frees a server connection.
@@ -261,7 +261,7 @@ static void svr_client_connect(vws_svr_cnx* c);
  * responsible for processing any cleanup or other steps necessary at the end of
  * a connection.
  *
- * @param c The connection structure representing the client that has disconnected.
+ * @param c The connection
  *
  * @ingroup ServerFunctions
  */
@@ -358,7 +358,7 @@ static void ws_svr_client_connect(vws_svr_cnx* c);
  * responsible for processing any cleanup or other steps necessary at the end of
  * a connection.
  *
- * @param c The connection structure representing the client that has disconnected.
+ * @param c The connection
  *
  * @ingroup WebSocketServerFunctions
  */
@@ -594,7 +594,7 @@ static void svr_cnx_map_clear(vws_svr_cnx_map* map);
  *
  * @ingroup QueueGroup
  */
-void queue_init(vrtql_svr_queue* queue, int capacity, cstr name);
+void queue_init(vws_svr_queue* queue, int capacity, cstr name);
 
 /**
  * @brief Destroys a server queue.
@@ -606,7 +606,7 @@ void queue_init(vrtql_svr_queue* queue, int capacity, cstr name);
  *
  * @ingroup QueueGroup
  */
-void queue_destroy(vrtql_svr_queue* queue);
+void queue_destroy(vws_svr_queue* queue);
 
 /**
  * @brief Pushes data to the server queue.
@@ -619,7 +619,7 @@ void queue_destroy(vrtql_svr_queue* queue);
  *
  * @ingroup QueueGroup
  */
-void queue_push(vrtql_svr_queue* queue, vws_svr_data* data);
+void queue_push(vws_svr_queue* queue, vws_svr_data* data);
 
 /**
  * @brief Pops data from the server queue.
@@ -632,7 +632,7 @@ void queue_push(vrtql_svr_queue* queue, vws_svr_data* data);
  *
  * @ingroup QueueGroup
  */
-vws_svr_data* queue_pop(vrtql_svr_queue* queue);
+vws_svr_data* queue_pop(vws_svr_queue* queue);
 
 /**
  * @brief Checks if the server queue is empty.
@@ -645,7 +645,7 @@ vws_svr_data* queue_pop(vrtql_svr_queue* queue);
  *
  * @ingroup QueueGroup
  */
-bool queue_empty(vrtql_svr_queue* queue);
+bool queue_empty(vws_svr_queue* queue);
 
 //------------------------------------------------------------------------------
 // Threads
@@ -653,7 +653,7 @@ bool queue_empty(vrtql_svr_queue* queue);
 
 void worker_thread(void* arg)
 {
-    vrtql_svr* server = (vrtql_svr*)arg;
+    vws_tcp_svr* server = (vws_tcp_svr*)arg;
 
     // Set thread tracing level to server.
     vws.tracelevel = server->trace;
@@ -697,7 +697,7 @@ void worker_thread(void* arg)
 
 void uv_thread(uv_async_t* handle)
 {
-    vrtql_svr* server = (vrtql_svr*)handle->data;
+    vws_tcp_svr* server = (vws_tcp_svr*)handle->data;
 
     if (server->state == VS_HALTING)
     {
@@ -731,7 +731,6 @@ void uv_thread(uv_async_t* handle)
         if (vws_is_flag(&data->flags, VM_SVR_DATA_CLOSE))
         {
             // Close connection
-            //uv_close((uv_handle_t*)data->cnx->handle, svr_on_close);
             svr_cnx_close(data->cnx);
         }
         else
@@ -778,29 +777,29 @@ void vws_svr_data_free(vws_svr_data* t)
     }
 }
 
-vrtql_svr* vrtql_svr_new(int num_threads, int backlog, int queue_size)
+vws_tcp_svr* vws_tcp_svr_new(int num_threads, int backlog, int queue_size)
 {
-    vrtql_svr* server = vws.malloc(sizeof(vrtql_svr));
-    return svr_ctor(server, num_threads, backlog, queue_size);
+    vws_tcp_svr* server = vws.malloc(sizeof(vws_tcp_svr));
+    return tcp_svr_ctor(server, num_threads, backlog, queue_size);
 }
 
-uint8_t vrtql_svr_state(vrtql_svr* server)
+uint8_t vws_tcp_svr_state(vws_tcp_svr* server)
 {
     return server->state;
 }
 
-void vrtql_svr_free(vrtql_svr* server)
+void vws_tcp_svr_free(vws_tcp_svr* server)
 {
     if (server == NULL)
     {
         return;
     }
 
-    svr_dtor(server);
+    tcp_svr_dtor(server);
     vws.free(server);
 }
 
-int vrtql_svr_send(vrtql_svr* server, vws_svr_data* data)
+int vws_tcp_svr_send(vws_tcp_svr* server, vws_svr_data* data)
 {
     queue_push(&server->responses, data);
 
@@ -808,14 +807,14 @@ int vrtql_svr_send(vrtql_svr* server, vws_svr_data* data)
     uv_async_send(server->wakeup);
 }
 
-int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
+int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
 {
     if (vws.tracelevel >= VT_SERVICE)
     {
         vws.trace( VL_INFO,
-                     "vrtql_svr_run(%p): Starting worker %i threads",
-                     server,
-                     server->pool_size );
+                   "vws_tcp_svr_run(%p): Starting worker %i threads",
+                   server,
+                   server->pool_size );
     }
 
     for (int i = 0; i < server->pool_size; i++)
@@ -840,8 +839,8 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     if (vws.tracelevel >= VT_SERVICE)
     {
         vws.trace( VL_INFO,
-                     "vrtql_svr_run(%p): Bind %s:%lu",
-                     server, host, port);
+                   "vws_tcp_svr_run(%p): Bind %s:%lu",
+                   server, host, port);
     }
 
     if (rc)
@@ -863,8 +862,8 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     if (vws.tracelevel >= VT_SERVICE)
     {
         vws.trace( VL_INFO,
-                     "vrtql_svr_run(%s): Listen %s:%lu",
-                     server, host, port );
+                   "vws_tcp_svr_run(%s): Listen %s:%lu",
+                   server, host, port );
     }
 
     //> Start server
@@ -874,11 +873,11 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 
     if (vws.tracelevel >= VT_SERVICE)
     {
-        vws.trace(VL_INFO, "vrtql_svr_run(%s): Starting uv_run()", server);
+        vws.trace(VL_INFO, "vws_tcp_svr_run(%s): Starting uv_run()", server);
     }
 
     // Run UV loop. This runs indefinitely, passing network I/O and and out of
-    // system until server is shutdown by vrtql_svr_stop() (by external thread).
+    // system until server is shutdown by vws_tcp_svr_stop() (by external thread).
     uv_run(server->loop, UV_RUN_DEFAULT);
 
     //> Shutdown server
@@ -888,7 +887,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 
     if (vws.tracelevel >= VT_SERVICE)
     {
-        vws.trace(VL_INFO, "vrtql_svr_run(%p): Shutdown complete", server);
+        vws.trace(VL_INFO, "vws_tcp_svr_run(%p): Shutdown complete", server);
     }
 
     // Set state to halted
@@ -897,7 +896,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     return 0;
 }
 
-void vrtql_svr_stop(vrtql_svr* server)
+void vws_tcp_svr_stop(vws_tcp_svr* server)
 {
     // Set shutdown flags
     server->state           = VS_HALTING;
@@ -907,7 +906,7 @@ void vrtql_svr_stop(vrtql_svr* server)
     // Wakeup all worker threads
     if (vws.tracelevel >= VT_SERVICE)
     {
-        vws.trace(VL_INFO, "vrtql_svr_stop(): stop worker threads");
+        vws.trace(VL_INFO, "vws_tcp_svr_stop(): stop worker threads");
     }
 
     uv_mutex_lock(&server->requests.mutex);
@@ -917,7 +916,7 @@ void vrtql_svr_stop(vrtql_svr* server)
     // Wakeup the main event loop to shutdown main thread
     if (vws.tracelevel >= VT_SERVICE)
     {
-        vws.trace(VL_INFO, "vrtql_svr_stop(): stop main thread");
+        vws.trace(VL_INFO, "vws_tcp_svr_stop(): stop main thread");
     }
 
     uv_async_send(server->wakeup);
@@ -932,7 +931,7 @@ void vrtql_svr_stop(vrtql_svr* server)
 // Server construction / destruction
 //------------------------------------------------------------------------------
 
-vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
+vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
 {
     if (backlog == 0)
     {
@@ -944,28 +943,28 @@ vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
         queue_size = 1024;
     }
 
-    server->threads       = vws.malloc(sizeof(uv_thread_t) * nt);
-    server->pool_size     = nt;
-    server->on_connect    = svr_client_connect;
-    server->on_disconnect = svr_client_disconnect;
-    server->on_read       = svr_client_read;
-    server->on_data_in    = svr_client_data_in;
-    server->on_data_out   = svr_client_data_out;
-    server->backlog       = backlog;
-    server->loop          = (uv_loop_t*)vws.malloc(sizeof(uv_loop_t));
-    server->state         = VS_HALTED;
-    server->trace         = vws.tracelevel;
+    svr->threads       = vws.malloc(sizeof(uv_thread_t) * nt);
+    svr->pool_size     = nt;
+    svr->on_connect    = svr_client_connect;
+    svr->on_disconnect = svr_client_disconnect;
+    svr->on_read       = svr_client_read;
+    svr->on_data_in    = svr_client_data_in;
+    svr->on_data_out   = svr_client_data_out;
+    svr->backlog       = backlog;
+    svr->loop          = (uv_loop_t*)vws.malloc(sizeof(uv_loop_t));
+    svr->state         = VS_HALTED;
+    svr->trace         = vws.tracelevel;
 
-    uv_loop_init(server->loop);
-    sc_map_init_64v(&server->cnxs, 0, 0);
-    queue_init(&server->requests, queue_size, "requests");
-    queue_init(&server->responses, queue_size, "responses");
+    uv_loop_init(svr->loop);
+    sc_map_init_64v(&svr->cnxs, 0, 0);
+    queue_init(&svr->requests, queue_size, "requests");
+    queue_init(&svr->responses, queue_size, "responses");
 
-    server->wakeup = vws.malloc(sizeof(uv_async_t));
-    server->wakeup->data = server;
-    uv_async_init(server->loop, server->wakeup, uv_thread);
+    svr->wakeup = vws.malloc(sizeof(uv_async_t));
+    svr->wakeup->data = svr;
+    uv_async_init(svr->loop, svr->wakeup, uv_thread);
 
-    return server;
+    return svr;
 }
 
 void on_uv_close(uv_handle_t* handle)
@@ -979,8 +978,8 @@ void on_uv_close(uv_handle_t* handle)
         if (handle->data != NULL)
         {
             vws.trace( VL_WARN,
-                         "on_uv_close(): libuv resource not properly freed: %p",
-                         (void*)handle->data );
+                       "on_uv_close(): libuv resource not properly freed: %p",
+                       (void*)handle->data );
         }
     }
 }
@@ -991,49 +990,47 @@ void on_uv_walk(uv_handle_t* handle, void* arg)
 
     // If this handle has not been closed, it should have been. Nevertheless we
     // will make an attempt to close it.
-
     if (uv_is_closing(handle) == 0)
     {
         uv_close(handle, (uv_close_cb)on_uv_close);
     }
 }
 
-void svr_dtor(vrtql_svr* server)
+void tcp_svr_dtor(vws_tcp_svr* svr)
 {
     //> Stop/shutdown server
 
-    if (server->state == VS_RUNNING)
+    if (svr->state == VS_RUNNING)
     {
-        vrtql_svr_stop(server);
+        vws_tcp_svr_stop(svr);
     }
 
-    svr_shutdown(server);
-    vws.free(server->threads);
+    svr_shutdown(svr);
+    vws.free(svr->threads);
 
     // Close the server async handle
-    uv_close((uv_handle_t*)server->wakeup, svr_on_close);
+    uv_close((uv_handle_t*)svr->wakeup, svr_on_close);
 
     //> Shutdown libuv
 
     // Walk the loop to close everything
-    uv_walk(server->loop, on_uv_walk, NULL);
+    uv_walk(svr->loop, on_uv_walk, NULL);
 
-    while (uv_loop_close(server->loop))
+    while (uv_loop_close(svr->loop))
     {
         // Run the loop until there are no more active handles
-        while (uv_loop_alive(server->loop))
+        while (uv_loop_alive(svr->loop))
         {
-            uv_run(server->loop, UV_RUN_DEFAULT);
+            uv_run(svr->loop, UV_RUN_DEFAULT);
         }
     }
 
     // Free loop
-    vws.free(server->loop);
+    vws.free(svr->loop);
 
-    //> Free connection map
-
-    svr_cnx_map_clear(&server->cnxs);
-    sc_map_term_64v(&server->cnxs);
+    // Free connection map
+    svr_cnx_map_clear(&svr->cnxs);
+    sc_map_term_64v(&svr->cnxs);
 }
 
 //------------------------------------------------------------------------------
@@ -1058,7 +1055,7 @@ void svr_client_disconnect(vws_svr_cnx* c)
 
 void svr_client_read(vws_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
 {
-    vrtql_svr* server = c->server;
+    vws_tcp_svr* server = c->server;
 
     // Queue data to worker pool for processing
     vws_svr_data* data = vws_svr_data_own(c, buf->base, size);
@@ -1067,7 +1064,7 @@ void svr_client_read(vws_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
 
 void svr_client_data_in(vws_svr_data* req)
 {
-    vrtql_svr* server = req->cnx->server;
+    vws_tcp_svr* server = req->cnx->server;
 
     // Default: Do nothing. Drop data.
     vws_svr_data_free(req);
@@ -1154,17 +1151,17 @@ void svr_cnx_map_clear(vws_svr_cnx_map* map)
     sc_map_clear_64v(map);
 }
 
-vws_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* handle)
+vws_svr_cnx* svr_cnx_new(vws_tcp_svr* s, uv_stream_t* handle)
 {
     vws_svr_cnx* cnx = vws.malloc(sizeof(vws_svr_cnx));
-    cnx->server        = s;
-    cnx->handle        = handle;
-    cnx->data          = NULL;
-    cnx->format        = VM_MPACK_FORMAT;
+    cnx->server      = s;
+    cnx->handle      = handle;
+    cnx->data        = NULL;
+    cnx->format      = VM_MPACK_FORMAT;
 
     // Initialize HTTP state
-    cnx->upgraded      = false;
-    cnx->http          = vws_http_msg_new(HTTP_REQUEST);
+    cnx->upgraded    = false;
+    cnx->http        = vws_http_msg_new(HTTP_REQUEST);
 
     return cnx;
 }
@@ -1184,12 +1181,10 @@ void svr_cnx_free(vws_svr_cnx* c)
 
 void svr_cnx_close(vws_svr_cnx* c)
 {
-    //uv_close((uv_handle_t*)c->handle, svr_on_close);
     svr_cnx_close(c);
 }
 
-
-void svr_shutdown(vrtql_svr* server)
+void svr_shutdown(vws_tcp_svr* server)
 {
     if (server->state == VS_HALTED)
     {
@@ -1205,14 +1200,14 @@ void svr_shutdown(vrtql_svr* server)
     queue_destroy(&server->requests);
     queue_destroy(&server->responses);
 
-    // Stop the loop. This will cause uv_run() to return in vrtql_svr_run()
+    // Stop the loop. This will cause uv_run() to return in vws_tcp_svr_run()
     // which will also return.
     uv_stop(server->loop);
 }
 
 void svr_on_connect(uv_stream_t* socket, int status)
 {
-    vrtql_svr* server = (vrtql_svr*) socket->data;
+    vws_tcp_svr* server = (vws_tcp_svr*) socket->data;
 
     if (status < 0)
     {
@@ -1221,25 +1216,25 @@ void svr_on_connect(uv_stream_t* socket, int status)
         return;
     }
 
-    uv_tcp_t* client = (uv_tcp_t*)vws.malloc(sizeof(uv_tcp_t));
+    uv_tcp_t* c = (uv_tcp_t*)vws.malloc(sizeof(uv_tcp_t));
 
-    if (client == NULL)
+    if (c == NULL)
     {
         vws.error(VE_RT, "Failed to allocate memory for client");
         return;
     }
 
-    client->data = server;
+    c->data = server;
 
-    if (uv_tcp_init(server->loop, client) != 0)
+    if (uv_tcp_init(server->loop, c) != 0)
     {
         vws.error(VE_RT, "Failed to initialize client");
         return;
     }
 
-    if (uv_accept(socket, (uv_stream_t*)client) == 0)
+    if (uv_accept(socket, (uv_stream_t*)c) == 0)
     {
-        if (uv_read_start((uv_stream_t*)client, svr_on_realloc, svr_on_read) != 0)
+        if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
         {
             vws.error(VE_RT, "Failed to start reading from client");
             return;
@@ -1247,14 +1242,14 @@ void svr_on_connect(uv_stream_t* socket, int status)
     }
     else
     {
-        uv_close((uv_handle_t*)client, svr_on_close);
+        uv_close((uv_handle_t*)c, svr_on_close);
     }
 
     //> Add connection to registry and initialize
 
-    vws_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)client);
+    vws_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)c);
 
-    if (svr_cnx_map_set(&server->cnxs, (uv_stream_t*)client, cnx) == false)
+    if (svr_cnx_map_set(&server->cnxs, (uv_stream_t*)c, cnx) == false)
     {
         vws.error(VE_FATAL, "Connection already registered");
     }
@@ -1264,19 +1259,19 @@ void svr_on_connect(uv_stream_t* socket, int status)
     server->on_connect(cnx);
 }
 
-void svr_on_read(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf)
+void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
 {
-    vrtql_svr* server = (vrtql_svr*)client->data;
+    vws_tcp_svr* server = (vws_tcp_svr*)c->data;
 
     if (nread < 0)
     {
-        uv_close((uv_handle_t*)client, svr_on_close);
+        uv_close((uv_handle_t*)c, svr_on_close);
         vws.free(buf->base);
         return;
     }
 
     struct sc_map_64v* map = &server->cnxs;
-    vws_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)client);
+    vws_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)c);
 
     if (sc_map_found(map) == true)
     {
@@ -1292,7 +1287,7 @@ void svr_on_write_complete(uv_write_t* req, int status)
 
 void svr_on_close(uv_handle_t* handle)
 {
-    vrtql_svr* server      = handle->data;
+    vws_tcp_svr* server      = handle->data;
     vws_svr_cnx_map* map = &server->cnxs;
     vws_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)handle);
 
@@ -1324,7 +1319,7 @@ void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf)
 // Queue API
 //------------------------------------------------------------------------------
 
-void queue_init(vrtql_svr_queue* queue, int size, cstr name)
+void queue_init(vws_svr_queue* queue, int size, cstr name)
 {
     queue->buffer   = (vws_svr_data**)vws.malloc(size * sizeof(vws_svr_data*));
     queue->size     = 0;
@@ -1339,7 +1334,7 @@ void queue_init(vrtql_svr_queue* queue, int size, cstr name)
     uv_cond_init(&queue->cond);
 }
 
-void queue_destroy(vrtql_svr_queue* queue)
+void queue_destroy(vws_svr_queue* queue)
 {
     if (queue->buffer != NULL)
     {
@@ -1352,7 +1347,7 @@ void queue_destroy(vrtql_svr_queue* queue)
     }
 }
 
-void queue_push(vrtql_svr_queue* queue, vws_svr_data* data)
+void queue_push(vws_svr_queue* queue, vws_svr_data* data)
 {
     if (queue->state != VS_RUNNING)
     {
@@ -1383,7 +1378,7 @@ void queue_push(vrtql_svr_queue* queue, vws_svr_data* data)
     uv_mutex_unlock(&queue->mutex);
 }
 
-vws_svr_data* queue_pop(vrtql_svr_queue* queue)
+vws_svr_data* queue_pop(vws_svr_queue* queue)
 {
     uv_mutex_lock(&queue->mutex);
 
@@ -1409,7 +1404,7 @@ vws_svr_data* queue_pop(vrtql_svr_queue* queue)
     return data;
 }
 
-bool queue_empty(vrtql_svr_queue* queue)
+bool queue_empty(vws_svr_queue* queue)
 {
     uv_mutex_lock(&queue->mutex);
     bool empty = (queue->size == 0);
@@ -1437,7 +1432,7 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
             vws_svr_data* response;
 
             response = vws_svr_data_new(cnx, buffer);
-            vrtql_svr_send(cnx->server, response);
+            vws_tcp_svr_send(cnx->server, response);
 
             // Free buffer
             vws_buffer_free(buffer);
@@ -1466,7 +1461,7 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
             // Send back to cliane Send the PONG response
             vws_svr_data* response;
             response = vws_svr_data_new(cnx, buffer);
-            vrtql_svr_send(cnx->server, response);
+            vws_tcp_svr_send(cnx->server, response);
 
             // Free buffer
             vws_buffer_free(buffer);
@@ -1524,7 +1519,7 @@ void ws_svr_client_disconnect(vws_svr_cnx* c)
     }
 }
 
-void vrtql_svr_close(vws_svr_cnx* cnx)
+void vws_tcp_svr_close(vws_svr_cnx* cnx)
 {
     // Create reply
     vws_svr_data* reply;
@@ -1534,13 +1529,13 @@ void vrtql_svr_close(vws_svr_cnx* cnx)
     vws_set_flag(&reply->flags, VM_SVR_DATA_CLOSE);
 
     // Queue the data to uv_thread() to send out on wire
-    vrtql_svr_send(cnx->server, reply);
+    vws_tcp_svr_send(cnx->server, reply);
 }
 
 // Runs in uv_thread()
 void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
 {
-    vrtql_svr* server = cnx->server;
+    vws_tcp_svr* server = cnx->server;
     vws_cnx* c        = (vws_cnx*)cnx->data;
 
     // Add to client socket buffer
@@ -1674,9 +1669,9 @@ void ws_svr_client_data_in(vws_svr_data* block)
 {
     //> Append data to connection buffer
 
-    vws_svr_cnx* cnx   = block->cnx;
-    vws_svr* server = (vws_svr*)cnx->server;
-    vws_cnx* c           = (vws_cnx*)cnx->data;
+    vws_svr_cnx* cnx = block->cnx;
+    vws_svr* server  = (vws_svr*)cnx->server;
+    vws_cnx* c       = (vws_cnx*)cnx->data;
 
     // Data simply contains a pointer to a websocket message
     vws_msg* wsm = (vws_msg*)block->data;
@@ -1711,7 +1706,7 @@ void ws_svr_client_data_out( vws_svr_cnx* cnx,
     response = vws_svr_data_new(cnx, fdata);
 
     // Queue the data to uv_thread() to send out on wire
-    vrtql_svr_send(cnx->server, response);
+    vws_tcp_svr_send(cnx->server, response);
 
     // Free buffers
     vws_buffer_free(fdata);
@@ -1739,7 +1734,7 @@ void ws_svr_client_msg_out(vws_svr_cnx* cnx, vws_msg* m)
 
 void ws_svr_ctor(vws_svr* server, int nt, int bl, int qs)
 {
-    svr_ctor((vrtql_svr*)server, nt, bl, qs);
+    tcp_svr_ctor((vws_tcp_svr*)server, nt, bl, qs);
 
     // Server base function overrides
     server->base.on_connect    = ws_svr_client_connect;
@@ -1770,7 +1765,7 @@ void ws_svr_dtor(vws_svr* server)
         return;
     }
 
-    svr_dtor((vrtql_svr*)server);
+    tcp_svr_dtor((vws_tcp_svr*)server);
 }
 
 void vws_svr_free(vws_svr* server)
@@ -1805,7 +1800,7 @@ void msg_svr_client_ws_msg_in(vws_svr_cnx* cnx, vws_msg* wsm)
         vws_msg_free(wsm);
         vrtql_msg_free(msg);
 
-        vrtql_svr_close(cnx);
+        vws_tcp_svr_close(cnx);
 
         return;
     }
@@ -1860,15 +1855,15 @@ vrtql_msg_svr* vrtql_msg_svr_new(int num_threads, int backlog, int queue_size)
     ws_svr_ctor((vws_svr*)server, num_threads, backlog, queue_size);
 
     // Server base function overrides
-    server->base.process       = msg_svr_client_ws_msg_in;
+    server->base.process = msg_svr_client_ws_msg_in;
 
     // Message handling
-    server->on_msg_in          = msg_svr_client_msg_in;
-    server->on_msg_out         = msg_svr_client_msg_out;
+    server->on_msg_in    = msg_svr_client_msg_in;
+    server->on_msg_out   = msg_svr_client_msg_out;
 
     // Application functions
-    server->process            = msg_svr_client_process;
-    server->send               = msg_svr_client_msg_out;
+    server->process      = msg_svr_client_process;
+    server->send         = msg_svr_client_msg_out;
 
     return server;
 }

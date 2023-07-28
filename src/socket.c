@@ -386,7 +386,7 @@ ssize_t vws_socket_read(vws_socket* c)
 
     if (vws_socket_is_connected(c) == false)
     {
-        vws.error(VE_DISCONNECT, "Connection dropped");
+        vws.error(VE_SOCKET, "Connection dropped");
         return -1;
     }
 
@@ -411,7 +411,7 @@ openssl_reread:
 
     if (fds.revents & (POLLERR | POLLHUP | POLLNVAL))
     {
-        vws.error(VE_DISCONNECT, "Socket error during poll()");
+        vws.error(VE_SOCKET, "Socket error during poll()");
         vws_socket_close(c);
         return -1;
     }
@@ -426,7 +426,7 @@ openssl_reread:
 
     if (rc == SOCKET_ERROR)
     {
-        vws.error(VE_DISCONNECT, "Socket error during WSAPoll()");
+        vws.error(VE_SOCKET, "Socket error during WSAPoll()");
         vws_socket_close(c);
         return -1;
     }
@@ -504,7 +504,7 @@ openssl_reread:
                 char buf[256];
                 unsigned long ssl_err = ERR_get_error();
                 ERR_error_string_n(ssl_err, buf, sizeof(buf));
-                vws.error(VE_DISCONNECT, "SSL_read() failed: %s", buf);
+                vws.error(VE_SOCKET, "SSL_read() failed: %s", buf);
 
                 // Close socket
                 vws_socket_close(c);
@@ -523,7 +523,7 @@ openssl_reread:
 
             if (n == 0)
             {
-                vws.error(VE_DISCONNECT, "disconnect");
+                vws.error(VE_SOCKET, "disconnect");
 
                 // Close socket
                 vws_socket_close(c);
@@ -582,7 +582,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
 
     if (vws_socket_is_connected(c) == false)
     {
-        vws.error(VE_DISCONNECT, "Connection dropped");
+        vws.error(VE_SOCKET, "Connection dropped");
         return -1;
     }
 
@@ -621,7 +621,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
 
         if (fds.revents & (POLLERR | POLLHUP | POLLNVAL))
         {
-            vws.error(VE_DISCONNECT, "Socket error during poll()");
+            vws.error(VE_SOCKET, "Socket error during poll()");
             vws_socket_close(c);
             return -1;
         }
@@ -636,7 +636,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
 
         if (rc == SOCKET_ERROR)
         {
-            vws.error(VE_DISCONNECT, "Socket error during WSAPoll()");
+            vws.error(VE_SOCKET, "Socket error during WSAPoll()");
             vws_socket_close(c);
             return -1;
         }
@@ -689,7 +689,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
                     char buf[256];
                     unsigned long ssl_err = ERR_get_error();
                     ERR_error_string_n(ssl_err, buf, sizeof(buf));
-                    vws.error(VE_DISCONNECT, "SSL_write() failed: %s", buf);
+                    vws.error(VE_SOCKET, "SSL_write() failed: %s", buf);
 
                     // Close socket
                     vws_socket_close(c);

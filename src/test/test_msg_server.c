@@ -36,11 +36,11 @@ void process_message(vws_svr_cnx* cnx, vrtql_msg* m)
 
 void server_thread(void* arg)
 {
-    vrtql_svr* server = (vrtql_svr*)arg;
+    vws_tcp_svr* server = (vws_tcp_svr*)arg;
     vws.tracelevel  = VT_THREAD;
     server->trace     = vws.tracelevel;
 
-    vrtql_svr_run(server, server_host, server_port);
+    vws_tcp_svr_run(server, server_host, server_port);
 }
 
 void client_thread(void* arg)
@@ -136,7 +136,7 @@ CTEST(test_msg_server, echo)
     uv_thread_create(&server_tid, server_thread, server);
 
     // Wait for server to start up
-    while (vrtql_svr_state((vrtql_svr*)server) != VS_RUNNING)
+    while (vws_tcp_svr_state((vws_tcp_svr*)server) != VS_RUNNING)
     {
         vws_msleep(100);
     }
@@ -144,7 +144,7 @@ CTEST(test_msg_server, echo)
     client_test(5, 50);
 
     // Shutdown
-    vrtql_svr_stop((vrtql_svr*)server);
+    vws_tcp_svr_stop((vws_tcp_svr*)server);
     uv_thread_join(&server_tid);
     vrtql_msg_svr_free(server);
 }

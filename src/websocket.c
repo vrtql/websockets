@@ -121,13 +121,12 @@ typedef enum
  */
 
 /**
- * @brief Creates and initializes a new vws_cnx object.
+ * @brief Attempts connection based on previously parsed URL
  *
- * @return A pointer to the newly created vws_cnx object.
- *
- * @ingroup ConnectionFunctions
+ * @param c The websocket connection.
+ * @return Returns true if the connection is successful, false otherwise.
  */
-static vws_cnx* cnx_new();
+static bool cnx_connect();
 
 /**
  * @brief Generates a new, random WebSocket key for the handshake process.
@@ -270,6 +269,27 @@ static void dump_websocket_header(const ws_header* header);
 //> Connection API
 //------------------------------------------------------------------------------
 
+bool cnx_connect(vws_cnx* c)
+{
+    if (c->url->host == NULL)
+    {
+        vws.error(VE_MEM, "Invalid or missing host");
+        return false;
+    }
+
+    // Connect to the server
+    cstr default_port = strcmp(c->url->protocol, "wss") == 0 ? "443" : "80";
+    cstr port = c->url->port != NULL ? c->url->port : default_port;
+
+    bool ssl = false;
+    if (strcmp(c->url->protocol, "wss") == 0)
+    {
+        ssl = true;
+    }
+
+    return vws_socket_connect((vws_socket*)c, c->url->host, atoi(port), ssl);
+}
+
 vws_cnx* vws_cnx_new()
 {
     vws_cnx* c = (vws_cnx*)vws.malloc(sizeof(vws_cnx));
@@ -281,7 +301,6 @@ vws_cnx* vws_cnx_new()
     c->base.hs = socket_handshake;
     c->flags   = CNX_CLOSED;
     c->url     = NULL;
-    c->origin  = NULL;
     c->key     = generate_websocket_key();
     c->process = process_frame;
     c->data    = NULL;
@@ -299,11 +318,6 @@ void vws_cnx_free(vws_cnx* c)
     }
 
     vws_disconnect(c);
-
-    if (c->origin != NULL)
-    {
-        vws.free(c->origin);
-    }
 
     // Free receive queue contents
     vws_frame* f;
@@ -350,33 +364,29 @@ bool vws_connect(vws_cnx* c, cstr uri)
 
     c->url = (vws_url_data*)url_parse(uri);
 
-    if (c->url->host == NULL)
+    return cnx_connect(c);
+}
+
+bool vws_reconnect(vws_cnx* c, cstr uri)
+{
+    if (vws_cnx_is_connected(c) == true)
     {
-        vws.error(VE_MEM, "Invalid or missing host");
-        return false;
+        return true;
     }
 
-    // Copy url as origin
-    c->origin = strdup(uri);
-
-    // Connect to the server
-    cstr default_port = strcmp(c->url->protocol, "wss") == 0 ? "443" : "80";
-    cstr port = c->url->port != NULL ? c->url->port : default_port;
-
-    bool ssl = false;
-    if (strcmp(c->url->protocol, "wss") == 0)
+    if (c->url != NULL)
     {
-        ssl = true;
+        cnx_connect(c);
     }
 
-    return vws_socket_connect((vws_socket*)c, c->url->host, atoi(port), ssl);
+    return false;
 }
 
 bool vws_cnx_is_connected(vws_cnx* c)
 {
     if (vws_socket_is_connected((vws_socket*)c) == false)
     {
-        vws.error(VE_DISCONNECT, "Connection dropped");
+        vws.error(VE_SOCKET, "Connection dropped");
         return false;
     }
 
@@ -400,7 +410,7 @@ bool socket_handshake(vws_socket* s)
         "\r\n";
 
     char req[MAX_BUFFER_SIZE];
-    snprintf(req, sizeof(req), rt, c->url->path, c->url->host, c->origin, c->key);
+    snprintf(req, sizeof(req), rt, c->url->path, c->url->host, c->url->href, c->key);
 
     ssize_t n;
     size_t total = 0;

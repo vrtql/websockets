@@ -200,19 +200,27 @@ struct vws_cnx;
  */
 typedef void (*vws_process_frame)(struct vws_cnx* cnx, vws_frame* frame);
 
-typedef struct vws_url_data {
-  char *href;
-  char *protocol;
-  char *host;
-  char *auth;
-  char *hostname;
-  char *pathname;
-  char *search;
-  char *path;
-  char *hash;
-  char *query;
-  char *port;
+typedef struct vws_url_data
+{
+  char* href;
+  char* protocol;
+  char* host;
+  char* auth;
+  char* hostname;
+  char* pathname;
+  char* search;
+  char* path;
+  char* hash;
+  char* query;
+  char* port;
 } vws_url_data;
+
+/**
+ * @defgroup ConnectionFunctions
+ *
+ * @brief Functions that manage WebSocket connections
+ *
+ */
 
 /**
  * @brief A WebSocket connection.
@@ -227,9 +235,6 @@ typedef struct vws_cnx
 
     /**< The URL of the websocket server. */
     vws_url_data* url;
-
-    /**< The WebSocket origin. */
-    char* origin;
 
     /**< The websocket key. */
     char* key;
@@ -251,21 +256,39 @@ typedef struct vws_cnx
  * @param key The input key
  * @return Returns the accept key on the heap. Caller MUST call free() on return
  * value
+ *
+ * @ingroup ConnectionFunctions
  */
 cstr vws_accept_key(cstr key);
 
 /**
  * @brief Connects to a specified host URL.
  *
+ * @param c The websocket connection.
  * @param uri The URL of the host to connect to.
  * @return Returns true if the connection is successful, false otherwise.
+ *
+ * @ingroup ConnectionFunctions
  */
 bool vws_connect(vws_cnx* c, cstr uri);
+
+/**
+ * @brief Attempts to reconnects based on previous URL. If no previous
+ * connection was made, this function does nothing and returns false.
+ *
+ * @param c The websocket connection.
+ * @return Returns true if the connection is successful, false otherwise.
+ *
+ * @ingroup ConnectionFunctions
+ */
+bool vws_reconnect(vws_cnx* c, cstr uri);
 
 /**
  * @brief Closes the connection to the host.
  *
  * @param c The websocket connection.
+ *
+ * @ingroup ConnectionFunctions
  */
 void vws_disconnect(vws_cnx* c);
 
@@ -273,6 +296,8 @@ void vws_disconnect(vws_cnx* c);
  * @brief Allocates a new websocket connection.
  *
  * @return A pointer to the new connection instance.
+ *
+ * @ingroup ConnectionFunctions
  */
 vws_cnx* vws_cnx_new();
 
@@ -280,6 +305,8 @@ vws_cnx* vws_cnx_new();
  * @brief Deallocates a websocket connection.
  *
  * @param c The websocket connection.
+ *
+ * @ingroup ConnectionFunctions
  */
 void vws_cnx_free(vws_cnx* c);
 
@@ -288,7 +315,9 @@ void vws_cnx_free(vws_cnx* c);
  *
  * @param c The websocket connection.
  * @return Returns true if connection is established, false otherwise. If false,
- * sets vrtql.e to VE_DISCONNECT.
+ * sets vrtql.e to VE_SOCKET.
+ *
+ * @ingroup ConnectionFunctions
  */
 bool vws_cnx_is_connected(vws_cnx* c);
 
@@ -297,6 +326,8 @@ bool vws_cnx_is_connected(vws_cnx* c);
  *
  * @param c The websocket connection.
  * @return Returns void.
+ *
+ * @ingroup ConnectionFunctions
  */
 void vws_cnx_set_server_mode(vws_cnx* c);
 
@@ -311,6 +342,8 @@ void vws_cnx_set_server_mode(vws_cnx* c);
  * @param c The WebSocket connection.
  * @return The total number of bytes consumed from the socket buffer.
  *         If no complete frame is available or an error occurs, it returns 0.
+ *
+ * @ingroup ConnectionFunctions
  */
 ssize_t vws_cnx_ingress(vws_cnx* c);
 
@@ -323,7 +356,9 @@ ssize_t vws_cnx_ingress(vws_cnx* c);
  *
  * @param c The connection.
  * @param string The text to send.
- * @return Returns the number of bytes sent.
+
+ * @return Returns the number of bytes sent or -1 on error. In the case of
+ *         error, check vws.e for details, especially for VE_SOCKET.
  */
 ssize_t vws_frame_send_text(vws_cnx* c, cstr string);
 
@@ -333,7 +368,8 @@ ssize_t vws_frame_send_text(vws_cnx* c, cstr string);
  * @param c The connection.
  * @param string The data to send.
  * @param size The size of the data in bytes.
- * @return Returns the number of bytes sent.
+ * @return Returns the number of bytes sent or -1 on error. In the case of
+ *         error, check vws.e for details, especially for VE_SOCKET.
  */
 ssize_t vws_frame_send_binary(vws_cnx* c, ucstr string, size_t size);
 
@@ -344,7 +380,8 @@ ssize_t vws_frame_send_binary(vws_cnx* c, ucstr string, size_t size);
  * @param dataThe data to send.
  * @param size The size of the data in bytes.
  * @param oc The websocket opcode defining the frame type.
- * @return Returns the number of bytes sent out on wire.
+ * @return Returns the number of bytes sent or -1 on error. In the case of
+ *         error, check vws.e for details, especially for VE_SOCKET.
  */
 ssize_t vws_frame_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
 
@@ -355,7 +392,8 @@ ssize_t vws_frame_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
  * @param c The connection.
  * @param frame The frame to send. This function will take ownership of the
  *   frame and deallocate it for the caller.
- * @return Returns the number of bytes sent out on wire.
+ * @return Returns the number of bytes sent or -1 on error. In the case of
+ *         error, check vws.e for details, especially for VE_SOCKET.
  */
 ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame);
 
@@ -364,7 +402,8 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame);
  *
  * @param c The connection.
  * @param string The text to send.
- * @return Returns the number of bytes sent.
+ * @return Returns the number of bytes sent or -1 on error. In the case of
+ *         error, check vws.e for details, especially for VE_SOCKET.
  */
 ssize_t vws_msg_send_text(vws_cnx* c, cstr string);
 
@@ -374,7 +413,8 @@ ssize_t vws_msg_send_text(vws_cnx* c, cstr string);
  * @param c The connection.
  * @param string The data to send.
  * @param size The size of the data in bytes.
- * @return Returns the number of bytes sent.
+ * @return Returns the number of bytes sent or -1 on error. In the case of
+ *         error, check vws.e for details, especially for VE_SOCKET.
  */
 ssize_t vws_msg_send_binary(vws_cnx* c, ucstr string, size_t size);
 
@@ -385,7 +425,8 @@ ssize_t vws_msg_send_binary(vws_cnx* c, ucstr string, size_t size);
  * @param dataThe data to send.
  * @param size The size of the data in bytes.
  * @param oc The websocket opcode defining the frame type.
- * @return Returns the number of bytes sent out on wire.
+ * @return Returns the number of bytes sent or -1 on error. In the case of
+ *         error, check vws.e for details, especially for VE_SOCKET.
  */
 ssize_t vws_msg_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
 
@@ -395,7 +436,8 @@ ssize_t vws_msg_send_data(vws_cnx* c, ucstr data, size_t size, int oc);
  *
  * @param c The connection.
  * @return Returns the most recent websocket message or NULL if the socket
- *   timed out without receiving a full message.
+ *   timed out without receiving a full message. If NULL, check for
+ *   socket error (vws.e.code == VE_SOCKET or vws_cnx_is_connected()).
  */
 vws_msg* vws_msg_recv(vws_cnx* c);
 
@@ -417,7 +459,8 @@ vws_msg* vws_msg_pop(vws_cnx* c);
  *
  * @param c The connection.
  * @return Returns the most recent websocket frame or NULL if the socket timed
- *   out without receiving a full frame.
+ *   out without receiving a full frame. If NULL, check for
+ *   socket error (vws.e.code == VE_SOCKET or vws_cnx_is_connected()).
  */
 vws_frame* vws_frame_recv(vws_cnx* c);
 

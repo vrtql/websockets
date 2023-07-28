@@ -3,7 +3,7 @@
 #include "rpc.h"
 
 // RPC Call: session.login
-vrtql_msg* session_login(vrtql_rpc_env* e, vrtql_msg* m)
+vrtql_msg* session_login(vws_rpc_env* e, vrtql_msg* m)
 {
     vrtql_msg* reply = vrtql_msg_new();
     vrtql_msg_set_header(reply, "rc", "0");
@@ -12,7 +12,7 @@ vrtql_msg* session_login(vrtql_rpc_env* e, vrtql_msg* m)
 }
 
 // RPC Call: session.logout
-vrtql_msg* session_logout(vrtql_rpc_env* e, vrtql_msg* m)
+vrtql_msg* session_logout(vws_rpc_env* e, vrtql_msg* m)
 {
     vrtql_msg* reply = vrtql_msg_new();
     vrtql_msg_set_header(reply, "rc", "0");
@@ -21,7 +21,7 @@ vrtql_msg* session_logout(vrtql_rpc_env* e, vrtql_msg* m)
 }
 
 // RPC Call: session.info
-vrtql_msg* session_info(vrtql_rpc_env* e, vrtql_msg* m)
+vrtql_msg* session_info(vws_rpc_env* e, vrtql_msg* m)
 {
     vrtql_msg* reply = vrtql_msg_new();
     vrtql_msg_set_header(reply, "rc", "0");
@@ -32,36 +32,36 @@ vrtql_msg* session_info(vrtql_rpc_env* e, vrtql_msg* m)
 CTEST(test_rpc, module)
 {
     // Define module
-    vrtql_rpc_module* module = vrtql_rpc_module_new("session");
-    vrtql_rpc_module_set(module, "login",  session_login);
-    vrtql_rpc_module_set(module, "logout", session_logout);
-    vrtql_rpc_module_set(module, "info",   session_info);
+    vws_rpc_module* module = vws_rpc_module_new("session");
+    vws_rpc_module_set(module, "login",  session_login);
+    vws_rpc_module_set(module, "logout", session_logout);
+    vws_rpc_module_set(module, "info",   session_info);
 
     // Cleanup
-    vrtql_rpc_module_free(module);
+    vws_rpc_module_free(module);
 }
 
 CTEST(test_rpc, call)
 {
     // Create RPC system
-    vrtql_rpc_system* system = vrtql_rpc_system_new();
+    vws_rpc_system* system = vws_rpc_system_new();
 
     // Create module
-    vrtql_rpc_module* module = vrtql_rpc_module_new("session");
-    vrtql_rpc_module_set(module, "login",  session_login);
-    vrtql_rpc_module_set(module, "logout", session_logout);
-    vrtql_rpc_module_set(module, "info",   session_info);
+    vws_rpc_module* module = vws_rpc_module_new("session");
+    vws_rpc_module_set(module, "login",  session_login);
+    vws_rpc_module_set(module, "logout", session_logout);
+    vws_rpc_module_set(module, "info",   session_info);
 
     // Register module in system
-    vrtql_rpc_system_set(system, module);
+    vws_rpc_system_set(system, module);
 
     // Setup RPC request
-    vrtql_rpc_env env;
+    vws_rpc_env env;
     vrtql_msg* req = vrtql_msg_new();
     vrtql_msg_set_header(req, "id", "session.login");
 
     // Invoke RPC
-    vrtql_msg* reply = vrtql_rpc(system, &env, req);
+    vrtql_msg* reply = vws_rpc(system, &env, req);
     ASSERT_TRUE(reply != NULL);
 
     // Verify reply
@@ -70,7 +70,7 @@ CTEST(test_rpc, call)
 
     // Cleanup
     vrtql_msg_free(reply);
-    vrtql_rpc_system_free(system);
+    vws_rpc_system_free(system);
 }
 
 int main(int argc, const char* argv[])

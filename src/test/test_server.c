@@ -9,7 +9,7 @@ cstr content     = "Lorem ipsum dolor sit amet";
 
 void process_data(vws_svr_data* req)
 {
-    vrtql_svr* server = req->cnx->server;
+    vws_tcp_svr* server = req->cnx->server;
 
     vws.trace(VL_INFO, "process_data (%p)", req);
 
@@ -36,17 +36,17 @@ void process_data(vws_svr_data* req)
     }
 
     // Send reply. This will wakeup network thread.
-    vrtql_svr_send(server, reply);
+    vws_tcp_svr_send(server, reply);
 }
 
 void server_thread(void* arg)
 {
-    vrtql_svr* server = (vrtql_svr*)arg;
+    vws_tcp_svr* server = (vws_tcp_svr*)arg;
 
     vws.tracelevel = VT_THREAD;
     server->trace    = vws.tracelevel;
 
-    vrtql_svr_run(server, server_host, server_port);
+    vws_tcp_svr_run(server, server_host, server_port);
 }
 
 void client_thread(void* arg)
@@ -72,7 +72,7 @@ void client_thread(void* arg)
 
 CTEST(test_server, echo)
 {
-    vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
+    vws_tcp_svr* server  = vws_tcp_svr_new(10, 0, 0);
     vws.tracelevel   = VT_THREAD;
     server->on_data_in = process_data;
 
@@ -106,9 +106,9 @@ CTEST(test_server, echo)
 
     // Shutdown server
     vws.trace(VL_INFO, "[CLIENT] Stopping server");
-    vrtql_svr_stop(server);
+    vws_tcp_svr_stop(server);
     uv_thread_join(&server_tid);
-    vrtql_svr_free(server);
+    vws_tcp_svr_free(server);
 
     vws.trace(VL_INFO, "[CLIENT] Done");
 }
