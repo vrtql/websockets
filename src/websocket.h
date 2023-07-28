@@ -281,7 +281,7 @@ bool vws_connect(vws_cnx* c, cstr uri);
  *
  * @ingroup ConnectionFunctions
  */
-bool vws_reconnect(vws_cnx* c, cstr uri);
+bool vws_reconnect(vws_cnx* c);
 
 /**
  * @brief Closes the connection to the host.

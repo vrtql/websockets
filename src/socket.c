@@ -314,7 +314,6 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
     }
 
     // Set default timeout
-
     if (socket_set_timeout(c->sockfd, c->timeout/1000) == false)
     {
         // Error already set
@@ -443,7 +442,7 @@ openssl_reread:
 
     if (rc == 0)
     {
-        vws.error(VE_WARN, "timeout");
+        vws.error(VE_TIMEOUT, "poll()");
         return 0;
     }
 
@@ -499,6 +498,28 @@ openssl_reread:
                         goto openssl_reread;
                     }
                 }
+                else if (err == SSL_ERROR_SYSCALL)
+                {
+                    #if defined(__windows__)
+
+                    int err = WSAGetLastError();
+
+                    if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
+                    {
+                        vws.error(VE_TIMEOUT, "SSL_read()");
+                        return 0;
+                    }
+
+                    #else
+
+                    if ((errno == EWOULDBLOCK) || (errno == EAGAIN))
+                    {
+                        vws.error(VE_TIMEOUT, "SSL_read()");
+                        return 0;
+                    }
+
+                    #endif
+                }
 
                 // Get the latest OpenSSL error
                 char buf[256];
@@ -538,7 +559,7 @@ openssl_reread:
 
                 if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
                 {
-                    // No data.
+                    vws.error(VE_TIMEOUT, "recv()");
                     return 0;
                 }
 
@@ -546,7 +567,7 @@ openssl_reread:
 
                 if ((errno == EWOULDBLOCK) || (errno == EAGAIN))
                 {
-                    // No data.
+                    vws.error(VE_TIMEOUT, "recv()");
                     return 0;
                 }
                 else
@@ -651,9 +672,12 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
             return -1;
         }
 
-        // There was a timeout. Restart loop.
+        // There was a timeout. Restart loop. Sends are all or nothing: we keep
+        // pushing until either all the data goes or the connection
+        // drops. Anything else is inconsistent state.
         if (rc == 0)
         {
+            // Keep going.
             continue;
         }
 
@@ -682,7 +706,30 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
                             poll_events = POLLOUT;
                         }
 
+                        // Keep going
                         continue;
+                    }
+                    else if (err == SSL_ERROR_SYSCALL)
+                    {
+                        #if defined(__windows__)
+
+                        int err = WSAGetLastError();
+
+                        if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
+                        {
+                            // Timeout. Keep going.
+                            continue;
+                        }
+
+                        #else
+
+                        if ((errno == EWOULDBLOCK) || (errno == EAGAIN))
+                        {
+                            // Timeout. Keep going.
+                            continue;
+                        }
+
+                        #endif
                     }
 
                     // Get the latest OpenSSL error

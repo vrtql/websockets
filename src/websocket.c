@@ -367,7 +367,7 @@ bool vws_connect(vws_cnx* c, cstr uri)
     return cnx_connect(c);
 }
 
-bool vws_reconnect(vws_cnx* c, cstr uri)
+bool vws_reconnect(vws_cnx* c)
 {
     if (vws_cnx_is_connected(c) == true)
     {
