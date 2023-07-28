@@ -89,7 +89,7 @@ static VALUE m_set(VALUE self, VALUE key, VALUE value)
     char* c_key   = StringValueCStr(key);
     char* c_value = StringValueCStr(value);
 
-    vrtql_map_set(map, c_key, c_value);
+    vws_map_set(map, c_key, c_value);
 
     return Qnil;
 }
@@ -99,7 +99,7 @@ static VALUE m_get(VALUE self, VALUE key)
     struct sc_map_str* map = get_object(self);
 
     char* c_key = StringValueCStr(key);
-    char* val   = vrtql_map_get(map, c_key);
+    char* val   = vws_map_get(map, c_key);
 
     if (val == NULL)
     {

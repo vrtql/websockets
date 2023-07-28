@@ -57,7 +57,7 @@ vrtql_files = [
   'vrtql/http_parser.c',
   'vrtql/message.c',
   'vrtql/socket.c',
-  'vrtql/vrtql.c',
+  'vrtql/vws.c',
   'vrtql/websocket.c'
 ]
 

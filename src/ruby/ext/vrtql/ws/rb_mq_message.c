@@ -110,7 +110,7 @@ static int hash_iter(VALUE key, VALUE value, st_data_t map_ptr)
     struct sc_map_str* map = (struct sc_map_str*)map_ptr;
 
     // Set the key/value in the map
-    vrtql_map_set(map, c_key, c_value);
+    vws_map_set(map, c_key, c_value);
 }
 
 /*
@@ -127,7 +127,7 @@ static VALUE m_is_valid(VALUE self)
 {
     vrtql_msg* msg = get_object(self);
 
-    if (vrtql_is_flag(&msg->flags, VM_MSG_VALID))
+    if (vws_is_flag(&msg->flags, VM_MSG_VALID))
     {
         return Qtrue;
     }
@@ -292,10 +292,10 @@ static VALUE m_serialize(VALUE self)
 {
     vrtql_msg* msg    = get_object(self);
     msg->format       = VM_MPACK_FORMAT;
-    vrtql_buffer* buf = vrtql_msg_serialize(msg);
+    vws_buffer* buf = vrtql_msg_serialize(msg);
     VALUE binary      = rb_str_new(buf->data, buf->size);
 
-    vrtql_buffer_free(buf);
+    vws_buffer_free(buf);
 
     return binary;
 }

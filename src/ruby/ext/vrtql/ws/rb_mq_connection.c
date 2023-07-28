@@ -128,9 +128,9 @@ static VALUE m_send(int argc, VALUE* argv, VALUE self)
 
     vrtql_msg* msg = vr_mq_get_object(value);
     msg->format = format;
-    vrtql_buffer* binary = vrtql_msg_serialize(msg);
+    vws_buffer* binary = vrtql_msg_serialize(msg);
     int sent = vws_msg_send_binary(c, binary->data, binary->size);
-    vrtql_buffer_free(binary);
+    vws_buffer_free(binary);
 
     // Return the number of bytes sent as a Ruby integer
     return INT2NUM(sent);
@@ -169,7 +169,7 @@ static VALUE m_receive(VALUE self)
     if (vrtql_msg_deserialize(msg, data, size) == false)
     {
         // Set invalid (clear valid flag)
-        vrtql_clear_flag(&msg->flags, VM_MSG_VALID);
+        vws_clear_flag(&msg->flags, VM_MSG_VALID);
     }
 
     vws_msg_free(m);

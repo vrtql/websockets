@@ -57,7 +57,7 @@ file(GLOB core_files
   ../http_parser.c
   ../message.c
   ../socket.c
-  ../vrtql.c
+  ../vws.c
   ../websocket.c
 )
 
