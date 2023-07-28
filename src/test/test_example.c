@@ -24,7 +24,7 @@ int main(int argc, const char* argv[])
 
     // Enable tracing. This will dump frames to the console in human-readable
     // format as they are sent and received.
-    vrtql.tracelevel = VT_PROTOCOL;
+    vws.tracelevel = VT_PROTOCOL;
 
     // Send a TEXT frame
     vws_frame_send_text(cnx, "Hello, world!");

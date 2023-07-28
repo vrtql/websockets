@@ -87,36 +87,36 @@ ucstr lcase(char* s)
     return (ucstr)s;
 }
 
-static void process_header(vrtql_http_msg* req)
+static void process_header(vws_http_msg* req)
 {
     if (req->value->size != 0)
     {
         // We've got a complete field-value pair.
 
         // Null-terminate
-        vrtql_buffer_append(req->field, (ucstr)"\0", 1);
-        vrtql_buffer_append(req->value, (ucstr)"\0", 1);
+        vws_buffer_append(req->field, (ucstr)"\0", 1);
+        vws_buffer_append(req->value, (ucstr)"\0", 1);
 
         ucstr field = lcase((cstr)req->field->data);
         ucstr data  = req->value->data;
-        vrtql_map_set(&req->headers, (cstr)field, (cstr)data);
+        vws_map_set(&req->headers, (cstr)field, (cstr)data);
 
         // Reset for the next field-value pair.
-        vrtql_buffer_clear(req->field);
-        vrtql_buffer_clear(req->value);
+        vws_buffer_clear(req->field);
+        vws_buffer_clear(req->value);
     }
 }
 
-vrtql_http_msg* vrtql_http_msg_new(int mode)
+vws_http_msg* vws_http_msg_new(int mode)
 {
-    vrtql_http_msg* req = vrtql.malloc(sizeof(vrtql_http_msg));
-    req->parser         = vrtql.malloc(sizeof(http_parser));
-    req->settings       = vrtql.malloc(sizeof(http_parser_settings));
+    vws_http_msg* req   = vws.malloc(sizeof(vws_http_msg));
+    req->parser         = vws.malloc(sizeof(http_parser));
+    req->settings       = vws.malloc(sizeof(http_parser_settings));
     req->parser->data   = req;
-    req->url            = vrtql_buffer_new();
-    req->body           = vrtql_buffer_new();
-    req->field          = vrtql_buffer_new();
-    req->value          = vrtql_buffer_new();
+    req->url            = vws_buffer_new();
+    req->body           = vws_buffer_new();
+    req->field          = vws_buffer_new();
+    req->value          = vws_buffer_new();
     req->complete       = false;
 
     http_parser_init(req->parser, mode);
@@ -136,7 +136,7 @@ vrtql_http_msg* vrtql_http_msg_new(int mode)
     return req;
 }
 
-void vrtql_http_msg_free(vrtql_http_msg* req)
+void vws_http_msg_free(vws_http_msg* req)
 {
     if (req == NULL)
     {
@@ -146,18 +146,18 @@ void vrtql_http_msg_free(vrtql_http_msg* req)
     cstr key; cstr value;
     sc_map_foreach(&req->headers, key, value)
     {
-        vrtql.free(key);
-        vrtql.free(value);
+        vws.free(key);
+        vws.free(value);
     }
 
     sc_map_term_str(&req->headers);
-    vrtql_buffer_free(req->url);
-    vrtql_buffer_free(req->body);
-    vrtql_buffer_free(req->field);
-    vrtql_buffer_free(req->value);
-    vrtql.free(req->parser);
-    vrtql.free(req->settings);
-    vrtql.free(req);
+    vws_buffer_free(req->url);
+    vws_buffer_free(req->body);
+    vws_buffer_free(req->field);
+    vws_buffer_free(req->value);
+    vws.free(req->parser);
+    vws.free(req->settings);
+    vws.free(req);
 }
 
 int on_message_begin(http_parser* p)
@@ -167,8 +167,8 @@ int on_message_begin(http_parser* p)
 
 int on_headers_complete(http_parser* p)
 {
-    vrtql_http_msg* req = p->data;
-    req->complete       = true;
+    vws_http_msg* req = p->data;
+    req->complete     = true;
 
     // Process final header, if any.
     process_header(req);
@@ -183,42 +183,42 @@ int on_message_complete(http_parser* p)
 
 int on_url(http_parser* p, cstr at, size_t l, int intr)
 {
-    vrtql_http_msg* req = p->data;
-    vrtql_buffer_append(req->url, (ucstr)at, l);
+    vws_http_msg* req = p->data;
+    vws_buffer_append(req->url, (ucstr)at, l);
 
     return 0;
 }
 
 int on_header_field(http_parser* p, cstr at, size_t l, int intr)
 {
-    vrtql_http_msg* req = p->data;
+    vws_http_msg* req = p->data;
 
     process_header(req);
 
     // Start new field
-    vrtql_buffer_append(req->field, (ucstr)at, l);
+    vws_buffer_append(req->field, (ucstr)at, l);
 
     return 0;
 }
 
 int on_header_value(http_parser* p, cstr at, size_t l, int intr)
 {
-    vrtql_http_msg* req = p->data;
+    vws_http_msg* req = p->data;
 
-    vrtql_buffer_append(req->value, (ucstr)at, l);
+    vws_buffer_append(req->value, (ucstr)at, l);
 
     return 0;
 }
 
 int on_body(http_parser* p, cstr at, size_t l, int intr)
 {
-    vrtql_http_msg* req = p->data;
-    vrtql_buffer_append(req->url, (ucstr)at, l);
+    vws_http_msg* req = p->data;
+    vws_buffer_append(req->url, (ucstr)at, l);
 
     return 0;
 }
 
-int vrtql_http_msg_parse(vrtql_http_msg* req, cstr data, size_t size)
+int vws_http_msg_parse(vws_http_msg* req, cstr data, size_t size)
 {
     http_parser* p          = req->parser;
     http_parser_settings* s = req->settings;

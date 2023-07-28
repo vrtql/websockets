@@ -272,7 +272,7 @@ static void dump_websocket_header(const ws_header* header);
 
 vws_cnx* vws_cnx_new()
 {
-    vws_cnx* c = (vws_cnx*)vrtql.malloc(sizeof(vws_cnx));
+    vws_cnx* c = (vws_cnx*)vws.malloc(sizeof(vws_cnx));
     memset(c, 0, sizeof(vws_cnx));
 
     // Call base constructor
@@ -302,7 +302,7 @@ void vws_cnx_free(vws_cnx* c)
 
     if (c->origin != NULL)
     {
-        vrtql.free(c->origin);
+        vws.free(c->origin);
     }
 
     // Free receive queue contents
@@ -323,7 +323,7 @@ void vws_cnx_free(vws_cnx* c)
     }
 
     // Free websocket key
-    vrtql.free(c->key);
+    vws.free(c->key);
 
     // Call base constructor
     vws_socket_dtor((vws_socket*)c);
@@ -331,7 +331,7 @@ void vws_cnx_free(vws_cnx* c)
 
 void vws_cnx_set_server_mode(vws_cnx* c)
 {
-    vrtql_set_flag(&c->flags, CNX_SERVER);
+    vws_set_flag(&c->flags, CNX_SERVER);
 }
 
 bool vws_connect(vws_cnx* c, cstr uri)
@@ -339,7 +339,7 @@ bool vws_connect(vws_cnx* c, cstr uri)
     if (c == NULL)
     {
         // Return early if failed to create a connection.
-        vrtql.error(VE_RT, "Invalid connection pointer()");
+        vws.error(VE_RT, "Invalid connection pointer()");
         return false;
     }
 
@@ -348,11 +348,11 @@ bool vws_connect(vws_cnx* c, cstr uri)
         url_free((url_data_t*)c->url);
     }
 
-    c->url = (vrtql_url_data*)url_parse(uri);
+    c->url = (vws_url_data*)url_parse(uri);
 
     if (c->url->host == NULL)
     {
-        vrtql.error(VE_MEM, "Invalid or missing host");
+        vws.error(VE_MEM, "Invalid or missing host");
         return false;
     }
 
@@ -376,7 +376,7 @@ bool vws_cnx_is_connected(vws_cnx* c)
 {
     if (vws_socket_is_connected((vws_socket*)c) == false)
     {
-        vrtql.error(VE_DISCONNECT, "Not connected");
+        vws.error(VE_DISCONNECT, "Connection dropped");
         return false;
     }
 
@@ -427,7 +427,7 @@ bool socket_handshake(vws_socket* s)
 
         if (n == 0)
         {
-            if (vrtql.e.code == VE_TIMEOUT)
+            if (vws.e.code == VE_TIMEOUT)
             {
                 return false;
             }
@@ -440,7 +440,7 @@ bool socket_handshake(vws_socket* s)
     }
 
     // Create HTTP response message
-    vrtql_http_msg* http = vrtql_http_msg_new(HTTP_RESPONSE);
+    vws_http_msg* http = vws_http_msg_new(HTTP_RESPONSE);
 
     // Read until full HTTP response is received
     while (true)
@@ -451,10 +451,10 @@ bool socket_handshake(vws_socket* s)
         {
             // Clear the socket buffer of anything that did arrive,
             // otherwise it will possibly be in inconsistent state.
-            vrtql_buffer_clear(c->base.buffer);
+            vws_buffer_clear(c->base.buffer);
 
             // Free HTTP response
-            vrtql_http_msg_free(http);
+            vws_http_msg_free(http);
 
             return false;
         }
@@ -463,14 +463,14 @@ bool socket_handshake(vws_socket* s)
         if (n == 0)
         {
             // Fail
-            if (vrtql.e.code == VE_TIMEOUT)
+            if (vws.e.code == VE_TIMEOUT)
             {
                 // Clear the socket buffer of anything that did arrive,
                 // otherwise it will possibly be in inconsistent state.
-                vrtql_buffer_clear(c->base.buffer);
+                vws_buffer_clear(c->base.buffer);
 
                 // Free HTTP response
-                vrtql_http_msg_free(http);
+                vws_http_msg_free(http);
 
                 return false;
             }
@@ -480,10 +480,10 @@ bool socket_handshake(vws_socket* s)
         {
             // Clear the socket buffer of anything that did arrive,
             // otherwise it will possibly be in inconsistent state.
-            vrtql_buffer_clear(c->base.buffer);
+            vws_buffer_clear(c->base.buffer);
 
             // Free HTTP response
-            vrtql_http_msg_free(http);
+            vws_http_msg_free(http);
 
             return false;
         }
@@ -492,12 +492,12 @@ bool socket_handshake(vws_socket* s)
         {
             cstr data   = (cstr)s->buffer->data;
             size_t size = s->buffer->size;
-            ssize_t n   = vrtql_http_msg_parse(http, data, size);
+            ssize_t n   = vws_http_msg_parse(http, data, size);
 
             if (http->complete == true)
             {
                 // Drain HTTP request data from socket buffer
-                vrtql_buffer_drain(c->base.buffer, n);
+                vws_buffer_drain(c->base.buffer, n);
 
                 break;
             }
@@ -505,23 +505,23 @@ bool socket_handshake(vws_socket* s)
     }
 
     struct sc_map_str* headers = &http->headers;
-    cstr accept_key = vrtql_map_get(headers, "sec-websocket-accept");
+    cstr accept_key = vws_map_get(headers, "sec-websocket-accept");
 
     if (accept_key == NULL)
     {
-        vrtql.error(VE_SYS, "connect failed: no accept key returned");
+        vws.error(VE_SYS, "connect failed: no accept key returned");
 
         return false;
     }
 
     if (verify_handshake(c->key, accept_key) == false)
     {
-        vrtql.error(VE_RT, "Handshake verification failed");
-        vrtql.free(accept_key);
+        vws.error(VE_RT, "Handshake verification failed");
+        vws.free(accept_key);
         return false;
     }
 
-    vrtql_http_msg_free(http);
+    vws_http_msg_free(http);
 
     return true;
 }
@@ -537,7 +537,7 @@ void vws_disconnect(vws_cnx* c)
 
     c->flags = CNX_CLOSED;
 
-    vrtql_buffer* buffer = vws_generate_close_frame();
+    vws_buffer* buffer = vws_generate_close_frame();
 
     for (size_t i = 0; i < buffer->size;)
     {
@@ -551,7 +551,7 @@ void vws_disconnect(vws_cnx* c)
         i += n;
     }
 
-    vrtql_buffer_free(buffer);
+    vws_buffer_free(buffer);
 
     vws_socket_disconnect(s);
 }
@@ -597,11 +597,11 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
         return -1;
     }
 
-    vrtql_buffer* binary = vws_serialize(frame);
+    vws_buffer* binary = vws_serialize(frame);
 
-    if (vrtql.tracelevel >= VT_PROTOCOL)
+    if (vws.tracelevel >= VT_PROTOCOL)
     {
-        vrtql_trace_lock();
+        vws_trace_lock();
         printf("\n\n");
         printf("+----------------------------------------------------+\n");
         printf("| Frame Sent                                         |\n");
@@ -609,7 +609,7 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 
         vws_dump_websocket_frame(binary->data, binary->size);
         printf("------------------------------------------------------\n");
-        vrtql_trace_unlock();
+        vws_trace_unlock();
     }
 
     ssize_t n = 0;
@@ -617,7 +617,7 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
     if (binary->data != NULL)
     {
         n = vws_socket_write((vws_socket*)c, binary->data, binary->size);
-        vrtql_buffer_free(binary);
+        vws_buffer_free(binary);
 
         if (vws_cnx_is_connected(c) == false)
         {
@@ -625,7 +625,7 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
         }
     }
 
-    vrtql.success();
+    vws.success();
 
     return n;
 }
@@ -636,9 +636,9 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 
 vws_msg* vws_msg_new()
 {
-    vws_msg* m = vrtql.malloc(sizeof(vws_msg));
+    vws_msg* m = vws.malloc(sizeof(vws_msg));
     m->opcode  = 0;
-    m->data    = vrtql_buffer_new();
+    m->data    = vws_buffer_new();
 
     return m;
 }
@@ -647,15 +647,15 @@ void vws_msg_free(vws_msg* m)
 {
     if (m != NULL)
     {
-        vrtql_buffer_free(m->data);
-        vrtql.free(m);
+        vws_buffer_free(m->data);
+        vws.free(m);
     }
 }
 
 vws_msg* vws_msg_recv(vws_cnx* c)
 {
     // Default success unless error
-    vrtql.success();
+    vws.success();
 
     if (vws_cnx_is_connected(c) == false)
     {
@@ -686,7 +686,7 @@ vws_msg* vws_msg_recv(vws_cnx* c)
 
 vws_frame* vws_frame_new(ucstr data, size_t s, unsigned char oc)
 {
-    vws_frame* f = vrtql.malloc(sizeof(vws_frame));
+    vws_frame* f = vws.malloc(sizeof(vws_frame));
 
     // We must make our own copy of the data for deterministic memory management
 
@@ -699,7 +699,7 @@ vws_frame* vws_frame_new(ucstr data, size_t s, unsigned char oc)
 
     if (f->size > 0)
     {
-        f->data = vrtql.malloc(f->size);
+        f->data = vws.malloc(f->size);
         memcpy(f->data, data, f->size);
     }
 
@@ -712,20 +712,20 @@ void vws_frame_free(vws_frame* f)
     {
         if (f->data != NULL)
         {
-            vrtql.free(f->data);
+            vws.free(f->data);
             f->data = NULL;
         }
 
         f->size = 0;
 
-        vrtql.free(f);
+        vws.free(f);
     }
 }
 
 vws_frame* vws_frame_recv(vws_cnx* c)
 {
     // Default success unless error
-    vrtql.success();
+    vws.success();
 
     if (vws_cnx_is_connected(c) == false)
     {
@@ -748,11 +748,11 @@ vws_frame* vws_frame_recv(vws_cnx* c)
     return NULL;
 }
 
-vrtql_buffer* vws_serialize(vws_frame* f)
+vws_buffer* vws_serialize(vws_frame* f)
 {
     if (f == NULL)
     {
-        vrtql.error(VE_RT, "empty frame");
+        vws.error(VE_RT, "empty frame");
 
         return NULL;
     }
@@ -815,7 +815,7 @@ vrtql_buffer* vws_serialize(vws_frame* f)
     }
 
     // Allocate memory for the frame
-    unsigned char* frame_data = (unsigned char*)vrtql.malloc(frame_size);
+    unsigned char* frame_data = (unsigned char*)vws.malloc(frame_size);
 
     // Copy the header to the frame
     memcpy(frame_data, header, header_size);
@@ -830,8 +830,8 @@ vrtql_buffer* vws_serialize(vws_frame* f)
 
         if (RAND_bytes(masking_key, sizeof(masking_key)) != 1)
         {
-            vrtql.error(VE_RT, "RAND_bytes() failed");
-            vrtql.free(frame_data);
+            vws.error(VE_RT, "RAND_bytes() failed");
+            vws.free(frame_data);
             return NULL;
         }
 
@@ -856,14 +856,14 @@ vrtql_buffer* vws_serialize(vws_frame* f)
     // Free the frame
     vws_frame_free(f);
 
-    // Create the vrtql_buffer to hold the frame data
-    vrtql_buffer* buffer = vrtql_buffer_new();
+    // Create the vws_buffer to hold the frame data
+    vws_buffer* buffer = vws_buffer_new();
 
     // Have buffer take ownership of data
     buffer->data = frame_data;
     buffer->size = frame_size;
 
-    vrtql.success();
+    vws.success();
 
     return buffer;
 }
@@ -928,7 +928,7 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
         f->offset = 2 + size_bytes + 4;
 
         // Allocate the frame data
-        f->data = vrtql.malloc(f->size);
+        f->data = vws.malloc(f->size);
 
         // Create a temp variable for the masking key
         unsigned char mask[4];
@@ -955,7 +955,7 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
         f->offset = 2 + size_bytes;
 
         // Allocate the frame data
-        f->data = vrtql.malloc(f->size);
+        f->data = vws.malloc(f->size);
 
         // Copy the payload data
         memcpy(f->data, data + f->offset, f->size);
@@ -978,16 +978,16 @@ void process_frame(vws_cnx* c, vws_frame* f)
         case CLOSE_FRAME:
         {
             // Set closing state
-            vrtql_set_flag(&c->flags, CNX_CLOSING);
+            vws_set_flag(&c->flags, CNX_CLOSING);
 
             // Build the response frame
-            vrtql_buffer* buffer = vws_generate_close_frame();
+            vws_buffer* buffer = vws_generate_close_frame();
 
             // Send the response frame
             vws_socket_write((vws_socket*)c, buffer->data, buffer->size);
 
             // Clean up
-            vrtql_buffer_free(buffer);
+            vws_buffer_free(buffer);
             vws_frame_free(f);
 
             break;
@@ -1006,13 +1006,13 @@ void process_frame(vws_cnx* c, vws_frame* f)
         case PING_FRAME:
         {
             // Generate the PONG response
-            vrtql_buffer* buffer = vws_generate_pong_frame(f->data, f->size);
+            vws_buffer* buffer = vws_generate_pong_frame(f->data, f->size);
 
             // Send the PONG response
             vws_socket_write((vws_socket*)c, buffer->data, buffer->size);
 
             // Clean up
-            vrtql_buffer_free(buffer);
+            vws_buffer_free(buffer);
             vws_frame_free(f);
 
             break;
@@ -1034,7 +1034,7 @@ void process_frame(vws_cnx* c, vws_frame* f)
         }
     }
 
-    vrtql.success();
+    vws.success();
 }
 
 char* generate_websocket_key()
@@ -1047,7 +1047,7 @@ char* generate_websocket_key()
     }
 
     // Base64-encode the random bytes
-    char* encoded_key = vrtql_base64_encode(random_bytes, sizeof(random_bytes));
+    char* encoded_key = vws_base64_encode(random_bytes, sizeof(random_bytes));
 
     if (encoded_key == NULL)
     {
@@ -1064,7 +1064,7 @@ cstr vws_accept_key(cstr key)
     size_t key_length          = strlen(key);
     size_t guid_length         = strlen(websocket_guid);
     size_t input_length        = key_length + guid_length;
-    char* input                = (char*)vrtql.malloc(input_length + 1);
+    char* input                = (char*)vws.malloc(input_length + 1);
 
     strncpy(input, key, key_length);
     strncpy(input + key_length, websocket_guid, guid_length);
@@ -1075,9 +1075,9 @@ cstr vws_accept_key(cstr key)
     SHA1((const unsigned char*)input, input_length, hash);
 
     // Base64-encode the hash
-    char* encoded_hash = vrtql_base64_encode(hash, sizeof(hash));
+    char* encoded_hash = vws_base64_encode(hash, sizeof(hash));
 
-    vrtql.free(input);
+    vws.free(input);
 
     return encoded_hash;
 }
@@ -1086,7 +1086,7 @@ int verify_handshake(const char* key, const char* response)
 {
     char* hash = vws_accept_key(key);
     int result = strcmp(hash, response);
-    vrtql.free(hash);
+    vws.free(hash);
 
     return result == 0;
 }
@@ -1094,7 +1094,7 @@ int verify_handshake(const char* key, const char* response)
 ssize_t socket_wait_for_frame(vws_cnx* c)
 {
     // Default success unless error
-    vrtql.success();
+    vws.success();
 
     if (vws_cnx_is_connected(c) == false)
     {
@@ -1139,25 +1139,25 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
 
         // Attempt to parse complete frame
         size_t consumed  = 0;
-        vrtql_buffer* b  = c->base.buffer;
+        vws_buffer* b  = c->base.buffer;
         vws_frame* frame = vws_frame_new(NULL, 0, TEXT_FRAME);
 
-        if (vrtql.tracelevel >= VT_PROTOCOL)
+        if (vws.tracelevel >= VT_PROTOCOL)
         {
-            vrtql_trace_lock();
+            vws_trace_lock();
             printf("\n+----------------------------------------------------+\n");
             printf("| Frame Received                                     |\n");
             printf("+----------------------------------------------------+\n");
             vws_dump_websocket_frame(b->data, b->size);
             printf("------------------------------------------------------\n");
-            vrtql_trace_unlock();
+            vws_trace_unlock();
         }
 
         fs_t rc = vws_deserialize(b->data, b->size, frame, &consumed);
 
         if (rc == FRAME_ERROR)
         {
-            vrtql.error(VE_WARN, "FRAME_ERROR");
+            vws.error(VE_WARN, "FRAME_ERROR");
             vws_frame_free(frame);
 
             return 0;
@@ -1178,29 +1178,29 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
         c->process(c, frame);
 
         // Drain the consumed frame data from buffer
-        vrtql_buffer_drain(c->base.buffer, consumed);
+        vws_buffer_drain(c->base.buffer, consumed);
     }
 
-    vrtql.success();
+    vws.success();
 
     return total_consumed;
 }
 
-vrtql_buffer* vws_generate_close_frame()
+vws_buffer* vws_generate_close_frame()
 {
     size_t size   = sizeof(int16_t);
-    int16_t* data = vrtql.malloc(size);
+    int16_t* data = vws.malloc(size);
 
     // Convert to network byte order before assignement
     *data        = htons(WS_CLOSE_NORMAL);
     vws_frame* f = vws_frame_new((ucstr)data, size, CLOSE_FRAME);
 
-    vrtql.free(data);
+    vws.free(data);
 
     return vws_serialize(f);
 }
 
-vrtql_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s)
+vws_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s)
 {
     // We create a new frame with the same data as the received ping frame
     vws_frame* f = vws_frame_new(ping_data, s, PONG_FRAME);
@@ -1234,7 +1234,7 @@ vws_msg* vws_msg_pop(vws_cnx* c)
         }
 
         // Copy frame data into message buffer
-        vrtql_buffer_append(m->data, f->data, f->size);
+        vws_buffer_append(m->data, f->data, f->size);
 
         // Is this the completion frame?
         bool complete = (f->fin == 1);

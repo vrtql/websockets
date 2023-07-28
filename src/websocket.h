@@ -1,5 +1,5 @@
-#ifndef VRTQL_WEBSOCKET_DECLARE
-#define VRTQL_WEBSOCKET_DECLARE
+#ifndef VWS_WEBSOCKET_DECLARE
+#define VWS_WEBSOCKET_DECLARE
 
 #include <stdint.h>
 #include <stddef.h>
@@ -10,7 +10,7 @@
 
 #include <stdbool.h>
 
-#include "vrtql.h"
+#include "vws.h"
 #include "socket.h"
 #include "util/sc_queue.h"
 
@@ -109,7 +109,7 @@ void vws_frame_free(vws_frame* frame);
  *
  * @ingroup FrameFunctions
  */
-vrtql_buffer* vws_serialize(vws_frame* f);
+vws_buffer* vws_serialize(vws_frame* f);
 
 /**
  * @brief Deserializes raw network data into a vws_frame, updating consumed
@@ -134,7 +134,7 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed);
  *
  * @ingroup FrameFunctions
  */
-vrtql_buffer* vws_generate_close_frame();
+vws_buffer* vws_generate_close_frame();
 
 /**
  * @brief Generates a pong frame in response to a received ping frame.
@@ -145,7 +145,7 @@ vrtql_buffer* vws_generate_close_frame();
  *
  * @ingroup FrameFunctions
  */
-vrtql_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s);
+vws_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s);
 
 /**
  * @brief Dumps the contents of a WebSocket frame for debugging purposes.
@@ -170,7 +170,7 @@ typedef struct vws_msg
     unsigned char opcode;
 
     /**< The payload data for the message. */
-    vrtql_buffer* data;
+    vws_buffer* data;
 } vws_msg;
 
 /**
@@ -200,7 +200,7 @@ struct vws_cnx;
  */
 typedef void (*vws_process_frame)(struct vws_cnx* cnx, vws_frame* frame);
 
-typedef struct vrtql_url_data {
+typedef struct vws_url_data {
   char *href;
   char *protocol;
   char *host;
@@ -212,7 +212,7 @@ typedef struct vrtql_url_data {
   char *hash;
   char *query;
   char *port;
-} vrtql_url_data;
+} vws_url_data;
 
 /**
  * @brief A WebSocket connection.
@@ -226,7 +226,7 @@ typedef struct vws_cnx
     uint64_t flags;
 
     /**< The URL of the websocket server. */
-    vrtql_url_data* url;
+    vws_url_data* url;
 
     /**< The WebSocket origin. */
     char* origin;
@@ -421,4 +421,4 @@ vws_msg* vws_msg_pop(vws_cnx* c);
  */
 vws_frame* vws_frame_recv(vws_cnx* c);
 
-#endif /* VRTQL_WEBSOCKET_DECLARE */
+#endif /* VWS_WEBSOCKET_DECLARE */

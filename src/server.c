@@ -32,7 +32,7 @@
  * networking thread.
  *
  * Worker threads pass data to it through a queue. The data is in the form of
- * vrtql_svr_data instances. When a worker sends a vrtql_svr_data instance, it
+ * vws_svr_data instances. When a worker sends a vws_svr_data instance, it
  * adds it to the queue (server->responses) and notifies (wakes up) the main UV
  * loop (uv_run() in vrtql_svr_run()) by calling uv_async_send(server->wakeup)
  * which in turn calls this function to check the server->responses queue. This
@@ -223,7 +223,7 @@ static void svr_on_write_complete(uv_write_t* req, int status);
  *
  * @ingroup ServerFunctions
  */
-static vrtql_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* c);
+static vws_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* c);
 
 /**
  * @brief Frees a server connection.
@@ -232,14 +232,14 @@ static vrtql_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* c);
  *
  * @ingroup ServerFunctions
  */
-static void svr_cnx_free(vrtql_svr_cnx* c);
+static void svr_cnx_free(vws_svr_cnx* c);
 
 /**
  * @brief Actively close a client connection
  *
  * @param c The connection
  */
-static void svr_cnx_close(vrtql_svr_cnx* c);
+static void svr_cnx_close(vws_svr_cnx* c);
 
 /**
  * @brief Callback for client connection.
@@ -252,7 +252,7 @@ static void svr_cnx_close(vrtql_svr_cnx* c);
  *
  * @ingroup ServerFunctions
  */
-static void svr_client_connect(vrtql_svr_cnx* c);
+static void svr_client_connect(vws_svr_cnx* c);
 
 /**
  * @brief Callback for client disconnection.
@@ -265,7 +265,7 @@ static void svr_client_connect(vrtql_svr_cnx* c);
  *
  * @ingroup ServerFunctions
  */
-static void svr_client_disconnect(vrtql_svr_cnx* c);
+static void svr_client_disconnect(vws_svr_cnx* c);
 
 /**
  * @brief Callback for client read operations.
@@ -279,7 +279,7 @@ static void svr_client_disconnect(vrtql_svr_cnx* c);
  *
  * @ingroup ServerFunctions
  */
-static void svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* buf);
+static void svr_client_read(vws_svr_cnx* c, ssize_t size, const uv_buf_t* buf);
 
 /**
  * @brief Callback for processing client data in (ingress)
@@ -292,14 +292,14 @@ static void svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
  *
  * @ingroup ServerFunctions
  */
-static void svr_client_data_in(vrtql_svr_data* data);
+static void svr_client_data_in(vws_svr_data* data);
 
 /**
  * @brief Callback for processing client data in (ingress)
  *
  * This function is triggered to process data arriving from worker thread to be
  * send back to client. It is responsible for transferring the data from the
- * response argument (vrtql_svr_data ) onto the wire (client socket via
+ * response argument (vws_svr_data ) onto the wire (client socket via
  * libuv). actual computation or other work associated with the data. This takes
  * place in the context of uv_thread().
  *
@@ -307,7 +307,7 @@ static void svr_client_data_in(vrtql_svr_data* data);
  *
  * @ingroup ServerFunctions
  */
-static void svr_client_data_out(vrtql_svr_data* data);
+static void svr_client_data_out(vws_svr_data* data);
 
 
 
@@ -329,14 +329,14 @@ static void svr_client_data_out(vrtql_svr_data* data);
  * @param qs The maximum queue size for requests and responses. If set to 0, it
  *        uses the default value (1024).
  */
-static void ws_svr_ctor(vrtql_ws_svr* server, int nt, int bl, int qs);
+static void ws_svr_ctor(vws_svr* server, int nt, int bl, int qs);
 
 /**
  * @brief WebSocket server destructor.
  *
  * @param server The WebSocket server instance to free.
  */
-static void ws_svr_dtor(vrtql_ws_svr* server);
+static void ws_svr_dtor(vws_svr* server);
 
 /**
  * @brief Callback for client connection.
@@ -349,7 +349,7 @@ static void ws_svr_dtor(vrtql_ws_svr* server);
  *
  * @ingroup WebSocketServerFunctions
  */
-static void ws_svr_client_connect(vrtql_svr_cnx* c);
+static void ws_svr_client_connect(vws_svr_cnx* c);
 
 /**
  * @brief Callback for client disconnection.
@@ -362,7 +362,7 @@ static void ws_svr_client_connect(vrtql_svr_cnx* c);
  *
  * @ingroup WebSocketServerFunctions
  */
-static void ws_svr_client_disconnect(vrtql_svr_cnx* c);
+static void ws_svr_client_disconnect(vws_svr_cnx* c);
 
 /**
  * @brief Callback for client read operations.
@@ -376,7 +376,7 @@ static void ws_svr_client_disconnect(vrtql_svr_cnx* c);
  *
  * @ingroup WebSocketServerFunctions
  */
-static void ws_svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* buf);
+static void ws_svr_client_read(vws_svr_cnx* c, ssize_t size, const uv_buf_t* buf);
 
 /**
  * @brief Callback for processing client data in (ingress) for msg server
@@ -391,7 +391,7 @@ static void ws_svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* b
  *
  * @ingroup WebSocketServerFunctions
  */
-static void ws_svr_client_data_in(vrtql_svr_data* data);
+static void ws_svr_client_data_in(vws_svr_data* data);
 
 /**
  * @brief Sends data from a server connection to a client WebSocket connection.
@@ -400,8 +400,8 @@ static void ws_svr_client_data_in(vrtql_svr_data* data);
  * @param buffer The data to send.
  * @param opcode The opcode for the WebSocket frame.
  */
-static void ws_svr_client_data_out( vrtql_svr_cnx* cnx,
-                                    vrtql_buffer* buffer,
+static void ws_svr_client_data_out( vws_svr_cnx* cnx,
+                                    vws_buffer* buffer,
                                     unsigned char opcode);
 
 /**
@@ -424,7 +424,7 @@ static void ws_svr_process_frame(vws_cnx* c, vws_frame* f);
  *
  * @ingroup WebSocketServerFunctions
  */
-static void ws_svr_client_msg_in(vrtql_svr_cnx* c, vws_msg* m);
+static void ws_svr_client_msg_in(vws_svr_cnx* c, vws_msg* m);
 
 /**
  * @brief Callback for sending message to client. It takes a message as input,
@@ -439,12 +439,12 @@ static void ws_svr_client_msg_in(vrtql_svr_cnx* c, vws_msg* m);
  *
  * @ingroup WebSocketServerFunctions
  */
-static void ws_svr_client_msg_out(vrtql_svr_cnx* c, vws_msg* m);
+static void ws_svr_client_msg_out(vws_svr_cnx* c, vws_msg* m);
 
 /**
  * @brief Default WebSocket message processing function. This is mean to be
  * overriden by application to perform message processing, specifically by
- * assigning the vrtql_ws_svr.process callback to the desired processing
+ * assigning the vws_svr.process callback to the desired processing
  * handler. The default implementation simple drops (deletes) the incoming
  * message.
  *
@@ -453,7 +453,7 @@ static void ws_svr_client_msg_out(vrtql_svr_cnx* c, vws_msg* m);
  *
  * @ingroup MessageServerFunctions
  */
-static void ws_svr_client_process(vrtql_svr_cnx* cnx, vws_msg* req);
+static void ws_svr_client_process(vws_svr_cnx* cnx, vws_msg* req);
 
 
 
@@ -473,7 +473,7 @@ static void ws_svr_client_process(vrtql_svr_cnx* cnx, vws_msg* req);
  *
  * @ingroup MessageServerFunctions
  */
-static void msg_svr_client_ws_msg_in(vrtql_svr_cnx* cnx, vws_msg* wsm);
+static void msg_svr_client_ws_msg_in(vws_svr_cnx* cnx, vws_msg* wsm);
 
 /**
  * @brief Callback function for handling incoming VRTQL messages from a client.
@@ -483,7 +483,7 @@ static void msg_svr_client_ws_msg_in(vrtql_svr_cnx* cnx, vws_msg* wsm);
  *
  * @ingroup MessageServerFunctions
  */
-static void msg_svr_client_msg_in(vrtql_svr_cnx* cnx, vrtql_msg* m);
+static void msg_svr_client_msg_in(vws_svr_cnx* cnx, vrtql_msg* m);
 
 /**
  * @brief Callback function for sending VRTQL messages to a client.
@@ -493,7 +493,7 @@ static void msg_svr_client_msg_in(vrtql_svr_cnx* cnx, vrtql_msg* m);
  *
  * @ingroup MessageServerFunctions
  */
-static void msg_svr_client_msg_out(vrtql_svr_cnx* cnx, vrtql_msg* m);
+static void msg_svr_client_msg_out(vws_svr_cnx* cnx, vrtql_msg* m);
 
 /**
  * @brief Default VRTQL message processing function.
@@ -503,7 +503,7 @@ static void msg_svr_client_msg_out(vrtql_svr_cnx* cnx, vrtql_msg* m);
  *
  * @ingroup MessageServerFunctions
  */
-static void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req);
+static void msg_svr_client_process(vws_svr_cnx* cnx, vrtql_msg* req);
 
 
 
@@ -529,7 +529,7 @@ static void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req);
  *
  * @ingroup ConnectionMap
  */
-static vrtql_svr_cnx* svr_cnx_map_get(vrtql_svr_cnx_map* map, uv_stream_t* key);
+static vws_svr_cnx* svr_cnx_map_get(vws_svr_cnx_map* map, uv_stream_t* key);
 
 /**
  * @brief Set a connection for a client in the connection map.
@@ -541,9 +541,9 @@ static vrtql_svr_cnx* svr_cnx_map_get(vrtql_svr_cnx_map* map, uv_stream_t* key);
  *
  * @ingroup ConnectionMap
  */
-static int8_t svr_cnx_map_set( vrtql_svr_cnx_map* map,
+static int8_t svr_cnx_map_set( vws_svr_cnx_map* map,
                                uv_stream_t* key,
-                               vrtql_svr_cnx* value );
+                               vws_svr_cnx* value );
 
 /**
  * @brief Remove a client's connection from the connection map.
@@ -553,7 +553,7 @@ static int8_t svr_cnx_map_set( vrtql_svr_cnx_map* map,
  *
  * @ingroup ConnectionMap
  */
-static void svr_cnx_map_remove(vrtql_svr_cnx_map* map, uv_stream_t* key);
+static void svr_cnx_map_remove(vws_svr_cnx_map* map, uv_stream_t* key);
 
 /**
  * @brief Clear all connections from the connection map.
@@ -562,7 +562,7 @@ static void svr_cnx_map_remove(vrtql_svr_cnx_map* map, uv_stream_t* key);
  *
  * @ingroup ConnectionMap
  */
-static void svr_cnx_map_clear(vrtql_svr_cnx_map* map);
+static void svr_cnx_map_clear(vws_svr_cnx_map* map);
 
 /**
  * @defgroup QueueGroup
@@ -570,7 +570,7 @@ static void svr_cnx_map_clear(vrtql_svr_cnx_map* map);
  * @brief Queue functions which bridge the network thread and workers
  *
  * The network thread and worker threads pass data via queues. These queues
- * contain vrtql_svr_data instances. There is a requests queue which passes
+ * contain vws_svr_data instances. There is a requests queue which passes
  * data from the network thread to workers for processing. There is a response
  * queue that passed data from worker queues to the network thread. When passed
  * from network thread to work, data take form of incoming data from the
@@ -619,7 +619,7 @@ void queue_destroy(vrtql_svr_queue* queue);
  *
  * @ingroup QueueGroup
  */
-void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data);
+void queue_push(vrtql_svr_queue* queue, vws_svr_data* data);
 
 /**
  * @brief Pops data from the server queue.
@@ -632,7 +632,7 @@ void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data);
  *
  * @ingroup QueueGroup
  */
-vrtql_svr_data* queue_pop(vrtql_svr_queue* queue);
+vws_svr_data* queue_pop(vrtql_svr_queue* queue);
 
 /**
  * @brief Checks if the server queue is empty.
@@ -656,11 +656,11 @@ void worker_thread(void* arg)
     vrtql_svr* server = (vrtql_svr*)arg;
 
     // Set thread tracing level to server.
-    vrtql.tracelevel = server->trace;
+    vws.tracelevel = server->trace;
 
-    if (vrtql.tracelevel >= VT_THREAD)
+    if (vws.tracelevel >= VT_THREAD)
     {
-        vrtql.trace(VL_INFO, "worker_thread(): Starting");
+        vws.trace(VL_INFO, "worker_thread(): Starting");
     }
 
     while (true)
@@ -669,7 +669,7 @@ void worker_thread(void* arg)
 
         // This will put the thread to sleep on a condition variable until
         // something arrives in queue.
-        vrtql_svr_data* request = queue_pop(&server->requests);
+        vws_svr_data* request = queue_pop(&server->requests);
 
         // If there's no request (null request), check the server's state
         if (request == NULL)
@@ -677,9 +677,9 @@ void worker_thread(void* arg)
             // If server is in halting state, return
             if (server->state == VS_HALTING)
             {
-                if (vrtql.tracelevel >= VT_THREAD)
+                if (vws.tracelevel >= VT_THREAD)
                 {
-                    vrtql.trace(VL_INFO, "worker_thread(): Exiting");
+                    vws.trace(VL_INFO, "worker_thread(): Exiting");
                 }
 
                 return;
@@ -701,9 +701,9 @@ void uv_thread(uv_async_t* handle)
 
     if (server->state == VS_HALTING)
     {
-        if (vrtql.tracelevel >= VT_THREAD)
+        if (vws.tracelevel >= VT_THREAD)
         {
-            vrtql.trace(VL_INFO, "uv_thread(): stop");
+            vws.trace(VL_INFO, "uv_thread(): stop");
         }
 
         // Join worker threads. Worker threads must all exit before we can
@@ -721,14 +721,14 @@ void uv_thread(uv_async_t* handle)
 
     while (queue_empty(&server->responses) == false)
     {
-        vrtql_svr_data* data = queue_pop(&server->responses);
+        vws_svr_data* data = queue_pop(&server->responses);
 
         if ((data == NULL) || (server->responses.state != VS_RUNNING))
         {
             return;
         }
 
-        if (vrtql_is_flag(&data->flags, VM_SVR_DATA_CLOSE))
+        if (vws_is_flag(&data->flags, VM_SVR_DATA_CLOSE))
         {
             // Close connection
             //uv_close((uv_handle_t*)data->cnx->handle, svr_on_close);
@@ -745,9 +745,9 @@ void uv_thread(uv_async_t* handle)
 // Server API
 //------------------------------------------------------------------------------
 
-vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, vrtql_buffer* buffer)
+vws_svr_data* vws_svr_data_new(vws_svr_cnx* c, vws_buffer* buffer)
 {
-    vrtql_svr_data* item = vrtql_svr_data_own(c, buffer->data, buffer->size);
+    vws_svr_data* item = vws_svr_data_own(c, buffer->data, buffer->size);
 
     // We take ownership of buffer data so we clear the buffer.
     buffer->data = NULL;
@@ -756,10 +756,10 @@ vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, vrtql_buffer* buffer)
     return item;
 }
 
-vrtql_svr_data* vrtql_svr_data_own(vrtql_svr_cnx* c, ucstr data, size_t size)
+vws_svr_data* vws_svr_data_own(vws_svr_cnx* c, ucstr data, size_t size)
 {
-    vrtql_svr_data* item;
-    item = (vrtql_svr_data*)vrtql.malloc(sizeof(vrtql_svr_data));
+    vws_svr_data* item;
+    item = (vws_svr_data*)vws.malloc(sizeof(vws_svr_data));
 
     item->cnx   = c;
     item->size  = size;
@@ -769,18 +769,18 @@ vrtql_svr_data* vrtql_svr_data_own(vrtql_svr_cnx* c, ucstr data, size_t size)
     return item;
 }
 
-void vrtql_svr_data_free(vrtql_svr_data* t)
+void vws_svr_data_free(vws_svr_data* t)
 {
     if (t != NULL)
     {
-        vrtql.free(t->data);
-        vrtql.free(t);
+        vws.free(t->data);
+        vws.free(t);
     }
 }
 
 vrtql_svr* vrtql_svr_new(int num_threads, int backlog, int queue_size)
 {
-    vrtql_svr* server = vrtql.malloc(sizeof(vrtql_svr));
+    vrtql_svr* server = vws.malloc(sizeof(vrtql_svr));
     return svr_ctor(server, num_threads, backlog, queue_size);
 }
 
@@ -797,10 +797,10 @@ void vrtql_svr_free(vrtql_svr* server)
     }
 
     svr_dtor(server);
-    vrtql.free(server);
+    vws.free(server);
 }
 
-int vrtql_svr_send(vrtql_svr* server, vrtql_svr_data* data)
+int vrtql_svr_send(vrtql_svr* server, vws_svr_data* data)
 {
     queue_push(&server->responses, data);
 
@@ -810,9 +810,9 @@ int vrtql_svr_send(vrtql_svr* server, vrtql_svr_data* data)
 
 int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 {
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace( VL_INFO,
+        vws.trace( VL_INFO,
                      "vrtql_svr_run(%p): Starting worker %i threads",
                      server,
                      server->pool_size );
@@ -825,7 +825,7 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 
     //> Create listening socket
 
-    uv_tcp_t* socket = vrtql.malloc(sizeof(uv_tcp_t));
+    uv_tcp_t* socket = vws.malloc(sizeof(uv_tcp_t));
 
     uv_tcp_init(server->loop, socket);
     socket->data = server;
@@ -837,16 +837,16 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     uv_ip4_addr(host, port, &addr);
     rc = uv_tcp_bind(socket, (const struct sockaddr*)&addr, 0);
 
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace( VL_INFO,
+        vws.trace( VL_INFO,
                      "vrtql_svr_run(%p): Bind %s:%lu",
                      server, host, port);
     }
 
     if (rc)
     {
-        vrtql.error(VE_RT, "Bind error %s", uv_strerror(rc));
+        vws.error(VE_RT, "Bind error %s", uv_strerror(rc));
         return -1;
     }
 
@@ -856,13 +856,13 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
 
     if (rc)
     {
-        vrtql.error(VE_RT, "Listen error %s", uv_strerror(rc));
+        vws.error(VE_RT, "Listen error %s", uv_strerror(rc));
         return -1;
     }
 
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace( VL_INFO,
+        vws.trace( VL_INFO,
                      "vrtql_svr_run(%s): Listen %s:%lu",
                      server, host, port );
     }
@@ -872,9 +872,9 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     // Set state to running
     server->state = VS_RUNNING;
 
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace(VL_INFO, "vrtql_svr_run(%s): Starting uv_run()", server);
+        vws.trace(VL_INFO, "vrtql_svr_run(%s): Starting uv_run()", server);
     }
 
     // Run UV loop. This runs indefinitely, passing network I/O and and out of
@@ -886,9 +886,9 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port)
     // Close the listening socket handle
     uv_close((uv_handle_t*)socket, svr_on_close);
 
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace(VL_INFO, "vrtql_svr_run(%p): Shutdown complete", server);
+        vws.trace(VL_INFO, "vrtql_svr_run(%p): Shutdown complete", server);
     }
 
     // Set state to halted
@@ -905,9 +905,9 @@ void vrtql_svr_stop(vrtql_svr* server)
     server->responses.state = VS_HALTING;
 
     // Wakeup all worker threads
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace(VL_INFO, "vrtql_svr_stop(): stop worker threads");
+        vws.trace(VL_INFO, "vrtql_svr_stop(): stop worker threads");
     }
 
     uv_mutex_lock(&server->requests.mutex);
@@ -915,9 +915,9 @@ void vrtql_svr_stop(vrtql_svr* server)
     uv_mutex_unlock(&server->requests.mutex);
 
     // Wakeup the main event loop to shutdown main thread
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace(VL_INFO, "vrtql_svr_stop(): stop main thread");
+        vws.trace(VL_INFO, "vrtql_svr_stop(): stop main thread");
     }
 
     uv_async_send(server->wakeup);
@@ -944,7 +944,7 @@ vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
         queue_size = 1024;
     }
 
-    server->threads       = vrtql.malloc(sizeof(uv_thread_t) * nt);
+    server->threads       = vws.malloc(sizeof(uv_thread_t) * nt);
     server->pool_size     = nt;
     server->on_connect    = svr_client_connect;
     server->on_disconnect = svr_client_disconnect;
@@ -952,16 +952,16 @@ vrtql_svr* svr_ctor(vrtql_svr* server, int nt, int backlog, int queue_size)
     server->on_data_in    = svr_client_data_in;
     server->on_data_out   = svr_client_data_out;
     server->backlog       = backlog;
-    server->loop          = (uv_loop_t*)vrtql.malloc(sizeof(uv_loop_t));
+    server->loop          = (uv_loop_t*)vws.malloc(sizeof(uv_loop_t));
     server->state         = VS_HALTED;
-    server->trace         = vrtql.tracelevel;
+    server->trace         = vws.tracelevel;
 
     uv_loop_init(server->loop);
     sc_map_init_64v(&server->cnxs, 0, 0);
     queue_init(&server->requests, queue_size, "requests");
     queue_init(&server->responses, queue_size, "responses");
 
-    server->wakeup = vrtql.malloc(sizeof(uv_async_t));
+    server->wakeup = vws.malloc(sizeof(uv_async_t));
     server->wakeup->data = server;
     uv_async_init(server->loop, server->wakeup, uv_thread);
 
@@ -978,7 +978,7 @@ void on_uv_close(uv_handle_t* handle)
         // uv_handle_t. We will generate a warning however.
         if (handle->data != NULL)
         {
-            vrtql.trace( VL_WARN,
+            vws.trace( VL_WARN,
                          "on_uv_close(): libuv resource not properly freed: %p",
                          (void*)handle->data );
         }
@@ -987,7 +987,7 @@ void on_uv_close(uv_handle_t* handle)
 
 void on_uv_walk(uv_handle_t* handle, void* arg)
 {
-    vrtql.trace(VL_INFO, "on_uv_walk(): %p", (void*)handle);
+    vws.trace(VL_INFO, "on_uv_walk(): %p", (void*)handle);
 
     // If this handle has not been closed, it should have been. Nevertheless we
     // will make an attempt to close it.
@@ -1008,7 +1008,7 @@ void svr_dtor(vrtql_svr* server)
     }
 
     svr_shutdown(server);
-    vrtql.free(server->threads);
+    vws.free(server->threads);
 
     // Close the server async handle
     uv_close((uv_handle_t*)server->wakeup, svr_on_close);
@@ -1028,7 +1028,7 @@ void svr_dtor(vrtql_svr* server)
     }
 
     // Free loop
-    vrtql.free(server->loop);
+    vws.free(server->loop);
 
     //> Free connection map
 
@@ -1040,50 +1040,50 @@ void svr_dtor(vrtql_svr* server)
 // Client connection callbacks
 //------------------------------------------------------------------------------
 
-void svr_client_connect(vrtql_svr_cnx* c)
+void svr_client_connect(vws_svr_cnx* c)
 {
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace(VL_INFO, "svr_client_connect(%p)", c->handle);
+        vws.trace(VL_INFO, "svr_client_connect(%p)", c->handle);
     }
 }
 
-void svr_client_disconnect(vrtql_svr_cnx* c)
+void svr_client_disconnect(vws_svr_cnx* c)
 {
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace(VL_INFO, "svr_client_disconnect(%p)", c->handle);
+        vws.trace(VL_INFO, "svr_client_disconnect(%p)", c->handle);
     }
 }
 
-void svr_client_read(vrtql_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
+void svr_client_read(vws_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
 {
     vrtql_svr* server = c->server;
 
     // Queue data to worker pool for processing
-    vrtql_svr_data* data = vrtql_svr_data_own(c, buf->base, size);
+    vws_svr_data* data = vws_svr_data_own(c, buf->base, size);
     queue_push(&server->requests, data);
 }
 
-void svr_client_data_in(vrtql_svr_data* req)
+void svr_client_data_in(vws_svr_data* req)
 {
     vrtql_svr* server = req->cnx->server;
 
     // Default: Do nothing. Drop data.
-    vrtql_svr_data_free(req);
+    vws_svr_data_free(req);
 }
 
-void svr_client_data_out(vrtql_svr_data* data)
+void svr_client_data_out(vws_svr_data* data)
 {
     if (data->size == 0)
     {
-        vrtql.trace(VL_INFO, "svr_client_data_out(): no data");
-        vrtql.error(VL_WARN, "svr_client_data_out(): no data");
+        vws.trace(VL_INFO, "svr_client_data_out(): no data");
+        vws.error(VL_WARN, "svr_client_data_out(): no data");
         return;
     }
 
     uv_buf_t buf    = uv_buf_init(data->data, data->size);
-    uv_write_t* req = (uv_write_t*)vrtql.malloc(sizeof(uv_write_t));
+    uv_write_t* req = (uv_write_t*)vws.malloc(sizeof(uv_write_t));
     req->data       = data;
 
     uv_write(req, data->cnx->handle, &buf, 1, svr_on_write_complete);
@@ -1093,9 +1093,9 @@ void svr_client_data_out(vrtql_svr_data* data)
 // Server Utilities
 //------------------------------------------------------------------------------
 
-vrtql_svr_cnx* svr_cnx_map_get(vrtql_svr_cnx_map* map, uv_stream_t* key)
+vws_svr_cnx* svr_cnx_map_get(vws_svr_cnx_map* map, uv_stream_t* key)
 {
-    vrtql_svr_cnx* cnx = sc_map_get_64v(map, (uint64_t)key);
+    vws_svr_cnx* cnx = sc_map_get_64v(map, (uint64_t)key);
 
     // If entry exists
     if (sc_map_found(map) == true)
@@ -1106,9 +1106,9 @@ vrtql_svr_cnx* svr_cnx_map_get(vrtql_svr_cnx_map* map, uv_stream_t* key)
     return NULL;
 }
 
-void svr_cnx_map_remove(vrtql_svr_cnx_map* map, uv_stream_t* key)
+void svr_cnx_map_remove(vws_svr_cnx_map* map, uv_stream_t* key)
 {
-    vrtql_svr_cnx* cnx = sc_map_get_64v(map, (uint64_t)key);
+    vws_svr_cnx* cnx = sc_map_get_64v(map, (uint64_t)key);
 
     // If entry exists
     if (sc_map_found(map) == true)
@@ -1119,13 +1119,13 @@ void svr_cnx_map_remove(vrtql_svr_cnx_map* map, uv_stream_t* key)
         cnx->server->on_disconnect(cnx);
 
         // Cleanup
-        vrtql.free(cnx);
+        vws.free(cnx);
     }
 }
 
-int8_t svr_cnx_map_set( vrtql_svr_cnx_map* map,
+int8_t svr_cnx_map_set( vws_svr_cnx_map* map,
                         uv_stream_t* key,
-                        vrtql_svr_cnx* value )
+                        vws_svr_cnx* value )
 {
     // See if we have an existing entry
     sc_map_get_64v(map, (uint64_t)key);
@@ -1142,21 +1142,21 @@ int8_t svr_cnx_map_set( vrtql_svr_cnx_map* map,
     return 1;
 }
 
-void svr_cnx_map_clear(vrtql_svr_cnx_map* map)
+void svr_cnx_map_clear(vws_svr_cnx_map* map)
 {
-    uint64_t key; vrtql_svr_cnx* cnx;
+    uint64_t key; vws_svr_cnx* cnx;
     sc_map_foreach(map, key, cnx)
     {
         cnx->server->on_disconnect(cnx);
-        vrtql.free(cnx);
+        vws.free(cnx);
     }
 
     sc_map_clear_64v(map);
 }
 
-vrtql_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* handle)
+vws_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* handle)
 {
-    vrtql_svr_cnx* cnx = vrtql.malloc(sizeof(vrtql_svr_cnx));
+    vws_svr_cnx* cnx = vws.malloc(sizeof(vws_svr_cnx));
     cnx->server        = s;
     cnx->handle        = handle;
     cnx->data          = NULL;
@@ -1164,25 +1164,25 @@ vrtql_svr_cnx* svr_cnx_new(vrtql_svr* s, uv_stream_t* handle)
 
     // Initialize HTTP state
     cnx->upgraded      = false;
-    cnx->http          = vrtql_http_msg_new(HTTP_REQUEST);
+    cnx->http          = vws_http_msg_new(HTTP_REQUEST);
 
     return cnx;
 }
 
-void svr_cnx_free(vrtql_svr_cnx* c)
+void svr_cnx_free(vws_svr_cnx* c)
 {
     if (c != NULL)
     {
         if (c->http != NULL)
         {
-            vrtql_http_msg_free(c->http);
+            vws_http_msg_free(c->http);
         }
 
-        vrtql.free(c);
+        vws.free(c);
     }
 }
 
-void svr_cnx_close(vrtql_svr_cnx* c)
+void svr_cnx_close(vws_svr_cnx* c)
 {
     //uv_close((uv_handle_t*)c->handle, svr_on_close);
     svr_cnx_close(c);
@@ -1196,9 +1196,9 @@ void svr_shutdown(vrtql_svr* server)
         return;
     }
 
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace(VL_INFO, "svr_shutdown(%p): Shutdown starting", server);
+        vws.trace(VL_INFO, "svr_shutdown(%p): Shutdown starting", server);
     }
 
     // Cleanup libuv
@@ -1217,15 +1217,15 @@ void svr_on_connect(uv_stream_t* socket, int status)
     if (status < 0)
     {
         cstr e = uv_strerror(status);
-        vrtql.error(VE_RT, "Error in connection callback: %s", e);
+        vws.error(VE_RT, "Error in connection callback: %s", e);
         return;
     }
 
-    uv_tcp_t* client = (uv_tcp_t*)vrtql.malloc(sizeof(uv_tcp_t));
+    uv_tcp_t* client = (uv_tcp_t*)vws.malloc(sizeof(uv_tcp_t));
 
     if (client == NULL)
     {
-        vrtql.error(VE_RT, "Failed to allocate memory for client");
+        vws.error(VE_RT, "Failed to allocate memory for client");
         return;
     }
 
@@ -1233,7 +1233,7 @@ void svr_on_connect(uv_stream_t* socket, int status)
 
     if (uv_tcp_init(server->loop, client) != 0)
     {
-        vrtql.error(VE_RT, "Failed to initialize client");
+        vws.error(VE_RT, "Failed to initialize client");
         return;
     }
 
@@ -1241,7 +1241,7 @@ void svr_on_connect(uv_stream_t* socket, int status)
     {
         if (uv_read_start((uv_stream_t*)client, svr_on_realloc, svr_on_read) != 0)
         {
-            vrtql.error(VE_RT, "Failed to start reading from client");
+            vws.error(VE_RT, "Failed to start reading from client");
             return;
         }
     }
@@ -1252,11 +1252,11 @@ void svr_on_connect(uv_stream_t* socket, int status)
 
     //> Add connection to registry and initialize
 
-    vrtql_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)client);
+    vws_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)client);
 
     if (svr_cnx_map_set(&server->cnxs, (uv_stream_t*)client, cnx) == false)
     {
-        vrtql.error(VE_FATAL, "Connection already registered");
+        vws.error(VE_FATAL, "Connection already registered");
     }
 
     //> Call svr_on_connect() handler
@@ -1271,12 +1271,12 @@ void svr_on_read(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf)
     if (nread < 0)
     {
         uv_close((uv_handle_t*)client, svr_on_close);
-        vrtql.free(buf->base);
+        vws.free(buf->base);
         return;
     }
 
     struct sc_map_64v* map = &server->cnxs;
-    vrtql_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)client);
+    vws_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)client);
 
     if (sc_map_found(map) == true)
     {
@@ -1286,17 +1286,17 @@ void svr_on_read(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf)
 
 void svr_on_write_complete(uv_write_t* req, int status)
 {
-    vrtql_svr_data_free((vrtql_svr_data*)req->data);
-    vrtql.free(req);
+    vws_svr_data_free((vws_svr_data*)req->data);
+    vws.free(req);
 }
 
 void svr_on_close(uv_handle_t* handle)
 {
     vrtql_svr* server      = handle->data;
-    vrtql_svr_cnx_map* map = &server->cnxs;
-    vrtql_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)handle);
+    vws_svr_cnx_map* map = &server->cnxs;
+    vws_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)handle);
 
-    vrtql.trace(VL_INFO, "svr_on_close(): %p", handle);
+    vws.trace(VL_INFO, "svr_on_close(): %p", handle);
 
     // If entry exists
     if (sc_map_found(map) == true)
@@ -1308,15 +1308,15 @@ void svr_on_close(uv_handle_t* handle)
         sc_map_del_64v(map, (uint64_t)handle);
 
         // Cleanup
-        vrtql.free(cnx);
+        vws.free(cnx);
     }
 
-    vrtql.free(handle);
+    vws.free(handle);
 }
 
 void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf)
 {
-    buf->base = (char*)vrtql.realloc(buf->base, size);
+    buf->base = (char*)vws.realloc(buf->base, size);
     buf->len  = size;
 }
 
@@ -1326,7 +1326,7 @@ void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf)
 
 void queue_init(vrtql_svr_queue* queue, int size, cstr name)
 {
-    queue->buffer   = (vrtql_svr_data**)vrtql.malloc(size * sizeof(vrtql_svr_data*));
+    queue->buffer   = (vws_svr_data**)vws.malloc(size * sizeof(vws_svr_data*));
     queue->size     = 0;
     queue->capacity = size;
     queue->head     = 0;
@@ -1343,20 +1343,20 @@ void queue_destroy(vrtql_svr_queue* queue)
 {
     if (queue->buffer != NULL)
     {
-        vrtql.free(queue->name);
+        vws.free(queue->name);
         uv_mutex_destroy(&queue->mutex);
         uv_cond_destroy(&queue->cond);
-        vrtql.free(queue->buffer);
+        vws.free(queue->buffer);
         queue->buffer = NULL;
         queue->state  = VS_HALTED;
     }
 }
 
-void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data)
+void queue_push(vrtql_svr_queue* queue, vws_svr_data* data)
 {
     if (queue->state != VS_RUNNING)
     {
-        vrtql.free(data);
+        vws.free(data);
         return;
     }
 
@@ -1383,7 +1383,7 @@ void queue_push(vrtql_svr_queue* queue, vrtql_svr_data* data)
     uv_mutex_unlock(&queue->mutex);
 }
 
-vrtql_svr_data* queue_pop(vrtql_svr_queue* queue)
+vws_svr_data* queue_pop(vrtql_svr_queue* queue)
 {
     uv_mutex_lock(&queue->mutex);
 
@@ -1400,7 +1400,7 @@ vrtql_svr_data* queue_pop(vrtql_svr_queue* queue)
         return NULL;
     }
 
-    vrtql_svr_data* data = queue->buffer[queue->head];
+    vws_svr_data* data = queue->buffer[queue->head];
     queue->head          = (queue->head + 1) % queue->capacity;
     queue->size--;
 
@@ -1424,23 +1424,23 @@ bool queue_empty(vrtql_svr_queue* queue)
 
 void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
 {
-    vrtql_svr_cnx* cnx = (vrtql_svr_cnx*)c->data;
+    vws_svr_cnx* cnx = (vws_svr_cnx*)c->data;
 
     switch (f->opcode)
     {
         case CLOSE_FRAME:
         {
             // Build the response frame
-            vrtql_buffer* buffer = vws_generate_close_frame();
+            vws_buffer* buffer = vws_generate_close_frame();
 
             // Send back to cliane Send the PONG response
-            vrtql_svr_data* response;
+            vws_svr_data* response;
 
-            response = vrtql_svr_data_new(cnx, buffer);
+            response = vws_svr_data_new(cnx, buffer);
             vrtql_svr_send(cnx->server, response);
 
             // Free buffer
-            vrtql_buffer_free(buffer);
+            vws_buffer_free(buffer);
 
             // Free frame
             vws_frame_free(f);
@@ -1461,15 +1461,15 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
         case PING_FRAME:
         {
             // Generate the PONG response
-            vrtql_buffer* buffer = vws_generate_pong_frame(f->data, f->size);
+            vws_buffer* buffer = vws_generate_pong_frame(f->data, f->size);
 
             // Send back to cliane Send the PONG response
-            vrtql_svr_data* response;
-            response = vrtql_svr_data_new(cnx, buffer);
+            vws_svr_data* response;
+            response = vws_svr_data_new(cnx, buffer);
             vrtql_svr_send(cnx->server, response);
 
             // Free buffer
-            vrtql_buffer_free(buffer);
+            vws_buffer_free(buffer);
 
             // Free frame
             vws_frame_free(f);
@@ -1493,14 +1493,14 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
         }
     }
 
-    vrtql.success();
+    vws.success();
 }
 
-void ws_svr_client_connect(vrtql_svr_cnx* c)
+void ws_svr_client_connect(vws_svr_cnx* c)
 {
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace(VL_INFO, "ws_svr_client_connect(%p)", c->handle);
+        vws.trace(VL_INFO, "ws_svr_client_connect(%p)", c->handle);
     }
 
     // Create a new vws_cnx
@@ -1510,11 +1510,11 @@ void ws_svr_client_connect(vrtql_svr_cnx* c)
     c->data      = (void*)cnx; // Link c -> cnx
 }
 
-void ws_svr_client_disconnect(vrtql_svr_cnx* c)
+void ws_svr_client_disconnect(vws_svr_cnx* c)
 {
-    if (vrtql.tracelevel >= VT_SERVICE)
+    if (vws.tracelevel >= VT_SERVICE)
     {
-        vrtql.trace(VL_INFO, "ws_svr_client_disconnect(%p)", c->handle);
+        vws.trace(VL_INFO, "ws_svr_client_disconnect(%p)", c->handle);
     }
 
     if (c->data != NULL)
@@ -1524,30 +1524,30 @@ void ws_svr_client_disconnect(vrtql_svr_cnx* c)
     }
 }
 
-void vrtql_svr_close(vrtql_svr_cnx* cnx)
+void vrtql_svr_close(vws_svr_cnx* cnx)
 {
     // Create reply
-    vrtql_svr_data* reply;
-    reply = vrtql_svr_data_own(cnx, NULL, 0);
+    vws_svr_data* reply;
+    reply = vws_svr_data_own(cnx, NULL, 0);
 
     // Set connection close flag
-    vrtql_set_flag(&reply->flags, VM_SVR_DATA_CLOSE);
+    vws_set_flag(&reply->flags, VM_SVR_DATA_CLOSE);
 
     // Queue the data to uv_thread() to send out on wire
     vrtql_svr_send(cnx->server, reply);
 }
 
 // Runs in uv_thread()
-void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
+void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
 {
     vrtql_svr* server = cnx->server;
     vws_cnx* c        = (vws_cnx*)cnx->data;
 
     // Add to client socket buffer
-    vrtql_buffer_append(c->base.buffer, buf->base, size);
+    vws_buffer_append(c->base.buffer, buf->base, size);
 
     // Free libuv memory
-    vrtql.free(buf->base);
+    vws.free(buf->base);
 
     // If we are in HTTP mode
     if (cnx->upgraded == false)
@@ -1556,7 +1556,7 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
 
         cstr data   = c->base.buffer->data;
         size_t size = c->base.buffer->size;
-        ssize_t n   = vrtql_http_msg_parse(cnx->http, data, size);
+        ssize_t n   = vws_http_msg_parse(cnx->http, data, size);
 
         // Did we get a complete request?
         if (cnx->http->complete == true)
@@ -1567,7 +1567,7 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
             // If there was a parsing error, close connection
             if(err != HPE_OK)
             {
-                vrtql.error(VE_RT, "Error: %s (%s)",
+                vws.error(VE_RT, "Error: %s (%s)",
                             http_errno_name(err),
                             http_errno_description(err) );
 
@@ -1578,48 +1578,48 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
             }
 
             // Drain HTTP request data from cnx->data buffer
-            vrtql_buffer_drain(c->base.buffer, n);
+            vws_buffer_drain(c->base.buffer, n);
 
             //> Generate HTTP response and send
 
-            vrtql_buffer* http = vrtql_buffer_new();
+            vws_buffer* http = vws_buffer_new();
 
             struct sc_map_str* headers = &cnx->http->headers;
-            cstr key   = vrtql_map_get(headers, "sec-websocket-key");
-            cstr proto = vrtql_map_get(headers, "sec-websocket-protocol");
+            cstr key   = vws_map_get(headers, "sec-websocket-key");
+            cstr proto = vws_map_get(headers, "sec-websocket-protocol");
 
-            vrtql_buffer_printf(http, "HTTP/1.1 101 Switching Protocols\r\n");
-            vrtql_buffer_printf(http, "Upgrade: websocket\r\n");
-            vrtql_buffer_printf(http, "Connection: Upgrade\r\n");
+            vws_buffer_printf(http, "HTTP/1.1 101 Switching Protocols\r\n");
+            vws_buffer_printf(http, "Upgrade: websocket\r\n");
+            vws_buffer_printf(http, "Connection: Upgrade\r\n");
 
             cstr ac = vws_accept_key(key);
-            vrtql_buffer_printf(http, "Sec-WebSocket-Accept: %s\r\n", ac);
-            vrtql.free(ac);
+            vws_buffer_printf(http, "Sec-WebSocket-Accept: %s\r\n", ac);
+            vws.free(ac);
 
-            vrtql_buffer_printf(http, "Sec-WebSocket-Version: 13\r\n");
+            vws_buffer_printf(http, "Sec-WebSocket-Version: 13\r\n");
 
-            vrtql_buffer_printf(http, "Sec-WebSocket-Protocol: ");
+            vws_buffer_printf(http, "Sec-WebSocket-Protocol: ");
 
             if (proto != NULL)
             {
-                vrtql_buffer_printf(http, "%s\r\n", proto);
+                vws_buffer_printf(http, "%s\r\n", proto);
             }
             else
             {
-                vrtql_buffer_printf(http, "vrtql\r\n");
+                vws_buffer_printf(http, "vrtql\r\n");
             }
 
-            vrtql_buffer_printf(http, "\r\n");
+            vws_buffer_printf(http, "\r\n");
 
             // Package up response
-            vrtql_svr_data* reply;
-            reply = vrtql_svr_data_new(cnx, http);
+            vws_svr_data* reply;
+            reply = vws_svr_data_new(cnx, http);
 
             // Send directly out as we are in uv_thread()
             server->on_data_out(reply);
 
             // Cleanup. Buffer data was passed to reply.
-            vrtql_buffer_free(http);
+            vws_buffer_free(http);
 
             //> Change state to WebSocket mode
 
@@ -1627,7 +1627,7 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
             cnx->upgraded = true;
 
             // Free HTTP request as we don't need it anymore
-            vrtql_http_msg_free(cnx->http);
+            vws_http_msg_free(cnx->http);
             cnx->http = NULL;
 
             // Do we have any data in the socket after consuming the HTTP
@@ -1662,20 +1662,20 @@ void ws_svr_client_read(vrtql_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
             }
 
             // Pass message pointer in block
-            vrtql_svr_data* block;
-            block = vrtql_svr_data_own(cnx, (ucstr)wsm, sizeof(vws_msg*));
+            vws_svr_data* block;
+            block = vws_svr_data_own(cnx, (ucstr)wsm, sizeof(vws_msg*));
             queue_push(&server->requests, block);
         }
     }
 }
 
 // Runs in worker_thread()
-void ws_svr_client_data_in(vrtql_svr_data* block)
+void ws_svr_client_data_in(vws_svr_data* block)
 {
     //> Append data to connection buffer
 
-    vrtql_svr_cnx* cnx   = block->cnx;
-    vrtql_ws_svr* server = (vrtql_ws_svr*)cnx->server;
+    vws_svr_cnx* cnx   = block->cnx;
+    vws_svr* server = (vws_svr*)cnx->server;
     vws_cnx* c           = (vws_cnx*)cnx->data;
 
     // Data simply contains a pointer to a websocket message
@@ -1684,14 +1684,14 @@ void ws_svr_client_data_in(vrtql_svr_data* block)
     // Free incoming data
     block->data = NULL;
     block->size = 0;
-    vrtql_svr_data_free(block);
+    vws_svr_data_free(block);
 
     //> Process connection buffer data for complete messages
     server->on_msg_in(cnx, wsm);
 }
 
-void ws_svr_client_data_out( vrtql_svr_cnx* cnx,
-                             vrtql_buffer* buffer,
+void ws_svr_client_data_out( vws_svr_cnx* cnx,
+                             vws_buffer* buffer,
                              unsigned char opcode )
 {
     // Create a binary websocket frame containing message
@@ -1704,40 +1704,40 @@ void ws_svr_client_data_out( vrtql_svr_cnx* cnx,
     frame->mask = 0;
 
     // Serialize frame: frame is freed by function
-    vrtql_buffer* fdata = vws_serialize(frame);
+    vws_buffer* fdata = vws_serialize(frame);
 
     // Pack frame binary into queue data
-    vrtql_svr_data* response;
-    response = vrtql_svr_data_new(cnx, fdata);
+    vws_svr_data* response;
+    response = vws_svr_data_new(cnx, fdata);
 
     // Queue the data to uv_thread() to send out on wire
     vrtql_svr_send(cnx->server, response);
 
     // Free buffers
-    vrtql_buffer_free(fdata);
+    vws_buffer_free(fdata);
 }
 
-void ws_svr_client_msg_in(vrtql_svr_cnx* cnx, vws_msg* m)
+void ws_svr_client_msg_in(vws_svr_cnx* cnx, vws_msg* m)
 {
-    vrtql_ws_svr* server = (vrtql_ws_svr*)cnx->server;
+    vws_svr* server = (vws_svr*)cnx->server;
 
     // Route to application-specific processing callback
     server->process(cnx, m);
 }
 
-void ws_svr_client_process(vrtql_svr_cnx* cnx, vws_msg* m)
+void ws_svr_client_process(vws_svr_cnx* cnx, vws_msg* m)
 {
     // Default: Do nothing. Drop message.
     vws_msg_free(m);
 }
 
-void ws_svr_client_msg_out(vrtql_svr_cnx* cnx, vws_msg* m)
+void ws_svr_client_msg_out(vws_svr_cnx* cnx, vws_msg* m)
 {
     ws_svr_client_data_out(cnx, m->data, m->opcode);
     vws_msg_free(m);
 }
 
-void ws_svr_ctor(vrtql_ws_svr* server, int nt, int bl, int qs)
+void ws_svr_ctor(vws_svr* server, int nt, int bl, int qs)
 {
     svr_ctor((vrtql_svr*)server, nt, bl, qs);
 
@@ -1756,14 +1756,14 @@ void ws_svr_ctor(vrtql_ws_svr* server, int nt, int bl, int qs)
     server->send               = ws_svr_client_msg_out;
 }
 
-vrtql_ws_svr* vrtql_ws_svr_new(int num_threads, int backlog, int queue_size)
+vws_svr* vws_svr_new(int num_threads, int backlog, int queue_size)
 {
-    vrtql_ws_svr* server = vrtql.malloc(sizeof(vrtql_ws_svr));
+    vws_svr* server = vws.malloc(sizeof(vws_svr));
     ws_svr_ctor(server, num_threads, backlog, queue_size);
     return server;
 }
 
-void ws_svr_dtor(vrtql_ws_svr* server)
+void ws_svr_dtor(vws_svr* server)
 {
     if (server == NULL)
     {
@@ -1773,7 +1773,7 @@ void ws_svr_dtor(vrtql_ws_svr* server)
     svr_dtor((vrtql_svr*)server);
 }
 
-void vrtql_ws_svr_free(vrtql_ws_svr* server)
+void vws_svr_free(vws_svr* server)
 {
     if (server == NULL)
     {
@@ -1781,7 +1781,7 @@ void vrtql_ws_svr_free(vrtql_ws_svr* server)
     }
 
     ws_svr_dtor(server);
-    vrtql.free(server);
+    vws.free(server);
 }
 
 //------------------------------------------------------------------------------
@@ -1789,7 +1789,7 @@ void vrtql_ws_svr_free(vrtql_ws_svr* server)
 //------------------------------------------------------------------------------
 
 // Convert incoming WebSocket messages to VRTQL messages for processing
-void msg_svr_client_ws_msg_in(vrtql_svr_cnx* cnx, vws_msg* wsm)
+void msg_svr_client_ws_msg_in(vws_svr_cnx* cnx, vws_msg* wsm)
 {
     // Deserialize message
 
@@ -1825,7 +1825,7 @@ void msg_svr_client_ws_msg_in(vrtql_svr_cnx* cnx, vws_msg* wsm)
 }
 
 // Receive/handle incoming VRTQL messages
-void msg_svr_client_msg_in(vrtql_svr_cnx* cnx, vrtql_msg* m)
+void msg_svr_client_msg_in(vws_svr_cnx* cnx, vrtql_msg* m)
 {
     vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
 
@@ -1834,21 +1834,21 @@ void msg_svr_client_msg_in(vrtql_svr_cnx* cnx, vrtql_msg* m)
 }
 
 // Send VRTQL messages
-void msg_svr_client_msg_out(vrtql_svr_cnx* cnx, vrtql_msg* m)
+void msg_svr_client_msg_out(vws_svr_cnx* cnx, vrtql_msg* m)
 {
     // Serialize message
-    vrtql_buffer* mdata = vrtql_msg_serialize(m);
+    vws_buffer* mdata = vrtql_msg_serialize(m);
 
     // Send to base class
     ws_svr_client_data_out(cnx, mdata, BINARY_FRAME);
 
     // Cleanup
-    vrtql_buffer_free(mdata);
+    vws_buffer_free(mdata);
     vrtql_msg_free(m);
 }
 
 // Process incoming VRTQL messages
-void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req)
+void msg_svr_client_process(vws_svr_cnx* cnx, vrtql_msg* req)
 {
     // Default: Do nothing. Drop message.
     vrtql_msg_free(req);
@@ -1856,8 +1856,8 @@ void msg_svr_client_process(vrtql_svr_cnx* cnx, vrtql_msg* req)
 
 vrtql_msg_svr* vrtql_msg_svr_new(int num_threads, int backlog, int queue_size)
 {
-    vrtql_msg_svr* server = vrtql.malloc(sizeof(vrtql_msg_svr));
-    ws_svr_ctor((vrtql_ws_svr*)server, num_threads, backlog, queue_size);
+    vrtql_msg_svr* server = vws.malloc(sizeof(vrtql_msg_svr));
+    ws_svr_ctor((vws_svr*)server, num_threads, backlog, queue_size);
 
     // Server base function overrides
     server->base.process       = msg_svr_client_ws_msg_in;
@@ -1880,6 +1880,6 @@ void vrtql_msg_svr_free(vrtql_msg_svr* server)
         return;
     }
 
-    ws_svr_dtor((vrtql_ws_svr*)server);
-    vrtql.free(server);
+    ws_svr_dtor((vws_svr*)server);
+    vws.free(server);
 }

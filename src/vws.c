@@ -24,20 +24,20 @@
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 
-#include "vrtql.h"
+#include "vws.h"
 
 //------------------------------------------------------------------------------
 // Utility functions
 //------------------------------------------------------------------------------
 
 // Function to handle the submission of an error by default
-static int vrtql_error_default_submit(int code, cstr message, ...);
+static int vws_error_default_submit(int code, cstr message, ...);
 
 // Function to clear an error by default
-static void vrtql_error_clear_default();
+static void vws_error_clear_default();
 
 // Function to process an error by default
-static int vrtql_error_default_process(int code, cstr message);
+static int vws_error_default_process(int code, cstr message);
 
 //------------------------------------------------------------------------------
 // Tracing
@@ -69,10 +69,10 @@ typedef struct
 
 const log_level_info log_level_infos[VL_LEVEL_COUNT] =
 {
-    { ANSI_COLOR_WHITE,    "DEBUG"   },
-    { ANSI_COLOR_BLUE,     "INFO"    },
-    { ANSI_COLOR_MAGENTA,  "WARNING" },
-    { ANSI_COLOR_RED,      "ERROR"   }
+    { ANSI_COLOR_WHITE,   "DEBG" },
+    { ANSI_COLOR_BLUE,    "INFO" },
+    { ANSI_COLOR_MAGENTA, "WARN" },
+    { ANSI_COLOR_RED,     "CRIT" }
 };
 
 static void unlock_mutex(void* arg)
@@ -80,7 +80,7 @@ static void unlock_mutex(void* arg)
     pthread_mutex_unlock((pthread_mutex_t*)arg);
 }
 
-void vrtql_trace_lock()
+void vws_trace_lock()
 {
 #if defined(__windows__)
 
@@ -89,7 +89,7 @@ void vrtql_trace_lock()
     // Windows implementation using Windows API for thread synchronization
     if (WaitForSingleObject(log_mutex, INFINITE) != WAIT_OBJECT_0)
     {
-        vrtql_error_default_submit(VE_SYS, "WaitForSingleObject failed");
+        vws_error_default_submit(VE_SYS, "WaitForSingleObject failed");
         return;
     }
 
@@ -99,38 +99,38 @@ void vrtql_trace_lock()
 
     if (pthread_mutex_lock(&log_mutex) != 0)
     {
-        vrtql_error_default_submit(VE_SYS, "pthread_mutex_lock failed");
+        vws_error_default_submit(VE_SYS, "pthread_mutex_lock failed");
         return;
     }
 
 #endif
 }
 
-void vrtql_trace_unlock()
+void vws_trace_unlock()
 {
 #if defined(__windows__)
 
     // Windows implementation using Windows API for thread synchronization
     if (!ReleaseMutex(log_mutex))
     {
-        vrtql_error_default_submit(VE_SYS, "ReleaseMutex failed");
+        vws_error_default_submit(VE_SYS, "ReleaseMutex failed");
     }
 
 #else
 
     if (pthread_mutex_unlock(&log_mutex) != 0)
     {
-        vrtql_error_default_submit(VE_SYS, "pthread_mutex_unlock failed");
+        vws_error_default_submit(VE_SYS, "pthread_mutex_unlock failed");
     }
 
 #endif
 }
 
-void vrtql_trace(vrtql_log_level_t level, const char* format, ...)
+void vws_trace(vws_log_level_t level, const char* format, ...)
 {
     if (level < 0 || level >= VL_LEVEL_COUNT)
     {
-        vrtql_error_default_submit(VE_WARN, "Invalid log level");
+        vws_error_default_submit(VE_WARN, "Invalid log level");
         return;
     }
 
@@ -144,21 +144,21 @@ void vrtql_trace(vrtql_log_level_t level, const char* format, ...)
     // Windows implementation using localtime_s
     if (localtime_s(&time_info, &raw_time) != 0)
     {
-        vrtql_error_default_submit(VE_SYS, "localtime_s failed");
+        vws_error_default_submit(VE_SYS, "localtime_s failed");
         return;
     }
 #else
     // Non-Windows implementation using localtime_r
     if (localtime_r(&raw_time, &time_info) == NULL)
     {
-        vrtql_error_default_submit(VE_SYS, "localtime_r failed");
+        vws_error_default_submit(VE_SYS, "localtime_r failed");
         return;
     }
 #endif
 
     if (strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &time_info) == 0)
     {
-        vrtql_error_default_submit(VE_SYS, "strftime returned 0");
+        vws_error_default_submit(VE_SYS, "strftime returned 0");
         return;
     }
 
@@ -172,7 +172,7 @@ void vrtql_trace(vrtql_log_level_t level, const char* format, ...)
     // Windows implementation using Windows API for thread synchronization
     if (WaitForSingleObject(log_mutex, INFINITE) != WAIT_OBJECT_0)
     {
-        vrtql_error_default_submit(VE_SYS, "WaitForSingleObject failed");
+        vws_error_default_submit(VE_SYS, "WaitForSingleObject failed");
         return;
     }
 
@@ -182,7 +182,7 @@ void vrtql_trace(vrtql_log_level_t level, const char* format, ...)
 
     if (pthread_mutex_lock(&log_mutex) != 0)
     {
-        vrtql_error_default_submit(VE_SYS, "pthread_mutex_lock failed");
+        vws_error_default_submit(VE_SYS, "pthread_mutex_lock failed");
         return;
     }
 
@@ -214,7 +214,7 @@ void vrtql_trace(vrtql_log_level_t level, const char* format, ...)
     // Windows implementation using Windows API for thread synchronization
     if (!ReleaseMutex(log_mutex))
     {
-        vrtql_error_default_submit(VE_SYS, "ReleaseMutex failed");
+        vws_error_default_submit(VE_SYS, "ReleaseMutex failed");
     }
 
 #else
@@ -228,72 +228,72 @@ void vrtql_trace(vrtql_log_level_t level, const char* format, ...)
 // Memory allocation
 //------------------------------------------------------------------------------
 
-void* vrtql_malloc(size_t size)
+void* vws_malloc(size_t size)
 {
     void* ptr = malloc(size);
 
     if (ptr == NULL)
     {
-        return vrtql.malloc_error(size);
+        return vws.malloc_error(size);
     }
 
     return ptr;
 }
 
-void* vrtql_malloc_error(size_t size)
+void* vws_malloc_error(size_t size)
 {
     // No error string since memory allocation has already failed and error
     // handler uses malloc() for copying error string.
-    vrtql.error(VE_MEM, NULL);
+    vws.error(VE_MEM, NULL);
 
     // Default does not provide any recovery attempt.
     return NULL;
 }
 
-void vrtql_free(void* data)
+void vws_free(void* data)
 {
     free(data);
 }
 
-void* vrtql_calloc(size_t nmemb, size_t size)
+void* vws_calloc(size_t nmemb, size_t size)
 {
     void* ptr = calloc(nmemb, size);
 
     if (ptr == NULL)
     {
-        return vrtql.calloc_error(nmemb, size);
+        return vws.calloc_error(nmemb, size);
     }
 
     return ptr;
 }
 
-void* vrtql_calloc_error(size_t nmemb, size_t size)
+void* vws_calloc_error(size_t nmemb, size_t size)
 {
     // No error string since memory allocation has already failed and error
     // handler uses malloc() for copying error string.
-    vrtql.error(VE_MEM, NULL);
+    vws.error(VE_MEM, NULL);
 
     // Default does not provide any recovery attempt.
     return NULL;
 }
 
-void* vrtql_realloc(void* ptr, size_t size)
+void* vws_realloc(void* ptr, size_t size)
 {
     ptr = realloc(ptr, size);
 
     if (ptr == NULL)
     {
-        return vrtql.realloc_error(ptr, size);
+        return vws.realloc_error(ptr, size);
     }
 
     return ptr;
 }
 
-void* vrtql_realloc_error(void* ptr, size_t size)
+void* vws_realloc_error(void* ptr, size_t size)
 {
     // No error string since memory allocation has already failed and error
     // handler uses malloc() for copying error string.
-    vrtql.error(VE_MEM, NULL);
+    vws.error(VE_MEM, NULL);
 
     // Default does not provide any recovery attempt.
     return NULL;
@@ -304,29 +304,29 @@ void* vrtql_realloc_error(void* ptr, size_t size)
 //------------------------------------------------------------------------------
 
 // Sets the last error for the current thread
-void vrtql_set_error(vrtql_error_code_t code, const char* message)
+void vws_set_error(vws_error_code_t code, const char* message)
 {
-    if (vrtql.e.text != NULL)
+    if (vws.e.text != NULL)
     {
-        vrtql.free(vrtql.e.text);
-        vrtql.e.text = NULL;
+        vws.free(vws.e.text);
+        vws.e.text = NULL;
     }
 
-    vrtql.e.code = code;
+    vws.e.code = code;
 
     if (message != NULL)
     {
-        vrtql.e.text = strdup(message);
+        vws.e.text = strdup(message);
     }
 }
 
 // Get the error value for the current thread
-vrtql_error_value vrtql_get_error()
+vws_error_value vws_get_error()
 {
-    return vrtql.e;
+    return vws.e;
 }
 
-int vrtql_error_default_submit(int code, cstr format, ...)
+int vws_error_default_submit(int code, cstr format, ...)
 {
     va_list args, args_copy;
     va_start(args, format);
@@ -345,51 +345,59 @@ int vrtql_error_default_submit(int code, cstr format, ...)
     vsnprintf(buffer, length + 1, format, args);
 
     // Set
-    vrtql_set_error(code, buffer);
+    vws_set_error(code, buffer);
 
     // Process
-    vrtql.process_error(code, buffer);
-
-    // Print the formatted string to stderr
-    fprintf(stderr, "%s", buffer);
+    vws.process_error(code, buffer);
 
     // Cleanup
-    vrtql.free(buffer);
+    vws.free(buffer);
     va_end(args);
 
     return 0;
 }
 
-int vrtql_error_default_process(int code, cstr message)
+int vws_error_default_process(int code, cstr message)
 {
-    if (vrtql.tracelevel == 1)
+    if (vws.tracelevel >= 1)
     {
         switch (code)
         {
-            case VE_TIMEOUT:
             case VE_WARN:
             {
-                vrtql.trace(VL_WARN, "Error %i: %s", code, message);
+                vws.trace(VL_WARN, "%s", message);
+                break;
+            }
+
+            case VE_TIMEOUT:
+            {
+                vws.trace(VL_WARN, "Timeout: %s", message);
+                break;
+            }
+
+            case VE_DISCONNECT:
+            {
+                vws.trace(VL_WARN, "Disconnect: %s", message);
                 break;
             }
 
             case VE_SYS:
             case VE_RT:
             {
-                vrtql.trace(VL_INFO, "Error %i: %s", code, message);
+                vws.trace(VL_INFO, "Error %i: %s", message);
                 break;
             }
 
             case VE_MEM:
             case VE_FATAL:
             {
-                vrtql.trace(VL_ERROR, "Error %i: %s", code, message);
+                vws.trace(VL_ERROR, "Fatal %i: %s", code, message);
                 break;
             }
 
             default:
             {
-                vrtql.trace(VL_INFO, "No error");
+                vws.trace(VL_INFO, "No error");
             }
         }
     }
@@ -412,7 +420,7 @@ int vrtql_error_default_process(int code, cstr message)
         {
             if (message != NULL)
             {
-                fprintf(stderr, "Error %i: %s\n", code, message);
+
             }
         }
     }
@@ -420,36 +428,36 @@ int vrtql_error_default_process(int code, cstr message)
     return 0;
 }
 
-void vrtql_error_clear_default()
+void vws_error_clear_default()
 {
-    vrtql_set_error(VE_SUCCESS, NULL);
+    vws_set_error(VE_SUCCESS, NULL);
 }
 
-void vrtql_error_success_default()
+void vws_error_success_default()
 {
-    vrtql_set_error(VE_SUCCESS, NULL);
+    vws_set_error(VE_SUCCESS, NULL);
 }
 
 // Global SSL context
-SSL_CTX* vrtql_ssl_ctx = NULL;
+SSL_CTX* vws_ssl_ctx = NULL;
 
 // Initialization of the vrtql environment. The environment is initialized with
 // default error handling functions and the trace flag is turned off
-__thread vrtql_env vrtql =
+__thread vws_env vws =
 {
-    .malloc        = vrtql_malloc,
-    .malloc_error  = vrtql_malloc_error,
-    .calloc        = vrtql_calloc,
-    .calloc_error  = vrtql_calloc_error,
-    .realloc       = vrtql_realloc,
-    .realloc_error = vrtql_realloc_error,
-    .free          = vrtql_free,
-    .error         = vrtql_error_default_submit,
-    .process_error = vrtql_error_default_process,
-    .clear_error   = vrtql_error_clear_default,
-    .success       = vrtql_error_success_default,
+    .malloc        = vws_malloc,
+    .malloc_error  = vws_malloc_error,
+    .calloc        = vws_calloc,
+    .calloc_error  = vws_calloc_error,
+    .realloc       = vws_realloc,
+    .realloc_error = vws_realloc_error,
+    .free          = vws_free,
+    .error         = vws_error_default_submit,
+    .process_error = vws_error_default_process,
+    .clear_error   = vws_error_clear_default,
+    .success       = vws_error_success_default,
     .e             = {.code=VE_SUCCESS, .text=NULL},
-    .trace         = vrtql_trace,
+    .trace         = vws_trace,
     .tracelevel    = 0,
     .state         = 0
 };
@@ -458,9 +466,9 @@ __thread vrtql_env vrtql =
 // Buffer
 //------------------------------------------------------------------------------
 
-vrtql_buffer* vrtql_buffer_new()
+vws_buffer* vws_buffer_new()
 {
-    vrtql_buffer* buffer = vrtql.malloc(sizeof(vrtql_buffer));
+    vws_buffer* buffer = vws.malloc(sizeof(vws_buffer));
 
     buffer->data      = NULL;
     buffer->allocated = 0;
@@ -469,13 +477,13 @@ vrtql_buffer* vrtql_buffer_new()
     return buffer;
 }
 
-void vrtql_buffer_clear(vrtql_buffer* buffer)
+void vws_buffer_clear(vws_buffer* buffer)
 {
     if (buffer != NULL)
     {
         if (buffer->data != NULL)
         {
-            vrtql.free(buffer->data);
+            vws.free(buffer->data);
         }
 
         buffer->data      = NULL;
@@ -484,16 +492,16 @@ void vrtql_buffer_clear(vrtql_buffer* buffer)
     }
 }
 
-void vrtql_buffer_free(vrtql_buffer* buffer)
+void vws_buffer_free(vws_buffer* buffer)
 {
     if (buffer != NULL)
     {
-        vrtql_buffer_clear(buffer);
-        vrtql.free(buffer);
+        vws_buffer_clear(buffer);
+        vws.free(buffer);
     }
 }
 
-void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...)
+void vws_buffer_printf(vws_buffer* buffer, cstr format, ...)
 {
     va_list args, args_copy;
     va_start(args, format);
@@ -503,7 +511,7 @@ void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...)
     // Determine the length of the formatted string
     int length = vsnprintf(NULL, 0, format, args_copy);
 
-    va_end(args_copy);  // End args_copy. We're done with it now.
+    va_end(args_copy);
 
     // Allocate a buffer for the formatted string
     char* data = malloc(length + 1);
@@ -511,14 +519,14 @@ void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...)
     // Format the string into the buffer
     vsnprintf(data, length + 1, format, args);
 
-    vrtql_buffer_append(buffer, (ucstr)data, length);
+    vws_buffer_append(buffer, (ucstr)data, length);
 
     // Cleanup
-    vrtql.free(data);
+    vws.free(data);
     va_end(args);
 }
 
-void vrtql_buffer_append(vrtql_buffer* buffer, ucstr data, size_t size)
+void vws_buffer_append(vws_buffer* buffer, ucstr data, size_t size)
 {
     if (buffer == NULL || data == NULL)
     {
@@ -534,11 +542,11 @@ void vrtql_buffer_append(vrtql_buffer* buffer, ucstr data, size_t size)
         ucstr mem;
         if (buffer->data == NULL)
         {
-            mem = (ucstr)vrtql.malloc(buffer->allocated);
+            mem = (ucstr)vws.malloc(buffer->allocated);
         }
         else
         {
-            mem = (ucstr)vrtql.realloc(buffer->data, buffer->allocated);
+            mem = (ucstr)vws.realloc(buffer->data, buffer->allocated);
         }
 
         buffer->data = mem;
@@ -548,7 +556,7 @@ void vrtql_buffer_append(vrtql_buffer* buffer, ucstr data, size_t size)
     buffer->size = total_size;
 }
 
-void vrtql_buffer_drain(vrtql_buffer* buffer, size_t size)
+void vws_buffer_drain(vws_buffer* buffer, size_t size)
 {
     if (buffer == NULL || buffer->data == NULL)
     {
@@ -558,7 +566,7 @@ void vrtql_buffer_drain(vrtql_buffer* buffer, size_t size)
     if (size >= buffer->size)
     {
         // When size >= buffer->size, clear the whole buffer
-        vrtql_buffer_clear(buffer);
+        vws_buffer_clear(buffer);
     }
     else
     {
@@ -572,7 +580,7 @@ void vrtql_buffer_drain(vrtql_buffer* buffer, size_t size)
 // Map
 //------------------------------------------------------------------------------
 
-cstr vrtql_map_get(struct sc_map_str* map, cstr key)
+cstr vws_map_get(struct sc_map_str* map, cstr key)
 {
     // See if we have an existing entry
     cstr v = sc_map_get_str(map, key);
@@ -585,7 +593,7 @@ cstr vrtql_map_get(struct sc_map_str* map, cstr key)
     return v;
 }
 
-void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value)
+void vws_map_set(struct sc_map_str* map, cstr key, cstr value)
 {
     // See if we have an existing entry
     sc_map_get_str(map, key);
@@ -600,30 +608,30 @@ void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value)
 
     if (sc_map_found(map) == true)
     {
-        vrtql.free(v);
+        vws.free(v);
     }
 }
 
-void vrtql_map_remove(struct sc_map_str* map, cstr key)
+void vws_map_remove(struct sc_map_str* map, cstr key)
 {
     // See if we have an existing entry
     cstr v = sc_map_get_str(map, key);
 
     if (sc_map_found(map) == true)
     {
-        vrtql.free(v);
+        vws.free(v);
     }
 
     sc_map_del_str(map, key);
 }
 
-void vrtql_map_clear(struct sc_map_str* map)
+void vws_map_clear(struct sc_map_str* map)
 {
     cstr key; cstr value;
     sc_map_foreach(map, key, value)
     {
-        vrtql.free(key);
-        vrtql.free(value);
+        vws.free(key);
+        vws.free(value);
     }
 
     sc_map_clear_str(map);
@@ -633,7 +641,7 @@ void vrtql_map_clear(struct sc_map_str* map)
 // UUID
 //------------------------------------------------------------------------------
 
-char* vrtql_generate_uuid()
+char* vws_generate_uuid()
 {
     unsigned char uuid[16];
 
@@ -647,7 +655,7 @@ char* vrtql_generate_uuid()
     uuid[8] = (uuid[8] & 0x3F) | 0x80;
 
     // Format the UUID as a string
-    char* encoded_uuid = vrtql_base64_encode(uuid, sizeof(uuid));
+    char* encoded_uuid = vws_base64_encode(uuid, sizeof(uuid));
 
     if (encoded_uuid == NULL)
     {
@@ -661,7 +669,7 @@ char* vrtql_generate_uuid()
         if ( encoded_uuid[i] == '='  ||
              encoded_uuid[i] == '\n' ||
              encoded_uuid[i] == '\r' ||
-             encoded_uuid[i] == '-' )
+             encoded_uuid[i] == '-'   )
         {
             encoded_uuid[i] = '_';
         }
@@ -674,7 +682,7 @@ char* vrtql_generate_uuid()
 // Base 64
 //------------------------------------------------------------------------------
 
-char* vrtql_base64_encode(const unsigned char* data, size_t length)
+char* vws_base64_encode(const unsigned char* data, size_t length)
 {
     BIO* bio    = BIO_new(BIO_s_mem());
     BIO* base64 = BIO_new(BIO_f_base64());
@@ -687,7 +695,7 @@ char* vrtql_base64_encode(const unsigned char* data, size_t length)
     BUF_MEM* ptr;
     BIO_get_mem_ptr(base64, &ptr);
     size_t output_length = ptr->length;
-    char* encoded_data   = (char*)vrtql.malloc(output_length + 1);
+    char* encoded_data   = (char*)vws.malloc(output_length + 1);
 
     memcpy(encoded_data, ptr->data, output_length);
     encoded_data[output_length] = '\0';
@@ -697,7 +705,7 @@ char* vrtql_base64_encode(const unsigned char* data, size_t length)
     return encoded_data;
 }
 
-unsigned char* vrtql_base64_decode(const char* data, size_t* size)
+unsigned char* vws_base64_decode(const char* data, size_t* size)
 {
     BIO* bio    = BIO_new_mem_buf(data, -1);
     BIO* base64 = BIO_new(BIO_f_base64());
@@ -708,7 +716,7 @@ unsigned char* vrtql_base64_decode(const char* data, size_t* size)
     // Determine the size of the decoded data
     size_t encoded_length = strlen(data);
     size_t decoded_length = (encoded_length * 3) / 4;  // Rough estimate
-    unsigned char* decoded_data = (unsigned char*)vrtql.malloc(decoded_length);
+    unsigned char* decoded_data = (unsigned char*)vws.malloc(decoded_length);
 
     // Decode the base64 data
     *size = BIO_read(base64, decoded_data, encoded_length);
@@ -735,7 +743,7 @@ unsigned char* vrtql_base64_decode(const char* data, size_t* size)
  *       include the necessary headers and handle any compilation errors or
  *       warnings specific to your environment.
  */
-void vrtql_msleep(unsigned int ms)
+void vws_msleep(unsigned int ms)
 {
 #if defined(__windows__) || defined(_WIN64)
 
@@ -762,17 +770,17 @@ void vrtql_msleep(unsigned int ms)
 #endif
 }
 
-uint8_t vrtql_is_flag(const uint64_t* flags, uint64_t flag)
+uint8_t vws_is_flag(const uint64_t* flags, uint64_t flag)
 {
     return (*flags & flag) == flag;
 }
 
-void vrtql_set_flag(uint64_t* flags, uint64_t flag)
+void vws_set_flag(uint64_t* flags, uint64_t flag)
 {
     *flags |= flag;
 }
 
-void vrtql_clear_flag(uint64_t* flags, uint64_t flag)
+void vws_clear_flag(uint64_t* flags, uint64_t flag)
 {
     *flags &= ~flag;
 }

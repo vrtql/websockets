@@ -9,11 +9,11 @@ cstr uri         = "ws://localhost:8181/websocket";
 cstr content     = "Lorem ipsum dolor sit amet";
 
 // Server function to process messages. Runs in context of worker thread.
-void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
+void process_message(vws_svr_cnx* cnx, vrtql_msg* m)
 {
     vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
 
-    vrtql.trace(VL_INFO, "process_message (%p) %p", cnx, m);
+    vws.trace(VL_INFO, "process_message (%p) %p", cnx, m);
 
     // Echo back. Note: You should always set reply messages format to the
     // format of the connection.
@@ -25,7 +25,7 @@ void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
     // Copy content
     cstr data   = m->content->data;
     size_t size = m->content->size;
-    vrtql_buffer_append(reply->content, data, size);
+    vws_buffer_append(reply->content, data, size);
 
     // Send. We don't free message as send() does it for us.
     server->send(cnx, reply);
@@ -37,8 +37,8 @@ void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
 void server_thread(void* arg)
 {
     vrtql_svr* server = (vrtql_svr*)arg;
-    vrtql.tracelevel  = VT_THREAD;
-    server->trace     = vrtql.tracelevel;
+    vws.tracelevel  = VT_THREAD;
+    server->trace     = vws.tracelevel;
 
     vrtql_svr_run(server, server_host, server_port);
 }
@@ -49,7 +49,7 @@ void client_thread(void* arg)
 
     while (vws_connect(cnx, uri) == false)
     {
-        vrtql.trace(VL_ERROR, "[client]: connecting %s", uri);
+        vws.trace(VL_ERROR, "[client]: connecting %s", uri);
     }
 
     cstr payload = "payload";
@@ -109,18 +109,18 @@ void client_test(int iterations, int nt)
 {
     for (int i = 0; i < iterations; i++)
     {
-        uv_thread_t* threads = vrtql.malloc(sizeof(uv_thread_t) * nt);
+        uv_thread_t* threads = vws.malloc(sizeof(uv_thread_t) * nt);
 
         for (int i = 0; i < nt; i++)
         {
             uv_thread_create(&threads[i], client_thread, NULL);
-            vrtql.trace(VL_INFO, "started client thread %p", threads[i]);
+            vws.trace(VL_INFO, "started client thread %p", threads[i]);
         }
 
         for (int i = 0; i < nt; i++)
         {
             uv_thread_join(&threads[i]);
-            vrtql.trace(VL_INFO, "stopped client thread %p", threads[i]);
+            vws.trace(VL_INFO, "stopped client thread %p", threads[i]);
         }
 
         free(threads);
@@ -138,7 +138,7 @@ CTEST(test_msg_server, echo)
     // Wait for server to start up
     while (vrtql_svr_state((vrtql_svr*)server) != VS_RUNNING)
     {
-        vrtql_msleep(100);
+        vws_msleep(100);
     }
 
     client_test(5, 50);

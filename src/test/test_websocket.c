@@ -39,7 +39,7 @@ CTEST_SETUP(test)
     ASSERT_TRUE(vws_connect(data->c, uri));
 
     // Enable tracing
-    vrtql.tracelevel = VT_PROTOCOL;
+    vws.tracelevel = VT_PROTOCOL;
 }
 
 CTEST_TEARDOWN(test)

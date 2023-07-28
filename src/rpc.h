@@ -1,7 +1,7 @@
 #ifndef VRTQL_RPC_DECLARE
 #define VRTQL_RPC_DECLARE
 
-#include "vrtql.h"
+#include "vws.h"
 #include "message.h"
 
 /**

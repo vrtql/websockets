@@ -3,29 +3,29 @@
 cstr server_host = "127.0.0.1";
 int  server_port = 8181;
 
-void process_data(vrtql_svr_data* req)
+void process_data(vws_svr_data* req)
 {
     vrtql_svr* server = req->cnx->server;
 
-    vrtql.trace(VL_INFO, "process_data (%p)", req);
+    vws.trace(VL_INFO, "process_data (%p)", req);
 
     //> Prepare the response: echo the data back
 
     // Allocate memory for the data to be sent in response
-    char* data = (char*)vrtql.malloc(req->size);
+    char* data = (char*)vws.malloc(req->size);
 
     // Copy the request's data to the response data
     strncpy(data, req->data, req->size);
 
     // Create response
-    vrtql_svr_data* reply = vrtql_svr_data_own(req->cnx, data, req->size);
+    vws_svr_data* reply = vws_svr_data_own(req->cnx, data, req->size);
 
     // Free request
-    vrtql_svr_data_free(req);
+    vws_svr_data_free(req);
 
-    if (vrtql.tracelevel >= VT_APPLICATION)
+    if (vws.tracelevel >= VT_APPLICATION)
     {
-        vrtql.trace( VL_INFO,
+        vws.trace( VL_INFO,
                      "process_data(%p): %i bytes",
                      reply->cnx,
                      reply->size);
@@ -38,7 +38,7 @@ void process_data(vrtql_svr_data* req)
 int main(int argc, const char* argv[])
 {
     vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
-    vrtql.tracelevel   = VT_THREAD;
+    vws.tracelevel   = VT_THREAD;
     server->on_data_in = process_data;
     vrtql_svr_run(server, server_host, server_port);
 

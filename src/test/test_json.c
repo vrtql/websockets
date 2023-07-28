@@ -1,5 +1,5 @@
 #include "common.h"
-#include "vrtql.h"
+#include "vws.h"
 #include "util/yyjson.h"
 
 #pragma GCC diagnostic push

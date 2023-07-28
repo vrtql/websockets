@@ -3,7 +3,7 @@
 
 #include <uv.h>
 
-#include "vrtql.h"
+#include "vws.h"
 #include "message.h"
 #include "http_message.h"
 
@@ -23,7 +23,7 @@
  * processing, and a response queue that transfers data from the worker threads
  * back to the network thread for sending it back to the client.
  *
- * The data items are stored in a generic structure called vrtql_svr_data, which
+ * The data items are stored in a generic structure called vws_svr_data, which
  * holds the data and the associated connection. The worker threads retrieve
  * data from the request queue and perform the following steps:
  *
@@ -49,14 +49,14 @@
  * on workload or system requirements.
  */
 
-struct vrtql_svr_cnx;
+struct vws_svr_cnx;
 
 typedef enum
 {
     /* uv_thread() is to close connection */
     VM_SVR_DATA_CLOSE  = (1 << 1)
 
-} vrtql_svr_data_state_t;
+} vws_svr_data_state_t;
 
 /**
  * @brief Struct representing server data for inter-thread communication
@@ -69,7 +69,7 @@ typedef enum
 typedef struct
 {
     /**< The client connection associated with the data */
-    struct vrtql_svr_cnx* cnx;
+    struct vws_svr_cnx* cnx;
 
     /**< The number of bytes of data */
     size_t size;
@@ -80,7 +80,7 @@ typedef struct
     /**< Message state flags */
     uint64_t flags;
 
-} vrtql_svr_data;
+} vws_svr_data;
 
 /**
  * @brief Struct representing a server queue, including information about
@@ -89,7 +89,7 @@ typedef struct
 typedef struct
 {
     /**< The buffer holding data in the queue */
-    vrtql_svr_data** buffer;
+    vws_svr_data** buffer;
 
     /**< Current size of the queue */
     int size;
@@ -122,7 +122,7 @@ struct vrtql_svr;
 /**
  * @brief Represents a client connection.
  */
-typedef struct vrtql_svr_cnx
+typedef struct vws_svr_cnx
 {
     /**< The server associated with the connection */
     struct vrtql_svr* server;
@@ -131,7 +131,7 @@ typedef struct vrtql_svr_cnx
     uv_stream_t* handle;
 
     /* Flag holds the HTTP request that started connection. */
-    vrtql_http_msg* http;
+    vws_http_msg* http;
 
     /** Flag that holds whether we have upgraded connection from HTTP to
      *  WebSockets */
@@ -145,19 +145,19 @@ typedef struct vrtql_svr_cnx
      */
     vrtql_msg_format_t format;
 
-} vrtql_svr_cnx;
+} vws_svr_cnx;
 
 /**
  * @brief Callback for a new connection connection
  * @param c The connection structure
  */
-typedef void (*vrtql_svr_connect)(vrtql_svr_cnx* c);
+typedef void (*vrtql_svr_connect)(vws_svr_cnx* c);
 
 /**
  * @brief Callback for connection disconnection
  * @param c The connection structure
  */
-typedef void (*vrtql_svr_disconnect)(vrtql_svr_cnx* c);
+typedef void (*vrtql_svr_disconnect)(vws_svr_cnx* c);
 
 /**
  * @brief Callback for connection read
@@ -165,14 +165,14 @@ typedef void (*vrtql_svr_disconnect)(vrtql_svr_cnx* c);
  * @param n The number of bytes in the buffer
  * @param b The buffer
  */
-typedef void (*vrtql_svr_read)(vrtql_svr_cnx* c, ssize_t n, const uv_buf_t* b);
+typedef void (*vrtql_svr_read)(vws_svr_cnx* c, ssize_t n, const uv_buf_t* b);
 
 /**
  * @brief Callback for data processing within a worker thread
  * @param s The server instance
  * @param t The incoming request to process
  */
-typedef void (*vrtql_svr_process_data)(vrtql_svr_data* t);
+typedef void (*vrtql_svr_process_data)(vws_svr_data* t);
 
 /**
  * @brief Enumerates server states
@@ -191,7 +191,7 @@ typedef enum
 } vrtql_svr_state_t;
 
 /** Abbreviation for the connection map */
-typedef struct sc_map_64v vrtql_svr_cnx_map;
+typedef struct sc_map_64v vws_svr_cnx_map;
 
 /**
  * @brief Struct representing a basic server. It does not do anything but
@@ -224,7 +224,7 @@ typedef struct vrtql_svr
     uv_thread_t* threads;
 
     /**< Map of active connections */
-    vrtql_svr_cnx_map cnxs;
+    vws_svr_cnx_map cnxs;
 
     /**< Callback function for connect */
     vrtql_svr_connect on_connect;
@@ -252,9 +252,9 @@ typedef struct vrtql_svr
  *
  * @param c The connection
  * @param buffer The buffer
- * @return A new vrtql_svr_data instance with memory
+ * @return A new vws_svr_data instance with memory
  */
-vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, vrtql_buffer* memory);
+vws_svr_data* vws_svr_data_new(vws_svr_cnx* c, vws_buffer* memory);
 
 /**
  * @brief Creates a new thread data. This TAKES OWNERSHIP of the data. The
@@ -263,16 +263,16 @@ vrtql_svr_data* vrtql_svr_data_new(vrtql_svr_cnx* c, vrtql_buffer* memory);
  * @param c The connection
  * @param size The number of bytes of data
  * @param data The data
- * @return A new vrtql_svr_data instance with memory
+ * @return A new vws_svr_data instance with memory
  */
-vrtql_svr_data* vrtql_svr_data_own(vrtql_svr_cnx* c, ucstr data, size_t size);
+vws_svr_data* vws_svr_data_own(vws_svr_cnx* c, ucstr data, size_t size);
 
 /**
  * @brief Frees the resources allocated to a thread data
  *
  * @param t The data
  */
-void vrtql_svr_data_free(vrtql_svr_data* t);
+void vws_svr_data_free(vws_svr_data* t);
 
 /**
  * @brief Creates a new VRTQL server.
@@ -310,14 +310,14 @@ int vrtql_svr_run(vrtql_svr* server, cstr host, int port);
  * @param data The data to be sent.
  * @return 0 if successful, an error code otherwise.
  */
-int vrtql_svr_send(vrtql_svr* server, vrtql_svr_data* data);
+int vrtql_svr_send(vrtql_svr* server, vws_svr_data* data);
 
 /**
  * @brief Close a VRTQL server connection.
  *
  * @param cnx The server connection to close.
  */
-void vrtql_svr_close(vrtql_svr_cnx* cnx);
+void vrtql_svr_close(vws_svr_cnx* cnx);
 
 /**
  * @brief Stops a VRTQL server.
@@ -343,20 +343,20 @@ uint8_t vrtql_svr_state(vrtql_svr* server);
  * @param s The server instance
  * @param f The incoming frame to process
  */
-typedef void (*vws_svr_process_frame)(vrtql_svr_cnx* s, vws_frame* f);
+typedef void (*vws_svr_process_frame)(vws_svr_cnx* s, vws_frame* f);
 
 /**
  * @brief Callback for data processing a WebSocket message
  * @param s The server instance
  * @param f The incoming message to process
  */
-typedef void (*vws_svr_process_msg)(vrtql_svr_cnx* s, vws_msg* f);
+typedef void (*vws_svr_process_msg)(vws_svr_cnx* s, vws_msg* f);
 
 /**
  * @brief Struct representing a WebSocket server. It speaks the WebSocket
  * protocol and processes both WebSocket frames and messages.
  */
-typedef struct vrtql_ws_svr
+typedef struct vws_svr
 {
     /**< Base class */
     struct vrtql_svr base;
@@ -379,7 +379,7 @@ typedef struct vrtql_ws_svr
     /**< Derived: for sending messages to the client (calls on_msg_out()) */
     vws_svr_process_msg send;
 
-} vrtql_ws_svr;
+} vws_svr;
 
 /**
  * @brief Creates a new WebSocket server.
@@ -391,14 +391,14 @@ typedef struct vrtql_ws_svr
  *   is set to 0, it will use the default (1024).
  * @return A new WebSocket server.
  */
-vrtql_ws_svr* vrtql_ws_svr_new(int pool_size, int backlog, int queue_size);
+vws_svr* vws_svr_new(int pool_size, int backlog, int queue_size);
 
 /**
  * @brief Frees the resources allocated to a WebSocket server.
  *
  * @param s The server to free.
  */
-void vrtql_ws_svr_free(vrtql_ws_svr* s);
+void vws_svr_free(vws_svr* s);
 
 /**
  * @brief Starts a WebSocket server.
@@ -408,7 +408,7 @@ void vrtql_ws_svr_free(vrtql_ws_svr* s);
  * @param port The port to bind the server.
  * @return 0 if successful, an error code otherwise.
  */
-int vrtql_ws_svr_run(vrtql_ws_svr* server, cstr host, int port);
+int vws_svr_run(vws_svr* server, cstr host, int port);
 
 //------------------------------------------------------------------------------
 // Messaging Server
@@ -419,7 +419,7 @@ int vrtql_ws_svr_run(vrtql_ws_svr* server, cstr host, int port);
  * @param s The server instance
  * @param m The incoming message to process
  */
-typedef void (*vrtql_svr_process_msg)(vrtql_svr_cnx* s, vrtql_msg* m);
+typedef void (*vrtql_svr_process_msg)(vws_svr_cnx* s, vrtql_msg* m);
 
 /**
  * @brief Struct representing a VTQL message server. It is derived from the
@@ -429,7 +429,7 @@ typedef void (*vrtql_svr_process_msg)(vrtql_svr_cnx* s, vrtql_msg* m);
 typedef struct vrtql_msg_svr
 {
     /**< Base class */
-    struct vrtql_ws_svr base;
+    struct vws_svr base;
 
     /**< Function for processing an incoming message */
     vrtql_svr_process_msg on_msg_in;

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15)
 mark_as_advanced(CMAKE_BACKWARDS_COMPATIBILITY)
 set(CMAKE_ALLOW_LOOSE_LOOP_CONSTRUCTS TRUE)
 
-project(vrtql)
+project(vws)
 
 include(config/platform.cmake)
 
@@ -10,7 +10,7 @@ include(config/platform.cmake)
 # Project / Files
 #-------------------------------------------------------------------------------
 
-set(PROJECT_NAME vrtql)
+set(PROJECT_NAME vws)
 
 # Version
 set(VERSION_MAJ      1)

@@ -29,7 +29,7 @@ static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map);
  * @param buffer The buffer to which the parsed content will be appended.
  * @return An integer indicating the status of the operation.
  */
-static int32_t msg_parse_content(mpack_reader_t* reader, vrtql_buffer* buffer);
+static int32_t msg_parse_content(mpack_reader_t* reader, vws_buffer* buffer);
 
 //------------------------------------------------------------------------------
 // API functions
@@ -37,15 +37,15 @@ static int32_t msg_parse_content(mpack_reader_t* reader, vrtql_buffer* buffer);
 
 vrtql_msg* vrtql_msg_new()
 {
-    vrtql_msg* msg = vrtql.calloc(1, sizeof(vrtql_msg));
+    vrtql_msg* msg = vws.calloc(1, sizeof(vrtql_msg));
 
     sc_map_init_str(&msg->routing, 0, 0);
     sc_map_init_str(&msg->headers, 0, 0);
-    msg->content = vrtql_buffer_new();
+    msg->content = vws_buffer_new();
     msg->flags   = 0;
     msg->format  = VM_MPACK_FORMAT;
 
-    vrtql_set_flag(&msg->flags, VM_MSG_VALID);
+    vws_set_flag(&msg->flags, VM_MSG_VALID);
 
     return msg;
 }
@@ -58,19 +58,19 @@ void vrtql_msg_free(vrtql_msg* msg)
         return;
     }
 
-    vrtql_map_clear(&msg->routing);
-    vrtql_map_clear(&msg->headers);
+    vws_map_clear(&msg->routing);
+    vws_map_clear(&msg->headers);
 
     sc_map_term_str(&msg->routing);
     sc_map_term_str(&msg->headers);
 
-    vrtql_buffer_free(msg->content);
+    vws_buffer_free(msg->content);
 
-    vrtql.free(msg);
+    vws.free(msg);
     msg = NULL;
 }
 
-vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg)
+vws_buffer* vrtql_msg_serialize(vrtql_msg* msg)
 {
     if (msg == NULL)
     {
@@ -82,7 +82,7 @@ vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg)
         // Serialize MessagePack
 
         // Buffer to hold data
-        vrtql_buffer* buffer = vrtql_buffer_new();
+        vws_buffer* buffer = vws_buffer_new();
 
         // Initialize writer
 
@@ -131,9 +131,9 @@ vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg)
             char buf[256];
             cstr text = mpack_error_to_string(rc);
             snprintf(buf, sizeof(buf), "Encoding errror: %s", text);
-            vrtql.error(VE_RT, buf);
+            vws.error(VE_RT, buf);
 
-            vrtql_buffer_free(buffer);
+            vws_buffer_free(buffer);
             return NULL;
         }
 
@@ -145,7 +145,7 @@ vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg)
         // Serialize JSON
 
         // Buffer to hold data
-        vrtql_buffer* buffer = vrtql_buffer_new();
+        vws_buffer* buffer = vws_buffer_new();
 
         // Create a mutable doc
         yyjson_mut_doc* doc = yyjson_mut_doc_new(NULL);
@@ -181,10 +181,10 @@ vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg)
 
         if (json)
         {
-            // Assuming vrtql_buffer_write takes a char* and size, writes the
+            // Assuming vws_buffer_write takes a char* and size, writes the
             // data to the buffer
-            vrtql_buffer_append(buffer, (ucstr)json, strlen(json));
-            vrtql.free((void*)json);
+            vws_buffer_append(buffer, (ucstr)json, strlen(json));
+            vws.free((void*)json);
         }
 
         // Free the doc
@@ -237,7 +237,7 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
         // Expect an array of size 3
         if (mpack_expect_array(&reader) != 3)
         {
-            vrtql.error(VE_RT, "Invalid MessagePack format");
+            vws.error(VE_RT, "Invalid MessagePack format");
             return false;
         }
 
@@ -280,7 +280,7 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             char buf[256];
             cstr text = mpack_error_to_string(rc);
             snprintf(buf, sizeof(buf), "Decoding errror: %s", text);
-            vrtql.error(VE_RT, buf);
+            vws.error(VE_RT, buf);
 
             return false;
         }
@@ -298,7 +298,7 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
 
         if (!yyjson_is_arr(root) || yyjson_arr_size(root) != 3)
         {
-            vrtql.error(VE_RT, "Invalid JSON: Root is not an array of size 3");
+            vws.error(VE_RT, "Invalid JSON: Root is not an array of size 3");
             yyjson_doc_free(doc);
 
             return false;
@@ -319,14 +319,14 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             while ((key = yyjson_obj_iter_next(&iter)))
             {
                 value = yyjson_obj_iter_get_val(key);
-                vrtql_map_set( &msg->routing,
+                vws_map_set( &msg->routing,
                              yyjson_get_str(key),
                              yyjson_get_str(value) );
             }
         }
         else
         {
-            vrtql.error(VE_RT, "Invalid JSON: routing not JSON object");
+            vws.error(VE_RT, "Invalid JSON: routing not JSON object");
             yyjson_doc_free(doc);
 
             return false;
@@ -338,14 +338,14 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             while ((key = yyjson_obj_iter_next(&iter)))
             {
                 value = yyjson_obj_iter_get_val(key);
-                vrtql_map_set( &msg->headers,
+                vws_map_set( &msg->headers,
                              yyjson_get_str(key),
                              yyjson_get_str(value) );
             }
         }
         else
         {
-            vrtql.error(VE_RT, "Invalid JSON: headers is not JSON object");
+            vws.error(VE_RT, "Invalid JSON: headers is not JSON object");
             yyjson_doc_free(doc);
 
             return false;
@@ -357,7 +357,7 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
         }
         else
         {
-            vrtql.error(VE_RT, "Invalid JSON: content is not a string");
+            vws.error(VE_RT, "Invalid JSON: content is not a string");
             yyjson_doc_free(doc);
 
             return false;
@@ -374,37 +374,37 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
 
 cstr vrtql_msg_get_header(vrtql_msg* msg, cstr key)
 {
-    return vrtql_map_get(&msg->headers, key);
+    return vws_map_get(&msg->headers, key);
 }
 
 void vrtql_msg_set_header(vrtql_msg* msg, cstr key, cstr value)
 {
-    vrtql_map_set(&msg->headers, key, value);
+    vws_map_set(&msg->headers, key, value);
 }
 
 void vrtql_msg_clear_header(vrtql_msg* msg, cstr key)
 {
-    vrtql_map_remove(&msg->headers, key);
+    vws_map_remove(&msg->headers, key);
 }
 
 cstr vrtql_msg_get_routing(vrtql_msg* msg, cstr key)
 {
-    return vrtql_map_get(&msg->routing, key);
+    return vws_map_get(&msg->routing, key);
 }
 
 void vrtql_msg_set_routing(vrtql_msg* msg, cstr key, cstr value)
 {
-    vrtql_map_set(&msg->routing, key, value);
+    vws_map_set(&msg->routing, key, value);
 }
 
 void vrtql_msg_clear_routing(vrtql_msg* msg, cstr key)
 {
-    vrtql_map_remove(&msg->routing, key);
+    vws_map_remove(&msg->routing, key);
 }
 
 void vrtql_msg_clear_content(vrtql_msg* msg)
 {
-    vrtql_buffer_clear(msg->content);
+    vws_buffer_clear(msg->content);
 }
 
 cstr vrtql_msg_get_content(vrtql_msg* msg)
@@ -419,21 +419,21 @@ size_t vrtql_msg_get_content_size(vrtql_msg* msg)
 
 void vrtql_msg_set_content(vrtql_msg* msg, cstr value)
 {
-    vrtql_buffer_clear(msg->content);
-    vrtql_buffer_append(msg->content, (ucstr)value, strlen(value));
+    vws_buffer_clear(msg->content);
+    vws_buffer_append(msg->content, (ucstr)value, strlen(value));
 }
 
 void vrtql_msg_set_content_binary(vrtql_msg* msg, cstr value, size_t size)
 {
-    vrtql_buffer_clear(msg->content);
-    vrtql_buffer_append(msg->content, (ucstr)value, size);
+    vws_buffer_clear(msg->content);
+    vws_buffer_append(msg->content, (ucstr)value, size);
 }
 
 ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg)
 {
-    vrtql_buffer* binary = vrtql_msg_serialize(msg);
+    vws_buffer* binary = vrtql_msg_serialize(msg);
     ssize_t bytes = vws_frame_send_binary(c, binary->data, binary->size);
-    vrtql_buffer_free(binary);
+    vws_buffer_free(binary);
 
     return bytes;
 }
@@ -471,7 +471,7 @@ vrtql_msg* vrtql_msg_recv(vws_cnx* c)
 static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map)
 {
     // Clear contents
-    vrtql_map_clear(map);
+    vws_map_clear(map);
 
     mpack_tag_t tag = mpack_read_tag(reader);
 
@@ -508,7 +508,7 @@ static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map)
 
         length = mpack_tag_str_length(&tag);
         data   = mpack_read_bytes_inplace(reader, length);
-        key    = vrtql.malloc(length + 1);
+        key    = vws.malloc(length + 1);
 
         memcpy(key, data, length);
         key[length] = 0;
@@ -526,7 +526,7 @@ static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map)
 
         length = mpack_tag_str_length(&tag);
         data   = mpack_read_bytes_inplace(reader, length);
-        value  = vrtql.malloc(length + 1);
+        value  = vws.malloc(length + 1);
 
         memcpy(value, data, length);
         value[length] = 0;
@@ -545,7 +545,7 @@ static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map)
     return true;
 }
 
-int32_t msg_parse_content(mpack_reader_t* reader, vrtql_buffer* buffer)
+int32_t msg_parse_content(mpack_reader_t* reader, vws_buffer* buffer)
 {
     mpack_tag_t tag = mpack_read_tag(reader);
 
@@ -570,8 +570,8 @@ int32_t msg_parse_content(mpack_reader_t* reader, vrtql_buffer* buffer)
 
     cstr data = mpack_read_bytes_inplace(reader, length);
 
-    vrtql_buffer_clear(buffer);
-    vrtql_buffer_append(buffer, (ucstr)data, length);
+    vws_buffer_clear(buffer);
+    vws_buffer_append(buffer, (ucstr)data, length);
     mpack_done_str(reader);
 
     return length;

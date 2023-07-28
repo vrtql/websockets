@@ -11,4 +11,4 @@
 #define VERSION_BN      "${VERSION_BN}"
 #define VERSION         "${RELEASE_VERSION}"
 
-#endif
+#endif /* VRTQL_PLATFORM_DECL */

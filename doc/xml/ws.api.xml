@@ -284,8 +284,8 @@ f="message.h">vrtql_tl_t</cr></classname> enum.</para>
 
 <para>The library provides memory management functions that include error
 handling mechanisms. These functions are <function>vrtql.malloc()</function>,
-<function>vrtql.calloc()</function> and
-<function>vrtql.realloc()</function>. These all call the underlying OS functions
+<function>vrtql.calloc()</function>, <function>vrtql.realloc()</function> and
+<function>vrtql.free()</function>. These all call the underlying OS functions
 but you can provide alternate implementations by assiging new functions.</para>
 
 </section> <!-- ws.api.aux.memory -->

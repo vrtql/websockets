@@ -13,7 +13,7 @@ CTEST(test_message, mpack_serialization)
     vrtql_msg_set_header(send, "key", "value");
     vrtql_msg_set_content(send, "content");
 
-    vrtql_buffer* binary = vrtql_msg_serialize(send);
+    vws_buffer* binary = vrtql_msg_serialize(send);
     bool rc = vrtql_msg_deserialize(receive, binary->data, binary->size);
 
     if (rc == false)
@@ -21,7 +21,7 @@ CTEST(test_message, mpack_serialization)
         ASSERT_FAIL();
     }
 
-    vrtql_buffer_free(binary);
+    vws_buffer_free(binary);
 
     char* key; char* value;
 
@@ -53,7 +53,7 @@ CTEST(test_message, json_serialization)
     vrtql_msg_set_content(send, "content");
 
     send->format = VM_MPACK_FORMAT;
-    vrtql_buffer* binary = vrtql_msg_serialize(send);
+    vws_buffer* binary = vrtql_msg_serialize(send);
     bool rc = vrtql_msg_deserialize(receive, binary->data, binary->size);
 
     if (rc == false)
@@ -61,7 +61,7 @@ CTEST(test_message, json_serialization)
         ASSERT_FAIL();
     }
 
-    vrtql_buffer_free(binary);
+    vws_buffer_free(binary);
 
     char* key; char* value;
 

@@ -1,6 +1,6 @@
 #include "common.h"
 
-#include "vrtql.h"
+#include "vws.h"
 #include "url.h"
 #include "util/sc_map.h"
 #include "util/sc_queue.h"
@@ -34,7 +34,7 @@ CTEST_TEARDOWN(test)
 
 CTEST2(test, error_callbacks)
 {
-    vrtql.error(VE_SUCCESS, "No error");
+    vws.error(VE_SUCCESS, "No error");
 }
 
 CTEST2(test, test_url)
@@ -42,15 +42,15 @@ CTEST2(test, test_url)
     cstr value = "http://user:pass@host.com:8080/path/to/something?query=string#hash";
     url_data_t* url = url_parse(value);
 
-    vrtql.trace(VL_INFO, "url protocol: %s", url->protocol);
-    vrtql.trace(VL_INFO, "url host:     %s", url->host);
-    vrtql.trace(VL_INFO, "url auth:     %s", url->auth);
-    vrtql.trace(VL_INFO, "url hostname: %s", url->hostname);
-    vrtql.trace(VL_INFO, "url pathname: %s", url->pathname);
-    vrtql.trace(VL_INFO, "url search:   %s", url->search);
-    vrtql.trace(VL_INFO, "url path:     %s", url->path);
-    vrtql.trace(VL_INFO, "url query:    %s", url->query);
-    vrtql.trace(VL_INFO, "url port:     %s", url->port);
+    vws.trace(VL_INFO, "url protocol: %s", url->protocol);
+    vws.trace(VL_INFO, "url host:     %s", url->host);
+    vws.trace(VL_INFO, "url auth:     %s", url->auth);
+    vws.trace(VL_INFO, "url hostname: %s", url->hostname);
+    vws.trace(VL_INFO, "url pathname: %s", url->pathname);
+    vws.trace(VL_INFO, "url search:   %s", url->search);
+    vws.trace(VL_INFO, "url path:     %s", url->path);
+    vws.trace(VL_INFO, "url query:    %s", url->query);
+    vws.trace(VL_INFO, "url port:     %s", url->port);
 
     url_free(url);
 }
@@ -62,13 +62,13 @@ CTEST2(test, base64)
 
     // Encoding
 
-    char* encoded = vrtql_base64_encode(original_data, original_length);
+    char* encoded = vws_base64_encode(original_data, original_length);
 
     // Decoding
 
     unsigned char* decoded;
     size_t output_length = 0;
-    decoded = vrtql_base64_decode(encoded, &output_length);
+    decoded = vws_base64_decode(encoded, &output_length);
 
     printf("Base64 Encoded: %s\n", encoded);
     printf("Base64 Decoded: %s\n", decoded);
@@ -79,24 +79,24 @@ CTEST2(test, base64)
 
 CTEST2(test, buffer)
 {
-    vrtql_buffer* buffer = vrtql_buffer_new(&buffer);
+    vws_buffer* buffer = vws_buffer_new(&buffer);
 
     // Append data to the buffer
     cstr data1 = "Hello, ";
-    vrtql_buffer_append(buffer, (ucstr)data1, strlen(data1));
+    vws_buffer_append(buffer, (ucstr)data1, strlen(data1));
 
     cstr data2 = "world!";
-    vrtql_buffer_append(buffer, (ucstr)data2, strlen(data2));
+    vws_buffer_append(buffer, (ucstr)data2, strlen(data2));
 
     // Drain the first 7 bytes from the buffer
-    vrtql_buffer_drain(buffer, 7);
+    vws_buffer_drain(buffer, 7);
 
     // Print the remaining data in the buffer
     printf("%s\n", buffer->data);
     ASSERT_STR((cstr)buffer->data, "world!");
 
     // Free the buffer
-    vrtql_buffer_free(buffer);
+    vws_buffer_free(buffer);
 }
 
 CTEST2(test, queue)
@@ -127,18 +127,18 @@ CTEST(test, trace)
 {
     printf("\n");
 
-    vrtql.trace(VL_DEBUG,   "vrtql.trace(%s)",   "DEBUG");
-    vrtql.trace(VL_INFO,    "vrtql.trace(%s)",    "INFO");
-    vrtql.trace(VL_WARN,    "vrtql.trace(%s)", "WARNING");
-    vrtql.trace(VL_ERROR,   "vrtql.trace(%s)",   "ERROR");
+    vws.trace(VL_DEBUG,   "vws.trace(%s)",   "DEBUG");
+    vws.trace(VL_INFO,    "vws.trace(%s)",    "INFO");
+    vws.trace(VL_WARN,    "vws.trace(%s)", "WARNING");
+    vws.trace(VL_ERROR,   "vws.trace(%s)",   "ERROR");
 }
 
 CTEST(test, error)
 {
     printf("\n");
 
-    vrtql.tracelevel = true;
-    vrtql.error(VE_RT, "Handshake invalid");
+    vws.tracelevel = true;
+    vws.error(VE_RT, "Handshake invalid");
 }
 
 int main(int argc, const char* argv[])

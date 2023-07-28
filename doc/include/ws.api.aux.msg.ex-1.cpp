@@ -1,4 +1,4 @@
-#include <vrtql/message.h>
+#include <vws/message.h>
 
 int main()
 {
@@ -22,7 +22,7 @@ int main()
     // Send
     if (vrtql_msg_send(cnx, request) < 0)
     {
-        printf("Failed to send: %s\n", vrtql.e.text);
+        printf("Failed to send: %s\n", vws.e.text);
         vrtql_msg_free(request);
         vws_cnx_free(cnx);
         return 1;

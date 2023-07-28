@@ -1,4 +1,4 @@
-#include <vrtql/websocket.h>
+#include <vws/websocket.h>
 
 int main()
 {
@@ -24,7 +24,7 @@ int main()
 
     // Enable tracing. This will dump frames to the console in human-readable
     // format as they are sent and received.
-    vrtql.trace = VT_PROTOCOL;
+    vws.trace = VT_PROTOCOL;
 
     // Send a TEXT frame
     vws_frame_send_text(cnx, "Hello, world!");

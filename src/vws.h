@@ -1,5 +1,5 @@
-#ifndef VRTQL_COMMON_DECLARE
-#define VRTQL_COMMON_DECLARE
+#ifndef VWS_COMMON_DECLARE
+#define VWS_COMMON_DECLARE
 
 #include <stddef.h>
 #include <stdint.h>
@@ -30,10 +30,10 @@ typedef enum
     VE_RT         = 11,  /**< Runtime error */
     VE_MEM        = 100, /**< Memory failure */
     VE_FATAL      = 200, /**< Fatal error */
-} vrtql_error_code_t;
+} vws_error_code_t;
 
 // Trace levels
-typedef enum vrtql_tl_t
+typedef enum vws_tl_t
 {
     VT_OFF         = 0,
     VT_APPLICATION = 1,
@@ -45,7 +45,7 @@ typedef enum vrtql_tl_t
     VT_LOCK        = 7,
     VT_MEMORY      = 8,
     VT_ALL         = 9
-} vrtql_tl_t;
+} vws_tl_t;
 
 /**
  * @brief Defines a structure for vrtql errors.
@@ -54,10 +54,10 @@ typedef struct
 {
     int code;       /**< Error code */
     char* text;     /**< Error text */
-} vrtql_error_value;
+} vws_error_value;
 
 /**< The SSL context for the connection. */
-extern SSL_CTX* vrtql_ssl_ctx;
+extern SSL_CTX* vws_ssl_ctx;
 
 //------------------------------------------------------------------------------
 // Tracing
@@ -73,7 +73,7 @@ typedef enum
     VL_WARN,          /**< Warning level log     */
     VL_ERROR,         /**< Error level log       */
     VL_LEVEL_COUNT    /**< Count of log levels   */
-} vrtql_log_level_t;
+} vws_log_level_t;
 
 /**
  * @brief Logs a trace message.
@@ -82,7 +82,7 @@ typedef enum
  * @param format The format string for the message
  * @param ... The arguments for the format string
  */
-void vrtql_trace(vrtql_log_level_t level, const char* format, ...);
+void vws_trace(vws_log_level_t level, const char* format, ...);
 
 
 /**
@@ -98,12 +98,12 @@ void vrtql_trace(vrtql_log_level_t level, const char* format, ...);
  *   the mutex.
  *
  * If an error occurs while trying to lock the mutex, this function will
- * submit an error message using vrtql_error_default_submit() with a
+ * submit an error message using vws_error_default_submit() with a
  * corresponding error code.
  *
- * @see vrtql_trace_unlock()
+ * @see vws_trace_unlock()
  */
-void vrtql_trace_lock();
+void vws_trace_lock();
 
 /**
  * @brief Unlock the log mutex to release synchronization after accessing
@@ -111,7 +111,7 @@ void vrtql_trace_lock();
  *
  * This function is responsible for unlocking the log mutex, allowing other
  * threads to access the logging functionality. It complements the
- * vrtql_trace_lock() function and should be called after finishing the
+ * vws_trace_lock() function and should be called after finishing the
  * logging-related tasks to release the mutex.
  *
  * This function uses platform-specific synchronization mechanisms depending
@@ -123,27 +123,27 @@ void vrtql_trace_lock();
  *   unlock the mutex.
  *
  * If an error occurs while trying to unlock the mutex, this function will
- * submit an error message using vrtql_error_default_submit() with a
+ * submit an error message using vws_error_default_submit() with a
  * corresponding error code.
  *
- * @see vrtql_trace_lock()
+ * @see vws_trace_lock()
  */
-void vrtql_trace_unlock();
+void vws_trace_unlock();
 
 /**
  * @brief Callback for tracing
  */
-typedef void (*vrtql_trace_cb)(vrtql_log_level_t level, const char* fmt, ...);
+typedef void (*vws_trace_cb)(vws_log_level_t level, const char* fmt, ...);
 
 /**
  * @brief Callback for memory allocation with malloc().
  */
-typedef void* (*vrtql_malloc_cb)(size_t size);
+typedef void* (*vws_malloc_cb)(size_t size);
 
 /**
  * @brief Callback for memory deallocatiion with free().
  */
-typedef void (*vrtql_free_cb)(void* memory);
+typedef void (*vws_free_cb)(void* memory);
 
 /**
  * @brief Callback for malloc failure. This is called when vrtql.malloc() fails
@@ -153,12 +153,12 @@ typedef void (*vrtql_free_cb)(void* memory);
  *
  * @param size The size argument passed to vrtql.malloc()
  */
-typedef void* (*vrtql_malloc_error_cb)(size_t size);
+typedef void* (*vws_malloc_error_cb)(size_t size);
 
 /**
  * @brief Callback for memory allocation with calloc.
  */
-typedef void* (*vrtql_calloc_cb)(size_t nmemb, size_t size);
+typedef void* (*vws_calloc_cb)(size_t nmemb, size_t size);
 
 /**
  * @brief Callback for calloc failure. This is called when vrtql.calloc() fails
@@ -169,14 +169,14 @@ typedef void* (*vrtql_calloc_cb)(size_t nmemb, size_t size);
  * @param nmemb The nmemb argument passed to vrtql.calloc()
  * @param size The size argument passed to vrtql.calloc()
  */
-typedef void* (*vrtql_calloc_error_cb)(size_t nmemb, size_t size);
+typedef void* (*vws_calloc_error_cb)(size_t nmemb, size_t size);
 
 /**
  * @brief Callback for memory allocation with realloc.
  *
  * @param ptr The ptr argument passed to vrtql.realloc()
  */
-typedef void* (*vrtql_realloc_cb)(void* ptr, size_t size);
+typedef void* (*vws_realloc_cb)(void* ptr, size_t size);
 
 /**
  * @brief Callback for realloc failure. This is called when vrtql.realloc()
@@ -187,14 +187,14 @@ typedef void* (*vrtql_realloc_cb)(void* ptr, size_t size);
  * @param ptr The ptr argument passed to vrtql.realloc()
  * @param size The size argument passed to vrtql.realloc()
  */
-typedef void* (*vrtql_realloc_error_cb)(void* ptr, size_t size);
+typedef void* (*vws_realloc_error_cb)(void* ptr, size_t size);
 
 /**
  * @brief Callback for error submission. Error submission function. Error
  * submission takes care of recording the error in the vrtql.e member. The next
  * step is the process the error.
  */
-typedef int (*vrtql_error_submit_cb)(int code, cstr message, ...);
+typedef int (*vws_error_submit_cb)(int code, cstr message, ...);
 
 /**
  * @brief Callback for error processing. Error processing function. Error
@@ -202,55 +202,55 @@ typedef int (*vrtql_error_submit_cb)(int code, cstr message, ...);
  * of errors, for example how to exit the process on fatal errors (VE_FATAL), or
  * how to handle memory allocation errors (VE_MEM).
  */
-typedef int (*vrtql_error_process_cb)(int code, cstr message);
+typedef int (*vws_error_process_cb)(int code, cstr message);
 
 /**
  * @brief Callback for error clearing. The default is to set VE_SUCESS.
  */
-typedef void (*vrtql_error_clear_cb)();
+typedef void (*vws_error_clear_cb)();
 
 /**
  * @brief Callback for success conditions. The default is to set VE_SUCESS.
  */
-typedef void (*vrtql_error_success_cb)();
+typedef void (*vws_error_success_cb)();
 
 /**
  * @brief Defines the global vrtql environment.
  */
 typedef struct
 {
-    vrtql_malloc_cb malloc;               /**< malloc function             */
-    vrtql_malloc_error_cb malloc_error;   /**< malloc error hanlding       */
-    vrtql_calloc_cb calloc;               /**< calloc function             */
-    vrtql_calloc_error_cb calloc_error;   /**< calloc error hanlding       */
-    vrtql_realloc_cb realloc;             /**< realloc function            */
-    vrtql_realloc_error_cb realloc_error; /**< calloc error hanlding       */
-    vrtql_free_cb free;                   /**< free function               */
-    vrtql_error_submit_cb error;          /**< Error submission function   */
-    vrtql_error_process_cb process_error; /**< Error processing function   */
-    vrtql_error_clear_cb clear_error;     /**< Error clear function        */
-    vrtql_error_clear_cb success;         /**< Error clear function        */
-    vrtql_error_value e;                  /**< Last error value            */
-    vrtql_trace_cb trace;                 /**< Error clear function        */
+    vws_malloc_cb malloc;               /**< malloc function             */
+    vws_malloc_error_cb malloc_error;   /**< malloc error hanlding       */
+    vws_calloc_cb calloc;               /**< calloc function             */
+    vws_calloc_error_cb calloc_error;   /**< calloc error hanlding       */
+    vws_realloc_cb realloc;             /**< realloc function            */
+    vws_realloc_error_cb realloc_error; /**< calloc error hanlding       */
+    vws_free_cb free;                   /**< free function               */
+    vws_error_submit_cb error;          /**< Error submission function   */
+    vws_error_process_cb process_error; /**< Error processing function   */
+    vws_error_clear_cb clear_error;     /**< Error clear function        */
+    vws_error_clear_cb success;         /**< Error clear function        */
+    vws_error_value e;                  /**< Last error value            */
+    vws_trace_cb trace;                 /**< Error clear function        */
     uint8_t tracelevel;                   /**< Tracing leve (0 is off)     */
     uint64_t state;                       /**< Contains global state flags */
     unsigned char sslbuf[4096];           /**< Thread-local SSL buffer */
-} vrtql_env;
+} vws_env;
 
 /**
  * @brief The global vrtql environment variable
  */
-extern __thread vrtql_env vrtql;
+extern __thread vws_env vws;
 
 /**
  * @brief Defines a buffer for vrtql.
  */
-typedef struct vrtql_buffer
+typedef struct vws_buffer
 {
     unsigned char* data; /**< The data in the buffer                       */
     size_t allocated;    /**< The amount of space allocated for the buffer */
     size_t size;         /**< The current size of the data in the buffer   */
-} vrtql_buffer;
+} vws_buffer;
 
 //------------------------------------------------------------------------------
 // Buffer
@@ -259,32 +259,32 @@ typedef struct vrtql_buffer
 /**
  * @brief Creates a new vrtql buffer.
  *
- * @return Returns a new vrtql_buffer instance
+ * @return Returns a new vws_buffer instance
  */
-vrtql_buffer* vrtql_buffer_new();
+vws_buffer* vws_buffer_new();
 
 /**
  * @brief Frees a vrtql buffer.
  *
  * @param buffer The buffer to be freed
  */
-void vrtql_buffer_free(vrtql_buffer* buffer);
+void vws_buffer_free(vws_buffer* buffer);
 
 /**
  * @brief Clears a vrtql buffer.
  *
  * @param buffer The buffer to be cleared
  */
-void vrtql_buffer_clear(vrtql_buffer* buffer);
+void vws_buffer_clear(vws_buffer* buffer);
 
 /**
- * @brief Appends formatted data to a vrtql_buffer using printf() format.
+ * @brief Appends formatted data to a vws_buffer using printf() format.
  *
- * This function appends formatted data to the specified vrtql_buffer using a
+ * This function appends formatted data to the specified vws_buffer using a
  * printf()-style format string and variable arguments. The formatted data is
  * appended to the existing content of the buffer.
  *
- * @param buffer The vrtql_buffer to append the formatted data to.
+ * @param buffer The vws_buffer to append the formatted data to.
  * @param format The printf() format string specifying the format of the data to
  *        be appended.
  * @param ... Variable arguments corresponding to the format specifier in the
@@ -295,7 +295,7 @@ void vrtql_buffer_clear(vrtql_buffer* buffer);
  *       data and the variable arguments provide the values to be formatted and
  *       appended to the buffer.
  *
- * @note The vrtql_buffer must be initialized and have sufficient capacity to
+ * @note The vws_buffer must be initialized and have sufficient capacity to
  *       hold the appended data. If the buffer capacity is exceeded, the
  *       behavior is undefined.
  *
@@ -303,10 +303,10 @@ void vrtql_buffer_clear(vrtql_buffer* buffer);
  *          consistent, as mismatches can lead to undefined behavior or security
  *          vulnerabilities (e.g., format string vulnerabilities).
  *
- * @see vrtql_buffer_init
- * @see vrtql_buffer_append
+ * @see vws_buffer_init
+ * @see vws_buffer_append
  */
-void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...);
+void vws_buffer_printf(vws_buffer* buffer, cstr format, ...);
 
 /**
  * @brief Appends data to a vrtql buffer.
@@ -315,7 +315,7 @@ void vrtql_buffer_printf(vrtql_buffer* buffer, cstr format, ...);
  * @param data The data to append
  * @param size The size of the data
  */
-void vrtql_buffer_append(vrtql_buffer* buffer, ucstr data, size_t size);
+void vws_buffer_append(vws_buffer* buffer, ucstr data, size_t size);
 
 /**
  * @brief Drains a vrtql buffer by a given size.
@@ -323,7 +323,7 @@ void vrtql_buffer_append(vrtql_buffer* buffer, ucstr data, size_t size);
  * @param buffer The buffer to drain
  * @param size The size to drain from the buffer
  */
-void vrtql_buffer_drain(vrtql_buffer* buffer, size_t size);
+void vws_buffer_drain(vws_buffer* buffer, size_t size);
 
 //------------------------------------------------------------------------------
 // Map
@@ -338,7 +338,7 @@ void vrtql_buffer_drain(vrtql_buffer* buffer, size_t size);
  * @param key The string key to use for retrieval.
  * @return A constant string pointer to the value associated with the key.
  */
-cstr vrtql_map_get(struct sc_map_str* map, cstr key);
+cstr vws_map_get(struct sc_map_str* map, cstr key);
 
 /**
  * @brief Sets a value in the map using a string key and value.
@@ -349,7 +349,7 @@ cstr vrtql_map_get(struct sc_map_str* map, cstr key);
  * @param key The string key to use for setting.
  * @param value The string value to set.
  */
-void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value);
+void vws_map_set(struct sc_map_str* map, cstr key, cstr value);
 
 /**
  * @brief Removes a key-value pair from the map using a string key.
@@ -359,14 +359,14 @@ void vrtql_map_set(struct sc_map_str* map, cstr key, cstr value);
  * @param map The map from which to remove the key-value pair.
  * @param key The string key to use for removal.
  */
-void vrtql_map_remove(struct sc_map_str* map, cstr key);
+void vws_map_remove(struct sc_map_str* map, cstr key);
 
 /**
  * @brief Removes all key-value pair from the map, calling free() on them
  *
  * @param map The map to clear
  */
-void vrtql_map_clear(struct sc_map_str* map);
+void vws_map_clear(struct sc_map_str* map);
 
 //------------------------------------------------------------------------------
 // URL
@@ -383,15 +383,15 @@ typedef struct
     char* path;      /**< The path on the host               */
     char* query;     /**< The query parameters               */
     char* fragment;  /**< The fragment identifier            */
-} vrtql_url;
+} vws_url;
 
 /**
  * @brief Parses a URL.
  *
  * @param url The URL to parse
- * @return Returns a vrtql_url structure with the parsed URL parts
+ * @return Returns a vws_url structure with the parsed URL parts
  */
-vrtql_url vrtql_url_parse(const char* url);
+vws_url vws_url_parse(const char* url);
 
 /**
  * @brief Builds a URL string from parts.
@@ -399,21 +399,21 @@ vrtql_url vrtql_url_parse(const char* url);
  * @param parts The URL parts
  * @return Returns a URL string built from the parts
  */
-char* vrtql_url_build(const vrtql_url* parts);
+char* vws_url_build(const vws_url* parts);
 
 /**
- * @brief Allocates a vrtql_url structure.
+ * @brief Allocates a vws_url structure.
  *
- * @return Returns a new vrtql_url structure
+ * @return Returns a new vws_url structure
  */
-vrtql_url vrtql_url_new();
+vws_url vws_url_new();
 
 /**
- * @brief Frees a vrtql_url structure.
+ * @brief Frees a vws_url structure.
  *
- * @param parts The vrtql_url structure to free
+ * @param parts The vws_url structure to free
  */
-void vrtql_url_free(vrtql_url parts);
+void vws_url_free(vws_url parts);
 
 //------------------------------------------------------------------------------
 // Utilities
@@ -432,7 +432,7 @@ void vrtql_url_free(vrtql_url parts);
  *       include the necessary headers and handle any compilation errors or
  *       warnings specific to your environment.
  */
-void vrtql_msleep(unsigned int ms);
+void vws_msleep(unsigned int ms);
 
 /**
  * @brief Checks if a specific flag is set.
@@ -441,7 +441,7 @@ void vrtql_msleep(unsigned int ms);
  * @param flag  The flag to check for
  * @return Returns true if the flag is set, false otherwise
  */
-uint8_t vrtql_is_flag(const uint64_t* flags, uint64_t flag);
+uint8_t vws_is_flag(const uint64_t* flags, uint64_t flag);
 
 /**
  * @brief Sets a specific flag.
@@ -450,7 +450,7 @@ uint8_t vrtql_is_flag(const uint64_t* flags, uint64_t flag);
  * @param flag  The flag to set
  * @return None
  */
-void vrtql_set_flag(uint64_t* flags, uint64_t flag);
+void vws_set_flag(uint64_t* flags, uint64_t flag);
 
 /**
  * @brief Clears a specific flag.
@@ -459,14 +459,14 @@ void vrtql_set_flag(uint64_t* flags, uint64_t flag);
  * @param flag  The flag to clear
  * @return None
  */
-void vrtql_clear_flag(uint64_t* flags, uint64_t flag);
+void vws_clear_flag(uint64_t* flags, uint64_t flag);
 
 /**
  * @brief Generates a UUID.
  *
  * @return Returns a UUID string
  */
-char* vrtql_generate_uuid();
+char* vws_generate_uuid();
 
 /**
  * @brief Encodes data as Base64.
@@ -475,7 +475,7 @@ char* vrtql_generate_uuid();
  * @param size The size of the data
  * @return Returns a Base64-encoded string
  */
-char* vrtql_base64_encode(const unsigned char* data, size_t size);
+char* vws_base64_encode(const unsigned char* data, size_t size);
 
 /**
  * @brief Decodes a Base64-encoded string.
@@ -484,6 +484,6 @@ char* vrtql_base64_encode(const unsigned char* data, size_t size);
  * @param size Pointer to size which will be filled with the size of the decoded data
  * @return Returns a pointer to the decoded data
  */
-unsigned char* vrtql_base64_decode(const char* data, size_t* size);
+unsigned char* vws_base64_decode(const char* data, size_t* size);
 
-#endif /* VRTQL_COMMON_DECLARE */
+#endif /* VWS_COMMON_DECLARE */

@@ -4,11 +4,11 @@ cstr server_host = "127.0.0.1";
 int  server_port = 8181;
 
 // Server function to process messages. Runs in context of worker thread.
-void process_message(vrtql_svr_cnx* cnx, vrtql_msg* m)
+void process_message(vws_svr_cnx* cnx, vrtql_msg* m)
 {
     vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
 
-    vrtql.trace(VL_INFO, "process_message (%p) %p", cnx, m);
+    vws.trace(VL_INFO, "process_message (%p) %p", cnx, m);
 
     // Echo back. Note: You should always set reply messages format to the
     // format of the connection.

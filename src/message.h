@@ -23,7 +23,7 @@ typedef struct vrtql_msg
 {
     struct sc_map_str routing; /**< A map storing routing information. */
     struct sc_map_str headers; /**< A map storing header fields.       */
-    vrtql_buffer* content;     /**< Buffer for the message content.    */
+    vws_buffer* content;     /**< Buffer for the message content.    */
     uint64_t flags;            /**< Message state flags                */
     vrtql_msg_format_t format; /**< Message format                     */
 } vrtql_msg;
@@ -126,7 +126,7 @@ void vrtql_msg_clear_content(vrtql_msg* msg);
  * @param msg The vrtql_msg instance.
  * @return A buffer containing the serialized message.
  */
-vrtql_buffer* vrtql_msg_serialize(vrtql_msg* msg);
+vws_buffer* vrtql_msg_serialize(vrtql_msg* msg);
 
 /**
  * @brief Deserializes a buffer to a vrtql_msg instance.

@@ -1,5 +1,5 @@
-#ifndef VRTQL_SOCKET_DECLARE
-#define VRTQL_SOCKET_DECLARE
+#ifndef VWS_SOCKET_DECLARE
+#define VWS_SOCKET_DECLARE
 
 #include <stdint.h>
 #include <stddef.h>
@@ -10,7 +10,7 @@
 
 #include <stdbool.h>
 
-#include "vrtql.h"
+#include "vws.h"
 
 struct vws_socket;
 
@@ -36,7 +36,7 @@ typedef struct vws_socket
     SSL* ssl;
 
     /**< Socket receive buffer. */
-    vrtql_buffer* buffer;
+    vws_buffer* buffer;
 
     /**< Socket timeout in milliseconds. */
     int timeout;
@@ -176,4 +176,4 @@ ssize_t vws_socket_read(vws_socket* s);
  */
 ssize_t vws_socket_write(vws_socket* s, ucstr data, size_t size);
 
-#endif /* VRTQL_SOCKET_DECLARE */
+#endif /* VWS_SOCKET_DECLARE */

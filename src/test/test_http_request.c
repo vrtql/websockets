@@ -10,9 +10,9 @@ CTEST(test_rpc, call)
                  "Accept: */*\r\n"
                  "\r\n";
 
-    vrtql_http_msg* req = vrtql_http_msg_new(HTTP_REQUEST);
+    vws_http_msg* req = vws_http_msg_new(HTTP_REQUEST);
 
-    vrtql_http_msg_parse(req, data, strlen(data));
+    vws_http_msg_parse(req, data, strlen(data));
     ASSERT_TRUE(req->complete == true);
 
     printf("\n");
@@ -23,7 +23,7 @@ CTEST(test_rpc, call)
         printf("Header: %s: %s\n", key, value);
     }
 
-    vrtql_http_msg_free(req);
+    vws_http_msg_free(req);
 }
 
 int main(int argc, const char* argv[])

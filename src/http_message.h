@@ -1,14 +1,14 @@
-#ifndef VRTQL_HTTP_REQUEST_DECLARE
-#define VRTQL_HTTP_REQUEST_DECLARE
+#ifndef VWS_HTTP_REQUEST_DECLARE
+#define VWS_HTTP_REQUEST_DECLARE
 
-#include "vrtql.h"
+#include "vws.h"
 #include "http_parser.h"
 
 /**
- * @struct vrtql_http_msg
+ * @struct vws_http_msg
  * @brief Structure representing an HTTP request
  */
-typedef struct vrtql_http_msg
+typedef struct vws_http_msg
 {
     /**< The parser */
     http_parser* parser;
@@ -20,43 +20,43 @@ typedef struct vrtql_http_msg
     struct sc_map_str headers;
 
     /**< The url */
-    vrtql_buffer* url;
+    vws_buffer* url;
 
     /**< The body */
-    vrtql_buffer* body;
+    vws_buffer* body;
 
     /**< Placeholder for header field */
-    vrtql_buffer* field;
+    vws_buffer* field;
 
     /**< Placeholder for header value */
-    vrtql_buffer* value;
+    vws_buffer* value;
 
     /** Flag indicates a complete message has been parsed. */
     bool complete;
 
-} vrtql_http_msg;
+} vws_http_msg;
 
 /**
- * @brief Creates a new instance of vrtql_http_msg.
+ * @brief Creates a new instance of vws_http_msg.
  * @param mode Must be one of HTTP_REQUEST or HTTP_RESPONSE depending on the
  *        message to parse.
- * @return The newly created vrtql_http_msg instance.
+ * @return The newly created vws_http_msg instance.
  */
-vrtql_http_msg* vrtql_http_msg_new(int mode);
+vws_http_msg* vws_http_msg_new(int mode);
 
 /**
  * @brief Parses the provided data as an HTTP request.
- * @param req The vrtql_http_msg instance.
+ * @param req The vws_http_msg instance.
  * @param data The data to parse.
  * @param size The size of the data.
  * @return The number of bytes parsed, or a negative value on error.
  */
-int vrtql_http_msg_parse(vrtql_http_msg* req, cstr data, size_t size);
+int vws_http_msg_parse(vws_http_msg* req, cstr data, size_t size);
 
 /**
- * @brief Frees the resources associated with the vrtql_http_msg instance.
- * @param req The vrtql_http_msg instance to free.
+ * @brief Frees the resources associated with the vws_http_msg instance.
+ * @param req The vws_http_msg instance to free.
  */
-void vrtql_http_msg_free(vrtql_http_msg* req);
+void vws_http_msg_free(vws_http_msg* req);
 
-#endif /* VRTQL_HTTP_MSG_DECLARE */
+#endif /* VWS_HTTP_MSG_DECLARE */

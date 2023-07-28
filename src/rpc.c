@@ -51,12 +51,12 @@ vrtql_rpc_module* vrtql_rpc_module_new(cstr name)
 {
     if (name == NULL)
     {
-        vrtql.error(VE_RT, "module name cannot be NULL");
+        vws.error(VE_RT, "module name cannot be NULL");
     }
 
     vrtql_rpc_module* m;
 
-    m = (vrtql_rpc_module*)vrtql.malloc(sizeof(vrtql_rpc_module));
+    m = (vrtql_rpc_module*)vws.malloc(sizeof(vrtql_rpc_module));
 
     m->name = strdup(name);
     sc_map_init_sv(&m->calls, 0, 0);
@@ -71,13 +71,13 @@ void vrtql_rpc_module_free(vrtql_rpc_module* m)
         cstr key; vrtql_rpc_call* call;
         sc_map_foreach(&m->calls, key, call)
         {
-            vrtql.free(key);
+            vws.free(key);
         }
 
         sc_map_term_sv(&m->calls);
 
-        vrtql.free(m->name);
-        vrtql.free(m);
+        vws.free(m->name);
+        vws.free(m);
     }
 }
 
@@ -98,7 +98,7 @@ vrtql_rpc_call vrtql_rpc_module_get(vrtql_rpc_module* m, cstr n)
 vrtql_rpc_system* vrtql_rpc_system_new()
 {
     vrtql_rpc_system* s;
-    s = (vrtql_rpc_system*)vrtql.malloc(sizeof(vrtql_rpc_system));
+    s = (vrtql_rpc_system*)vws.malloc(sizeof(vrtql_rpc_system));
     sc_map_init_sv(&s->modules, 0, 0);
 
     return s;
@@ -112,7 +112,7 @@ void vrtql_rpc_system_free(vrtql_rpc_system* s)
         sc_map_foreach(&s->modules, key, module)
         {
             vrtql_rpc_module_free(module);
-            vrtql.free(key);
+            vws.free(key);
 
             /*
             sys_map_clear( &s->modules,
@@ -123,7 +123,7 @@ void vrtql_rpc_system_free(vrtql_rpc_system* s)
 
         sc_map_term_sv(&s->modules);
 
-        vrtql.free(s);
+        vws.free(s);
     }
 }
 
@@ -153,8 +153,8 @@ bool parse_rpc_string(const char* input, char** module, char** function)
         size_t f_len = strlen(input) - m_len - 1;
 
         // Allocate memory for the module and function strings
-        *module   = (char*)vrtql.malloc((m_len + 1) * sizeof(char));
-        *function = (char*)vrtql.malloc((f_len + 1) * sizeof(char));
+        *module   = (char*)vws.malloc((m_len + 1) * sizeof(char));
+        *function = (char*)vws.malloc((f_len + 1) * sizeof(char));
 
         // Copy the module substring
         strncpy(*module, input, m_len);
@@ -173,13 +173,13 @@ bool parse_rpc_string(const char* input, char** module, char** function)
 
 vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
 {
-    vrtql.success();
+    vws.success();
 
     cstr id = vrtql_msg_get_header(m, "id");
 
     if (id == NULL)
     {
-        vrtql.error(VE_RT, "ID not specified");
+        vws.error(VE_RT, "ID not specified");
 
         vrtql_msg_free(m);
 
@@ -190,7 +190,7 @@ vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
     char* mn; char* fn;
     if (parse_rpc_string(id, &mn, &fn) == false)
     {
-        vrtql.error(VE_RT, "Invalid ID format");
+        vws.error(VE_RT, "Invalid ID format");
 
         vrtql_msg_free(m);
 
@@ -202,11 +202,11 @@ vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
 
     if (module == NULL)
     {
-        vrtql.error(VE_RT, "RPC does not exist");
+        vws.error(VE_RT, "RPC does not exist");
 
         vrtql_msg_free(m);
-        vrtql.free(mn);
-        vrtql.free(fn);
+        vws.free(mn);
+        vws.free(fn);
 
         return NULL;
     }
@@ -216,17 +216,17 @@ vrtql_msg* vrtql_rpc(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
 
     if (rpc == NULL)
     {
-        vrtql.error(VE_RT, "RPC does not exist");
+        vws.error(VE_RT, "RPC does not exist");
 
         vrtql_msg_free(m);
-        vrtql.free(mn);
-        vrtql.free(fn);
+        vws.free(mn);
+        vws.free(fn);
 
         return NULL;
     }
 
-    vrtql.free(mn);
-    vrtql.free(fn);
+    vws.free(mn);
+    vws.free(fn);
 
     // Invoke RPC
     vrtql_msg* reply = rpc(e, m);
