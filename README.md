@@ -113,8 +113,10 @@ structure laid out in the standard. The following is a basic example of the
 Websockets API:
 
 ```c
-#include <vrtql/websocket.h>
+#include <vws/websocket.h>
 
+int main(int argc, const char* argv[])
+{
     // Create connection object
     vws_cnx* cnx = vws_cnx_new();
 
@@ -137,7 +139,7 @@ Websockets API:
 
     // Enable tracing. This will dump frames to the console in human-readable
     // format as they are sent and received.
-    vrtql.trace = VT_PROTOCOL;
+    vws.tracelevel = VT_PROTOCOL;
 
     // Send a TEXT frame
     vws_frame_send_text(cnx, "Hello, world!");
@@ -156,7 +158,7 @@ Websockets API:
     }
 
     // Send a BINARY message
-    vws_msg_send_binary(cnx, "Hello, world!", 14);
+    vws_msg_send_binary(cnx, (ucstr)"Hello, world!", 14);
 
     // Receive websocket message
     reply = vws_msg_recv(cnx);
@@ -171,11 +173,7 @@ Websockets API:
         vws_msg_free(reply);
     }
 
-    // Diconnect
     vws_disconnect(cnx);
-
-    // Free the connection
-    vws_cnx_free(cnx);
 
     return 0;
 }
@@ -209,7 +207,7 @@ MessagePack.
 The following is a basic example of using the high-level messaging API.
 
 ```c
-#include <vrtql/message.h>
+#include <vws/message.h>
 
 int main()
 {
@@ -227,7 +225,7 @@ int main()
 
     // Enable tracing. This will dump frames to the console in human-readable
     // format as they are sent and received.
-    vrtql.trace = VT_PROTOCOL;
+    vws.tracelevel = VT_PROTOCOL;
 
   // Create
     vrtql_msg* request = vrtql_msg_new();
@@ -239,7 +237,7 @@ int main()
     // Send
     if (vrtql_msg_send(cnx, request) < 0)
     {
-        printf("Failed to send: %s\n", vrtql.e.text);
+        printf("Failed to send: %s\n", vws.e.text);
         vrtql_msg_free(request);
         vws_cnx_free(cnx);
         return 1;
