@@ -174,7 +174,11 @@ vws_buffer* vrtql_msg_serialize(vrtql_msg* msg)
         // Add content
         int size  = msg->content->size;
         cstr data = (cstr)msg->content->data;
-        yyjson_mut_arr_add_strncpy(doc, root, data, size);
+
+        if (size > 0)
+        {
+            yyjson_mut_arr_add_strncpy(doc, root, data, size);
+        }
 
         // To string, minified
         cstr json = yyjson_mut_write(doc, 0, NULL);
@@ -370,6 +374,59 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
     }
 
     return true;
+}
+
+void vrtql_msg_dump(vrtql_msg* msg)
+{
+    // Buffer to hold data
+    vws_buffer* buffer = vws_buffer_new();
+
+    // Create a mutable doc
+    yyjson_mut_doc* doc = yyjson_mut_doc_new(NULL);
+
+    // We're generating an array as root.
+    yyjson_mut_val* root = yyjson_mut_arr(doc);
+
+    // Set root of the doc
+    yyjson_mut_doc_set_root(doc, root);
+
+    // Generate routing
+    yyjson_mut_val* routing = yyjson_mut_arr_add_obj(doc, root);
+    cstr key; cstr value;
+    sc_map_foreach(&msg->routing, key, value)
+    {
+        yyjson_mut_obj_add_str(doc, routing, key, value);
+    }
+
+    // Generate headers
+    yyjson_mut_val* headers = yyjson_mut_arr_add_obj(doc, root);
+    sc_map_foreach(&msg->headers, key, value)
+    {
+        yyjson_mut_obj_add_str(doc, headers, key, value);
+    }
+
+    // To string, minified
+    cstr json = yyjson_mut_write(doc, 0, NULL);
+
+    if (json)
+    {
+        // Assuming vws_buffer_write takes a char* and size, writes the
+        // data to the buffer
+        vws_buffer_append(buffer, (ucstr)json, strlen(json));
+        vws.free((void*)json);
+    }
+
+    // Free the doc
+    yyjson_mut_doc_free(doc);
+
+    printf("%s\n", buffer->data);
+
+    if (msg->content->size > 0)
+    {
+        printf("%.*s\n", (int)msg->content->size, msg->content->data);
+    }
+
+    vws_buffer_free(buffer);
 }
 
 cstr vrtql_msg_get_header(vrtql_msg* msg, cstr key)

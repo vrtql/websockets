@@ -13,6 +13,9 @@
 #include "websocket.h"
 #include "message.h"
 
+#define CTEST_MAIN
+#include "ctest.h"
+
 #include "common.h"
 
 cstr content = "content";
@@ -93,7 +96,5 @@ CTEST2(test, message)
 
 int main(int argc, const char* argv[])
 {
-    int result = ctest_main(argc, argv);
-
-    return 0;
+    return ctest_main(argc, argv);
 }

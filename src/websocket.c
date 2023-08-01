@@ -386,7 +386,7 @@ bool vws_cnx_is_connected(vws_cnx* c)
 {
     if (vws_socket_is_connected((vws_socket*)c) == false)
     {
-        vws.error(VE_SOCKET, "Connection dropped");
+        vws.error(VE_SOCKET, "vws_cnx_is_connected()");
         return false;
     }
 
@@ -1149,7 +1149,7 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
 
         // Attempt to parse complete frame
         size_t consumed  = 0;
-        vws_buffer* b  = c->base.buffer;
+        vws_buffer* b    = c->base.buffer;
         vws_frame* frame = vws_frame_new(NULL, 0, TEXT_FRAME);
 
         if (vws.tracelevel >= VT_PROTOCOL)

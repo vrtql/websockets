@@ -1,6 +1,9 @@
 #include "server.h"
 #include "socket.h"
 
+#define CTEST_MAIN
+#include "ctest.h"
+
 #include "common.h"
 
 cstr server_host = "127.0.0.1";
@@ -22,7 +25,7 @@ void process_data(vws_svr_data* req)
     strncpy(data, req->data, req->size);
 
     // Create response
-    vws_svr_data* reply = vws_svr_data_own(req->cnx, data, req->size);
+    vws_svr_data* reply = vws_svr_data_own(req->cnx, (ucstr)data, req->size);
 
     // Free request
     vws_svr_data_free(req);
@@ -59,7 +62,7 @@ void client_thread(void* arg)
 
     // Send request
     vws.trace(VL_INFO, "[CLIENT] Send: %s", content);
-    vws_socket_write(s, content, strlen(content));
+    vws_socket_write(s, (ucstr)content, strlen(content));
 
     // Get reply
     ssize_t n = vws_socket_read(s);

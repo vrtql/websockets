@@ -385,7 +385,7 @@ ssize_t vws_socket_read(vws_socket* c)
 
     if (vws_socket_is_connected(c) == false)
     {
-        vws.error(VE_SOCKET, "Connection dropped");
+        vws.error(VE_SOCKET, "vws_socket_read()");
         return -1;
     }
 
@@ -603,7 +603,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
 
     if (vws_socket_is_connected(c) == false)
     {
-        vws.error(VE_SOCKET, "Connection dropped");
+        vws.error(VE_SOCKET, "vws_socket_write()");
         return -1;
     }
 
@@ -620,7 +620,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
     int iterations  = 0;
     while (sent < size)
     {
-        // If we attempted at east one poll()/send()
+        // If we attempted at least one poll()/send()
         if (iterations++ > 0)
         {
             // And we are not set to flush mode, then we will return here,

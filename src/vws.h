@@ -22,14 +22,16 @@ typedef const unsigned char* ucstr;
  */
 typedef enum
 {
-    VE_SUCCESS    = 0,   /**< No error */
-    VE_TIMEOUT    = 1,   /**< Socket timeout */
-    VE_WARN       = 2,   /**< Warning */
-    VE_SOCKET     = 3,   /**< Socket error (disconnect) */
-    VE_SYS        = 10,  /**< System call error */
-    VE_RT         = 11,  /**< Runtime error */
-    VE_MEM        = 100, /**< Memory failure */
-    VE_FATAL      = 200, /**< Fatal error */
+    VE_SUCCESS    = 0,        /**< No error */
+    VE_TIMEOUT    = (1 << 1), /**< Socket timeout */
+    VE_WARN       = (1 << 2), /**< Warning */
+    VE_SOCKET     = (1 << 3), /**< Socket disconnect */
+    VE_SEND       = (1 << 4), /**< Socket send error */
+    VE_RECV       = (1 << 5), /**< Socket receive error */
+    VE_SYS        = (1 << 6), /**< System call error */
+    VE_RT         = (1 << 7), /**< Runtime error */
+    VE_MEM        = (1 << 8), /**< Memory failure */
+    VE_FATAL      = (1 << 9), /**< Fatal error */
 } vws_error_code_t;
 
 // Trace levels
@@ -52,7 +54,7 @@ typedef enum vws_tl_t
  */
 typedef struct
 {
-    int code;       /**< Error code */
+    uint64_t code;  /**< Error code */
     char* text;     /**< Error text */
 } vws_error_value;
 

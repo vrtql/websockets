@@ -371,33 +371,33 @@ int vws_error_default_process(int code, cstr message)
 
             case VE_TIMEOUT:
             {
-                vws.trace(VL_WARN, "Timeout: %s", message);
+                vws.trace(VL_WARN, "timeout: %s", message);
                 break;
             }
 
             case VE_SOCKET:
             {
-                vws.trace(VL_WARN, "Disconnect: %s", message);
+                vws.trace(VL_WARN, "disconnect: %s", message);
                 break;
             }
 
             case VE_SYS:
             case VE_RT:
             {
-                vws.trace(VL_INFO, "Error %i: %s", message);
+                vws.trace(VL_INFO, "error %i: %s", message);
                 break;
             }
 
             case VE_MEM:
             case VE_FATAL:
             {
-                vws.trace(VL_ERROR, "Fatal %i: %s", code, message);
+                vws.trace(VL_ERROR, "fatal %i: %s", code, message);
                 break;
             }
 
             default:
             {
-                vws.trace(VL_INFO, "No error");
+                vws.trace(VL_INFO, "no error");
             }
         }
     }
@@ -406,13 +406,11 @@ int vws_error_default_process(int code, cstr message)
     {
         case VE_MEM:
         {
-            fprintf(stderr, "Out of memory error\n");
             break;
         }
 
         case VE_FATAL:
         {
-            fprintf(stderr, "Fatal error\n");
             exit(1);
         }
 

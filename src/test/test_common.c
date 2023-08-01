@@ -1,5 +1,8 @@
 #include "common.h"
 
+#define CTEST_MAIN
+#include "ctest.h"
+
 #include "vws.h"
 #include "url.h"
 #include "util/sc_map.h"
@@ -143,9 +146,7 @@ CTEST(test, error)
 
 int main(int argc, const char* argv[])
 {
-    int result = ctest_main(argc, argv);
-
-    return 0;
+    return ctest_main(argc, argv);
 }
 
 #pragma GCC diagnostic pop

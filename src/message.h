@@ -54,6 +54,14 @@ vrtql_msg* vrtql_msg_new();
 void vrtql_msg_free(vrtql_msg* msg);
 
 /**
+ * @brief Dumps/traces a message to JSON format
+ * @param msg The message
+ *
+ * @ingroup MessageFunctions
+ */
+void vrtql_msg_dump(vrtql_msg* m);
+
+/**
  * @brief Gets a header value by key.
  * @param msg The vrtql_msg instance.
  * @param key The header key.

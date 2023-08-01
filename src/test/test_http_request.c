@@ -1,3 +1,6 @@
+#define CTEST_MAIN
+#include "ctest.h"
+
 #include "common.h"
 
 #include "http_message.h"

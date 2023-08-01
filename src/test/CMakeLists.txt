@@ -28,7 +28,8 @@ set(test_targets
   test_example
   test_json
   test_message
-  test_rpc
+  test_rpc_server
+  test_rpc_client
   test_websocket )
 
 if(BUILD_SERVER)
@@ -37,7 +38,6 @@ if(BUILD_SERVER)
     test_server
     test_msg_server )
 endif()
-
 
 foreach(x ${test_targets})
   add_executable(${x} ${x}.c)

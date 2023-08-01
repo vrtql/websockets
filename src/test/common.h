@@ -1,4 +1,5 @@
-#define CTEST_MAIN
-#include "ctest.h"
+#ifndef VWS_TEST_COMMON_DECLARE
+#define VWS_TEST_COMMON_DECLARE
 
+#endif /* VWS_TEST_COMMON_DECLARE */
 

@@ -1,6 +1,8 @@
 #include "server.h"
 #include "message.h"
 
+#define CTEST_MAIN
+#include "ctest.h"
 #include "common.h"
 
 cstr server_host = "127.0.0.1";
@@ -23,7 +25,7 @@ void process_message(vws_svr_cnx* cnx, vrtql_msg* m)
     reply->format    = cnx->format;
 
     // Copy content
-    cstr data   = m->content->data;
+    ucstr data  = m->content->data;
     size_t size = m->content->size;
     vws_buffer_append(reply->content, data, size);
 
@@ -37,8 +39,8 @@ void process_message(vws_svr_cnx* cnx, vrtql_msg* m)
 void server_thread(void* arg)
 {
     vws_tcp_svr* server = (vws_tcp_svr*)arg;
-    vws.tracelevel  = VT_THREAD;
-    server->trace     = vws.tracelevel;
+    vws.tracelevel      = VT_THREAD;
+    server->trace       = vws.tracelevel;
 
     vws_tcp_svr_run(server, server_host, server_port);
 }
@@ -89,9 +91,9 @@ void client_thread(void* arg)
         }
 
         // Check
-        cstr content = reply->content->data;
-        size_t size  = reply->content->size;
-        ASSERT_TRUE(strncmp(payload, content, size) == 0);
+        ucstr content = reply->content->data;
+        size_t size   = reply->content->size;
+        ASSERT_TRUE(strncmp(payload, (cstr)content, size) == 0);
         vrtql_msg_free(reply);
 
 restart:

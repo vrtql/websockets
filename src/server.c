@@ -805,6 +805,8 @@ int vws_tcp_svr_send(vws_tcp_svr* server, vws_svr_data* data)
 
     // Notify event loop about the new response
     uv_async_send(server->wakeup);
+
+    return 0;
 }
 
 int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
@@ -1058,7 +1060,7 @@ void svr_client_read(vws_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
     vws_tcp_svr* server = c->server;
 
     // Queue data to worker pool for processing
-    vws_svr_data* data = vws_svr_data_own(c, buf->base, size);
+    vws_svr_data* data = vws_svr_data_own(c, (ucstr)buf->base, size);
     queue_push(&server->requests, data);
 }
 
@@ -1539,7 +1541,7 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
     vws_cnx* c        = (vws_cnx*)cnx->data;
 
     // Add to client socket buffer
-    vws_buffer_append(c->base.buffer, buf->base, size);
+    vws_buffer_append(c->base.buffer, (ucstr)buf->base, size);
 
     // Free libuv memory
     vws.free(buf->base);
@@ -1549,9 +1551,9 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
     {
         // Parse incoming data as HTTP request.
 
-        cstr data   = c->base.buffer->data;
+        ucstr data  = c->base.buffer->data;
         size_t size = c->base.buffer->size;
-        ssize_t n   = vws_http_msg_parse(cnx->http, data, size);
+        ssize_t n   = vws_http_msg_parse(cnx->http, (cstr)data, size);
 
         // Did we get a complete request?
         if (cnx->http->complete == true)
@@ -1691,7 +1693,7 @@ void ws_svr_client_data_out( vws_svr_cnx* cnx,
 {
     // Create a binary websocket frame containing message
     vws_frame* frame;
-    cstr data   = buffer->data;
+    ucstr data  = buffer->data;
     size_t size = buffer->size;
     frame       = vws_frame_new(data, size, opcode);
 
@@ -1789,7 +1791,7 @@ void msg_svr_client_ws_msg_in(vws_svr_cnx* cnx, vws_msg* wsm)
     // Deserialize message
 
     vrtql_msg* msg = vrtql_msg_new(HTTP_REQUEST);
-    cstr data      = wsm->data->data;
+    ucstr data     = wsm->data->data;
     size_t size    = wsm->data->size;
 
     if (vrtql_msg_deserialize(msg, data, size) == false)

@@ -1,5 +1,8 @@
 #include "common.h"
 
+#define CTEST_MAIN
+#include "ctest.h"
+
 #include "message.h"
 #include "mpack-reader.h"
 #include "mpack-writer.h"
@@ -85,7 +88,5 @@ CTEST(test_message, json_serialization)
 
 int main(int argc, const char* argv[])
 {
-    int result = ctest_main(argc, argv);
-
-    return 0;
+    return ctest_main(argc, argv);
 }

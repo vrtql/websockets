@@ -1,3 +1,5 @@
+#define CTEST_MAIN
+#include "ctest.h"
 #include "common.h"
 #include "vws.h"
 #include "util/yyjson.h"
@@ -89,9 +91,7 @@ CTEST2(test, write)
 
 int main(int argc, cstr argv[])
 {
-    int result = ctest_main(argc, argv);
-
-    return 0;
+    return ctest_main(argc, argv);
 }
 
 #pragma GCC diagnostic pop
