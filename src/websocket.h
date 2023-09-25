@@ -195,8 +195,8 @@ struct vws_cnx;
 
 /**
  * @brief Callback for frame processing
- * @param s The server instance
- * @param t The incoming request to process
+ * @param cnx The connection instance
+ * @param frame The frame to process
  */
 typedef void (*vws_process_frame)(struct vws_cnx* cnx, vws_frame* frame);
 
@@ -223,6 +223,14 @@ typedef struct vws_url_data
  */
 
 /**
+ * @brief Callback for disconnect. This is called after socket disconnect. This
+ * allows for exception mechanism to be installed for languages that support it.
+ * @param cnx The connection instance
+ * @return Returns true on successful reconnect, false otherwise.
+ */
+typedef void (*vws_cns_disconnect)(struct vws_cnx* cnx);
+
+/**
  * @brief A WebSocket connection.
  */
 typedef struct vws_cnx
@@ -244,6 +252,9 @@ typedef struct vws_cnx
 
     /**< Frame processing callback. */
     vws_process_frame process;
+
+    /**< Disconnect callback. */
+    vws_cns_disconnect disconnect;
 
     /**< User-defined data associated with the connection */
     char* data;

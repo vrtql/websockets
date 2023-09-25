@@ -298,12 +298,13 @@ vws_cnx* vws_cnx_new()
     // Call base constructor
     vws_socket_ctor((vws_socket*)c);
 
-    c->base.hs = socket_handshake;
-    c->flags   = CNX_CLOSED;
-    c->url     = NULL;
-    c->key     = generate_websocket_key();
-    c->process = process_frame;
-    c->data    = NULL;
+    c->base.hs    = socket_handshake;
+    c->flags      = CNX_CLOSED;
+    c->url        = NULL;
+    c->key        = generate_websocket_key();
+    c->process    = process_frame;
+    c->disconnect = NULL;
+    c->data       = NULL;
 
     sc_queue_init(&c->queue);
 
@@ -543,6 +544,13 @@ void vws_disconnect(vws_cnx* c)
     if (vws_cnx_is_connected(c) == false)
     {
         return;
+    }
+
+    // If disconnect callback is registered
+    if (c->disconnect != NULL)
+    {
+        // Call it
+        c->disconnect(c);
     }
 
     c->flags = CNX_CLOSED;
