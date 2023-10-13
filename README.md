@@ -49,7 +49,7 @@ to focus on the actual message processing logic to service incoming messages.
 The requirement of `libuv` is what makes the server component optional. While
 `libuv` runs on every major operating system, it is not expected to be a
 requirement of this library, as its original intent was to provide client-side
-connections only. Thus if you want use the server-side API, you simple add a
+connections only. Thus if you want use the server-side API, you simply add a
 configuration switch at build time to include the code
 
 ## Webockets Overview
@@ -101,7 +101,7 @@ pong frames are responses to ping frames.
 ## Usage
 
 For working examples beyond that shown here, see the `test_websocket.c` file in
-the `src/test` directory. After building the project, stop into that directory
+the `src/test` directory. After building the project, step into that directory
 and run `./server` which starts a simple websocket server. Then run
 `test_websocket`.
 
@@ -227,7 +227,7 @@ int main()
     // format as they are sent and received.
     vws.tracelevel = VT_PROTOCOL;
 
-  // Create
+    // Create
     vrtql_msg* request = vrtql_msg_new();
 
     vrtql_msg_set_routing(request, "key", "value");
@@ -285,7 +285,7 @@ code annotation is located [here](https://vrtql.github.io/ws-code-doc/root/).
 - Handles complicated tasks like socket-upgrade on connection, PING requests,
   proper shutdown, frame formatting/masking, message sending and receiving.
 - Well tested with extensive unit tests
-- Well documented (well, soon to be)
+- Well documented
 - Provides a high-level API for messaging applications supporing both JSON and
   MessagePack serialization formats within same connection.
 - Includes native Ruby C extension with RDoc documentaiton.
