@@ -505,7 +505,7 @@ bool socket_handshake(vws_socket* s)
             size_t size = s->buffer->size;
             ssize_t n   = vws_http_msg_parse(http, data, size);
 
-            if (http->complete == true)
+            if (http->headers_complete == true)
             {
                 // Drain HTTP request data from socket buffer
                 vws_buffer_drain(c->base.buffer, n);

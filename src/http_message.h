@@ -2,7 +2,7 @@
 #define VWS_HTTP_REQUEST_DECLARE
 
 #include "vws.h"
-#include "http_parser.h"
+#include "llhttp/llhttp.h"
 
 /**
  * @struct vws_http_msg
@@ -11,10 +11,10 @@
 typedef struct vws_http_msg
 {
     /**< The parser */
-    http_parser* parser;
+    llhttp_t* parser;
 
     /**< The parser settings */
-    http_parser_settings* settings;
+    llhttp_settings_t* settings;
 
     /**< A map storing header fields. */
     struct sc_map_str headers;
@@ -31,8 +31,11 @@ typedef struct vws_http_msg
     /**< Placeholder for header value */
     vws_buffer* value;
 
+    /** Flag indicates headers have been parsed. */
+    bool headers_complete;
+
     /** Flag indicates a complete message has been parsed. */
-    bool complete;
+    bool done;
 
 } vws_http_msg;
 

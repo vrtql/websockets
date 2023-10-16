@@ -23,7 +23,6 @@ struct vrtql_rpc;
  */
 typedef void (*vrtql_rpc_ob)(struct vrtql_rpc* rpc, vrtql_msg* m);
 
-
 /**
  * @brief Callback for reconnect. This is called after successful websocket
  *        reconnection.

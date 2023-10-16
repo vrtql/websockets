@@ -842,7 +842,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     {
         vws.trace( VL_INFO,
                    "vws_tcp_svr_run(%p): Bind %s:%lu",
-                   server, host, port);
+                   server, host, port );
     }
 
     if (rc)
@@ -1183,7 +1183,7 @@ void svr_cnx_free(vws_svr_cnx* c)
 
 void svr_cnx_close(vws_svr_cnx* c)
 {
-    svr_cnx_close(c);
+    vws_tcp_svr_close(c);
 }
 
 void svr_shutdown(vws_tcp_svr* server)
@@ -1273,7 +1273,7 @@ void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
     }
 
     struct sc_map_64v* map = &server->cnxs;
-    vws_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)c);
+    vws_svr_cnx* cnx       = sc_map_get_64v(map, (uint64_t)c);
 
     if (sc_map_found(map) == true)
     {
@@ -1289,7 +1289,7 @@ void svr_on_write_complete(uv_write_t* req, int status)
 
 void svr_on_close(uv_handle_t* handle)
 {
-    vws_tcp_svr* server      = handle->data;
+    vws_tcp_svr* server  = handle->data;
     vws_svr_cnx_map* map = &server->cnxs;
     vws_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)handle);
 
@@ -1398,7 +1398,7 @@ vws_svr_data* queue_pop(vws_svr_queue* queue)
     }
 
     vws_svr_data* data = queue->buffer[queue->head];
-    queue->head          = (queue->head + 1) % queue->capacity;
+    queue->head        = (queue->head + 1) % queue->capacity;
     queue->size--;
 
     uv_mutex_unlock(&queue->mutex);
@@ -1538,7 +1538,7 @@ void vws_tcp_svr_close(vws_svr_cnx* cnx)
 void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
 {
     vws_tcp_svr* server = cnx->server;
-    vws_cnx* c        = (vws_cnx*)cnx->data;
+    vws_cnx* c          = (vws_cnx*)cnx->data;
 
     // Add to client socket buffer
     vws_buffer_append(c->base.buffer, (ucstr)buf->base, size);
@@ -1556,17 +1556,17 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
         ssize_t n   = vws_http_msg_parse(cnx->http, (cstr)data, size);
 
         // Did we get a complete request?
-        if (cnx->http->complete == true)
+        if (cnx->http->headers_complete == true)
         {
             // Check for parsing errors
-            enum http_errno err = HTTP_PARSER_ERRNO(cnx->http->parser);
+            enum llhttp_errno err = llhttp_get_errno(cnx->http->parser);
 
             // If there was a parsing error, close connection
-            if(err != HPE_OK)
+            if(err != HPE_PAUSED)
             {
-                vws.error(VE_RT, "Error: %s (%s)",
-                            http_errno_name(err),
-                            http_errno_description(err) );
+                vws.error( VE_RT, "Error: %s (%s)",
+                           llhttp_errno_name(err),
+                           llhttp_get_error_reason(cnx->http->parser) );
 
                 // Close connection
                 svr_cnx_close(cnx);
@@ -1594,7 +1594,6 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
             vws.free(ac);
 
             vws_buffer_printf(http, "Sec-WebSocket-Version: 13\r\n");
-
             vws_buffer_printf(http, "Sec-WebSocket-Protocol: ");
 
             if (proto != NULL)

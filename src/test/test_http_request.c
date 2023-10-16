@@ -16,7 +16,7 @@ CTEST(test_rpc, call)
     vws_http_msg* req = vws_http_msg_new(HTTP_REQUEST);
 
     vws_http_msg_parse(req, data, strlen(data));
-    ASSERT_TRUE(req->complete == true);
+    ASSERT_TRUE(req->headers_complete == true);
 
     printf("\n");
 

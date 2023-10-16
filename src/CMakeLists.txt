@@ -20,6 +20,7 @@ endif()
 
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/llhttp
   ${CMAKE_CURRENT_SOURCE_DIR}/mpack
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${PREFIX}/include
@@ -38,18 +39,19 @@ endif()
 # Source Targets
 #-------------------------------------------------------------------------------
 
+file(GLOB llhttp_files llhttp/*.c)
 file(GLOB mpack_files mpack/*.c)
 file(GLOB util_files util/*.c)
 
 set(core_sources
   http_message.c
-  http_parser.c
   message.c
   rpc.c
   socket.c
   vws.c
   url.c
   websocket.c
+  ${llhttp_files}
   ${mpack_files}
   ${util_files}
 )

@@ -33,9 +33,9 @@ void process_data(vws_svr_data* req)
     if (vws.tracelevel >= VT_APPLICATION)
     {
         vws.trace( VL_INFO,
-                     "process_data(%p): %i bytes",
-                     reply->cnx,
-                     reply->size);
+                   "process_data(%p): %i bytes",
+                   reply->cnx,
+                   reply->size);
     }
 
     // Send reply. This will wakeup network thread.
@@ -47,7 +47,7 @@ void server_thread(void* arg)
     vws_tcp_svr* server = (vws_tcp_svr*)arg;
 
     vws.tracelevel = VT_THREAD;
-    server->trace    = vws.tracelevel;
+    server->trace  = vws.tracelevel;
 
     vws_tcp_svr_run(server, server_host, server_port);
 }
@@ -75,9 +75,9 @@ void client_thread(void* arg)
 
 CTEST(test_server, echo)
 {
-    vws_tcp_svr* server  = vws_tcp_svr_new(10, 0, 0);
-    vws.tracelevel   = VT_THREAD;
-    server->on_data_in = process_data;
+    vws_tcp_svr* server = vws_tcp_svr_new(10, 0, 0);
+    vws.tracelevel      = VT_THREAD;
+    server->on_data_in  = process_data;
 
     vws.trace(VL_INFO, "[CLIENT] Starting server");
 
