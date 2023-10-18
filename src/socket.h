@@ -125,6 +125,16 @@ bool vws_socket_connect(vws_socket* s, cstr host, int port, bool ssl);
 bool vws_socket_set_timeout(vws_socket* s, int sec);
 
 /**
+ * @brief Sets a socket to non-blocking mode.
+ *
+ * @param sockfd The socket file descriptor.
+ * @return True if successful, false otherwise.
+ *
+ * @ingroup SocketFunctions
+ */
+bool vws_socket_set_nonblocking(int sockfd);
+
+/**
  * @brief Closes the connection to the host.
  *
  * @param c The socket connection.

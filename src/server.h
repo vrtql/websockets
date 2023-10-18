@@ -244,6 +244,9 @@ typedef struct vws_tcp_svr
     /**< Tracing leve (0 is off) */
     uint8_t trace;
 
+    /**< inetd mode (default 0). vws_tcp_svr_inetd_run() sets it to 1. */
+    uint8_t inetd_mode;
+
 } vws_tcp_svr;
 
 /**
@@ -302,6 +305,23 @@ void vws_tcp_svr_free(vws_tcp_svr* s);
  * @return 0 if successful, an error code otherwise.
  */
 int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port);
+
+/**
+ * @brief Starts a VRTQL server with a single open socket. This is designed to
+ * be used with tcpserver.
+ *
+ * @param server The server to run.
+ * @param sockfd The incoming socket
+ * @return 0 if successful, an error code otherwise.
+ */
+int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd);
+
+/**
+ * @brief Stops a VRTQL server running in inetd_mode.
+ *
+ * @param server The server to stop.
+ */
+void vws_tcp_svr_inetd_stop(vws_tcp_svr* server);
 
 /**
  * @brief Sends data from a VRTQL server.

@@ -55,16 +55,6 @@ static int connect_to_host(const char* host, const char* port);
  */
 static bool socket_set_timeout(int fd, int sec);
 
-/**
- * @brief Sets a socket to non-blocking mode.
- *
- * @param sockfd The socket file descriptor.
- * @return True if successful, false otherwise.
- *
- * @ingroup SocketFunctions
- */
-static bool socket_set_nonblocking(int sockfd);
-
 //------------------------------------------------------------------------------
 //> Socket API
 //------------------------------------------------------------------------------
@@ -210,7 +200,7 @@ bool socket_set_timeout(int fd, int sec)
     return true;
 }
 
-bool socket_set_nonblocking(int sockfd)
+bool vws_socket_set_nonblocking(int sockfd)
 {
     #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
@@ -343,7 +333,7 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
 
     // Go into non-blocking mode as we are using poll() for socket_read() and
     // socket_write().
-    if (socket_set_nonblocking(c->sockfd) == false)
+    if (vws_socket_set_nonblocking(c->sockfd) == false)
     {
         // Error already set
         vws_socket_close(c);

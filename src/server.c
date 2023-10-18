@@ -879,7 +879,8 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     }
 
     // Run UV loop. This runs indefinitely, passing network I/O and and out of
-    // system until server is shutdown by vws_tcp_svr_stop() (by external thread).
+    // system until server is shutdown by vws_tcp_svr_stop() (by external
+    // thread).
     uv_run(server->loop, UV_RUN_DEFAULT);
 
     //> Shutdown server
@@ -929,6 +930,126 @@ void vws_tcp_svr_stop(vws_tcp_svr* server)
     }
 }
 
+int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd)
+{
+    if (sockfd < 0)
+    {
+        vws.error(VE_RT, "Invalid server or socket descriptor provided");
+        return 1;
+    }
+
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace( VL_INFO,
+                   "vws_tcp_svr_run(%p): Starting worker %i threads",
+                   server,
+                   server->pool_size );
+    }
+
+    for (int i = 0; i < server->pool_size; i++)
+    {
+        uv_thread_create(&server->threads[i], worker_thread, server);
+    }
+
+    // Go into non-blocking mode as we are using poll() for socket_read() and
+    // socket_write().
+    if (vws_socket_set_nonblocking(sockfd) == false)
+    {
+        vws.error(VE_RT, "Failed to set socket to nonblocking");
+        return 1;
+    }
+
+    // Set to inetd mode
+    server->inetd_mode = 1;
+
+    // Initialize and adopt the existing socket descriptor.
+    uv_tcp_t* c = (uv_tcp_t*)vws.malloc(sizeof(uv_tcp_t));
+
+    if (uv_tcp_init(server->loop, c))
+    {
+        // Handle uv_tcp_init failure.
+        vws.error(VE_RT, "Failed to initialize new TCP handle");
+        vws.free(c);
+        return 1;
+    }
+
+    if (uv_tcp_open(c, sockfd))
+    {
+        // Handle uv_tcp_open failure.
+        vws.error(VE_RT, "Failed to adopt the socket descriptor.");
+        vws.free(c);
+        return 1;
+    }
+
+    // Associate server with this handle for callbacks.
+    c->data = server;
+
+    if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
+    {
+        vws.error(VE_RT, "Failed to start reading from client");
+        vws.free(c);
+        return 1;
+    }
+
+    //> Add connection to registry and initialize
+
+    vws_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)c);
+
+    if (svr_cnx_map_set(&server->cnxs, (uv_stream_t*)c, cnx) == false)
+    {
+        vws.error(VE_FATAL, "Connection already registered");
+    }
+
+    //> Call svr_on_connect() handler
+
+    server->on_connect(cnx);
+
+    // Now, the handle is associated with the socket and is ready to be used.
+    // Start the libuv loop.
+    uv_run(server->loop, UV_RUN_DEFAULT);
+
+    return 0;
+}
+
+void vws_tcp_svr_inetd_stop(vws_tcp_svr* server)
+{
+    // Set shutdown flags
+    server->state           = VS_HALTING;
+    server->requests.state  = VS_HALTING;
+    server->responses.state = VS_HALTING;
+
+    // Stop the loop. We have not more I/O to deal with. We don't want the loop
+    // to run any more for any reason.
+    uv_stop(server->loop);
+
+    // Wakeup all worker threads
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "vws_tcp_svr_inetd_stop(): stop worker threads");
+    }
+
+    uv_mutex_lock(&server->requests.mutex);
+    uv_cond_broadcast(&server->requests.cond);
+    uv_mutex_unlock(&server->requests.mutex);
+
+    // Wakeup the main event loop to shutdown main thread
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "vws_tcp_svr_inetd_stop(): stop main thread");
+    }
+
+    // Wait for all threads to complete
+    uv_thread(server->wakeup);
+
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "vws_tcp_svr_inetd_stop(): done");
+    }
+
+    // Set state to halted
+    server->state = VS_HALTED;
+}
+
 //------------------------------------------------------------------------------
 // Server construction / destruction
 //------------------------------------------------------------------------------
@@ -956,6 +1077,7 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->loop          = (uv_loop_t*)vws.malloc(sizeof(uv_loop_t));
     svr->state         = VS_HALTED;
     svr->trace         = vws.tracelevel;
+    svr->inetd_mode    = 0;
 
     uv_loop_init(svr->loop);
     sc_map_init_64v(&svr->cnxs, 0, 0);
@@ -1309,6 +1431,13 @@ void svr_on_close(uv_handle_t* handle)
     }
 
     vws.free(handle);
+
+    // If we are running in inetd mode, there is only one socket and its closing
+    // means we are done and should exit process.
+    if ((server->inetd_mode == 1) && (server->state == VS_RUNNING))
+    {
+        vws_tcp_svr_inetd_stop(server);
+    }
 }
 
 void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf)

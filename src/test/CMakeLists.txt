@@ -36,6 +36,7 @@ if(BUILD_SERVER)
   list(APPEND test_targets
     test_http_request
     test_server
+    test_inetd_server
     test_msg_server )
 endif()
 
