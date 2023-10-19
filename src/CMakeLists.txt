@@ -104,6 +104,37 @@ endif()
 target_link_libraries(shared_lib PRIVATE ${OS_LIBS})
 
 #-------------------------------------------------------------------------------
+# Install
+#-------------------------------------------------------------------------------
+
+file(GLOB core_headers *.h)
+set(HEADERS ${core_headers})
+
+set_property(TARGET shared_lib PROPERTY PUBLIC_HEADER ${HEADERS})
+install( TARGETS shared_lib
+  PUBLIC_HEADER DESTINATION include/vws
+  LIBRARY DESTINATION lib PERMISSIONS
+  ARCHIVE DESTINATION lib PERMISSIONS
+  OWNER_READ OWNER_WRITE OWNER_EXECUTE
+  GROUP_READ GROUP_EXECUTE
+  WORLD_READ WORLD_EXECUTE )
+
+install( DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/llhttp"
+         DESTINATION "include/vws"
+         FILES_MATCHING
+         PATTERN "*.h" )
+
+install( DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/mpack"
+         DESTINATION "include/vws"
+         FILES_MATCHING
+         PATTERN "*.h" )
+
+install( DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/util"
+         DESTINATION "include/vws"
+         FILES_MATCHING
+         PATTERN "*.h" )
+
+#-------------------------------------------------------------------------------
 # Testing
 #-------------------------------------------------------------------------------
 
