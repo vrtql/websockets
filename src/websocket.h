@@ -228,7 +228,7 @@ typedef struct vws_url_data
 
 /**
  * @brief Callback for disconnect. This is called after socket disconnect. This
- * allows for exception mechanism to be installed for languages that support it.
+ * allows additional logic to be hooked into disconnect process.
  * @param cnx The connection instance
  * @return Returns true on successful reconnect, false otherwise.
  */

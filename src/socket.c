@@ -55,6 +55,11 @@ static int connect_to_host(const char* host, const char* port);
  */
 static bool socket_set_timeout(int fd, int sec);
 
+/**
+ * @brief Calls handler for unexpected socket closure.
+ */
+static void socket_abnormal_close(vws_socket* c);
+
 //------------------------------------------------------------------------------
 //> Socket API
 //------------------------------------------------------------------------------
@@ -69,13 +74,14 @@ vws_socket* vws_socket_new()
 
 vws_socket* vws_socket_ctor(vws_socket* s)
 {
-    s->sockfd  = -1;
-    s->buffer  = vws_buffer_new();
-    s->ssl     = NULL;
-    s->timeout = 10000;
-    s->data    = NULL;
-    s->hs      = NULL;
-    s->flush   = true;
+    s->sockfd     = -1;
+    s->buffer     = vws_buffer_new();
+    s->ssl        = NULL;
+    s->timeout    = 10000;
+    s->data       = NULL;
+    s->hs         = NULL;
+    s->disconnect = NULL;
+    s->flush      = true;
 
     return s;
 }
@@ -109,6 +115,18 @@ void vws_socket_dtor(vws_socket* s)
 //------------------------------------------------------------------------------
 // Utility functions
 //------------------------------------------------------------------------------
+
+void socket_abnormal_close(vws_socket* c)
+{
+    // If disconnect callback is registered
+    if (c->disconnect != NULL)
+    {
+        // Call it
+        c->disconnect(c);
+    }
+
+    vws_socket_close(c);
+}
 
 bool vws_socket_set_timeout(vws_socket* s, int sec)
 {
@@ -401,7 +419,7 @@ openssl_reread:
     if (fds.revents & (POLLERR | POLLHUP | POLLNVAL))
     {
         vws.error(VE_SOCKET, "Socket error during poll()");
-        vws_socket_close(c);
+        socket_abnormal_close(c);
         return -1;
     }
 
@@ -416,7 +434,8 @@ openssl_reread:
     if (rc == SOCKET_ERROR)
     {
         vws.error(VE_SOCKET, "Socket error during WSAPoll()");
-        vws_socket_close(c);
+        socket_abnormal_close(c);
+
         return -1;
     }
 
@@ -518,7 +537,7 @@ openssl_reread:
                 vws.error(VE_SOCKET, "SSL_read() failed: %s", buf);
 
                 // Close socket
-                vws_socket_close(c);
+                socket_abnormal_close(c);
 
                 return -1;
             }
@@ -537,7 +556,7 @@ openssl_reread:
                 vws.error(VE_SOCKET, "disconnect");
 
                 // Close socket
-                vws_socket_close(c);
+                socket_abnormal_close(c);
 
                 return -1;
             }
@@ -568,7 +587,7 @@ openssl_reread:
                     vws.error(VE_WARN, "recv() failed: %s", buf);
 
                     // Close socket
-                    vws_socket_close(c);
+                    socket_abnormal_close(c);
 
                     return -1;
                 }
@@ -633,7 +652,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         if (fds.revents & (POLLERR | POLLHUP | POLLNVAL))
         {
             vws.error(VE_SOCKET, "Socket error during poll()");
-            vws_socket_close(c);
+            socket_abnormal_close(c);
             return -1;
         }
 
@@ -648,7 +667,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         if (rc == SOCKET_ERROR)
         {
             vws.error(VE_SOCKET, "Socket error during WSAPoll()");
-            vws_socket_close(c);
+            socket_abnormal_close(c);
             return -1;
         }
 
@@ -729,7 +748,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
                     vws.error(VE_SOCKET, "SSL_write() failed: %s", buf);
 
                     // Close socket
-                    vws_socket_close(c);
+                    socket_abnormal_close(c);
 
                     return -1;
                 }
@@ -771,7 +790,7 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
                     vws.error(VE_SYS, "send() error");
 
                     // Close socket
-                    vws_socket_close(c);
+                    socket_abnormal_close(c);
 
                     return -1;
                 }

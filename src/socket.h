@@ -29,6 +29,18 @@ struct vws_socket;
 typedef bool (*vws_socket_hs)(struct vws_socket* s);
 
 /**
+ * @brief Callback for unexpected disconnect. This allows for exception
+ * mechanism to be installed for languages that support it.
+ *
+ * If the handler does throw an exception, the handler must make sure to first
+ * call vws_socket_close(s) to clean up the socket appropriately.
+ *
+ * @param s The socket instance
+ * @return Returns true on successful reconnect, false otherwise.
+ */
+typedef void (*vws_socket_dh)(struct vws_socket* s);
+
+/**
  * @brief A socket
  */
 typedef struct vws_socket
@@ -51,7 +63,10 @@ typedef struct vws_socket
     /**< User-defined handshake function to be called on connect */
     vws_socket_hs hs;
 
-    /** Flag to force writes to poll() until all data is flushed. Default true. */
+    /**< User-defined disconnect handler to be called on disconnect */
+    vws_socket_dh disconnect;
+
+    /** Flag to force writes to poll() until all data flushed. Default true. */
     bool flush;
 
 } vws_socket;
