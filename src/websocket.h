@@ -14,6 +14,10 @@
 #include "socket.h"
 #include "util/sc_queue.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //------------------------------------------------------------------------------
 // Frame
 //------------------------------------------------------------------------------
@@ -474,5 +478,9 @@ vws_msg* vws_msg_pop(vws_cnx* c);
  *   socket error (vws.e.code == VE_SOCKET or vws_cnx_is_connected()).
  */
 vws_frame* vws_frame_recv(vws_cnx* c);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VWS_WEBSOCKET_DECLARE */

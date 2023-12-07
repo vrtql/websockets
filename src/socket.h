@@ -12,6 +12,10 @@
 
 #include "vws.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct vws_socket;
 
 /**
@@ -185,5 +189,9 @@ ssize_t vws_socket_read(vws_socket* s);
  * @ingroup SocketFunctions
  */
 ssize_t vws_socket_write(vws_socket* s, ucstr data, size_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VWS_SOCKET_DECLARE */

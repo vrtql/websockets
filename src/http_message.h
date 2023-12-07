@@ -4,6 +4,10 @@
 #include "vws.h"
 #include "llhttp/llhttp.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @struct vws_http_msg
  * @brief Structure representing an HTTP request
@@ -61,5 +65,9 @@ int vws_http_msg_parse(vws_http_msg* req, cstr data, size_t size);
  * @param req The vws_http_msg instance to free.
  */
 void vws_http_msg_free(vws_http_msg* req);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VWS_HTTP_MSG_DECLARE */

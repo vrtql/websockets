@@ -49,6 +49,10 @@
  * on workload or system requirements.
  */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct vws_svr_cnx;
 
 typedef enum
@@ -493,5 +497,9 @@ void vrtql_msg_svr_free(vrtql_msg_svr* s);
  * @return 0 if successful, an error code otherwise.
  */
 int vrtql_msg_svr_run(vrtql_msg_svr* server, cstr host, int port);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VRTQL_SVR_DECLARE */

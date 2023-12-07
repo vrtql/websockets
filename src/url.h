@@ -9,6 +9,10 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * url.h version
  */
@@ -119,5 +123,8 @@ url_inspect (char* url);
 void
 url_data_inspect (const url_data_t* data);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif

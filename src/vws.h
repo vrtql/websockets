@@ -13,6 +13,10 @@
 typedef const char* cstr;
 typedef const unsigned char* ucstr;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //------------------------------------------------------------------------------
 // Error handling
 //------------------------------------------------------------------------------
@@ -487,5 +491,9 @@ char* vws_base64_encode(const unsigned char* data, size_t size);
  * @return Returns a pointer to the decoded data
  */
 unsigned char* vws_base64_decode(const char* data, size_t* size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VWS_COMMON_DECLARE */

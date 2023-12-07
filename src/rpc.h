@@ -3,6 +3,10 @@
 
 #include "message.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //------------------------------------------------------------------------------
 // Client Side
 //------------------------------------------------------------------------------
@@ -214,5 +218,9 @@ vrtql_rpc_module* vrtql_rpc_system_get(vrtql_rpc_system* s, cstr n);
  * @param m The incoming message to process
  */
 vrtql_msg* vrtql_rpc_service(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VRTQL_RPC_DECLARE */

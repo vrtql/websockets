@@ -359,8 +359,8 @@ $ tar xzvf openssl-1.1.1u.tar.gz
 $ cd openssl-1.1.1u
 $ ./Configure --cross-compile-prefix=x86_64-w64-mingw32- \
               --prefix=~/mingw shared mingw64 no-tests
-$    make
-$    make DESTDIR=~/mingw install
+$ make
+$ make DESTDIR=~/mingw install
 ```
 
 Now within the `websockets` project. Modify the `CMAKE_FIND_ROOT_PATH` in the

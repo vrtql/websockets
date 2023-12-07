@@ -3,6 +3,10 @@
 
 #include "websocket.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum
 {
     VM_MPACK_FORMAT,
@@ -32,7 +36,7 @@ typedef struct vrtql_msg
 {
     struct sc_map_str routing; /**< A map storing routing information. */
     struct sc_map_str headers; /**< A map storing header fields.       */
-    vws_buffer* content;     /**< Buffer for the message content.    */
+    vws_buffer* content;       /**< Buffer for the message content.    */
     uint64_t flags;            /**< Message state flags                */
     vrtql_msg_format_t format; /**< Message format                     */
 } vrtql_msg;
@@ -211,5 +215,9 @@ ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg);
  * @ingroup MessageFunctions
  */
 vrtql_msg* vrtql_msg_recv(vws_cnx* c);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VRTQL_MSG_DECLARE */
