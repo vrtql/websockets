@@ -26,9 +26,9 @@ void process_data(vws_svr_data* req)
     if (vws.tracelevel >= VT_APPLICATION)
     {
         vws.trace( VL_INFO,
-                     "process_data(%p): %i bytes",
-                     reply->cnx,
-                     reply->size);
+                   "process_data(%p): %i bytes",
+                   reply->cnx,
+                   reply->size );
     }
 
     // Send reply. This will wakeup network thread.
@@ -38,8 +38,9 @@ void process_data(vws_svr_data* req)
 int main(int argc, const char* argv[])
 {
     vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
-    vws.tracelevel   = VT_THREAD;
+    vws.tracelevel     = VT_THREAD;
     server->on_data_in = process_data;
+
     vrtql_svr_run(server, server_host, server_port);
 
     // Shutdown
