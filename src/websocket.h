@@ -232,7 +232,7 @@ typedef struct vws_url_data
  * @param cnx The connection instance
  * @return Returns true on successful reconnect, false otherwise.
  */
-typedef void (*vws_cns_disconnect)(struct vws_cnx* cnx);
+typedef void (*vws_cnx_disconnect)(struct vws_cnx* cnx);
 
 /**
  * @brief A WebSocket connection.
@@ -258,7 +258,7 @@ typedef struct vws_cnx
     vws_process_frame process;
 
     /**< Disconnect callback. */
-    vws_cns_disconnect disconnect;
+    vws_cnx_disconnect disconnect;
 
     /**< User-defined data associated with the connection */
     char* data;
