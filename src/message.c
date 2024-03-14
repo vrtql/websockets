@@ -489,7 +489,7 @@ void vrtql_msg_set_content_binary(vrtql_msg* msg, cstr value, size_t size)
 ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg)
 {
     vws_buffer* binary = vrtql_msg_serialize(msg);
-    ssize_t bytes = vws_frame_send_binary(c, binary->data, binary->size);
+    ssize_t bytes      = vws_frame_send_binary(c, binary->data, binary->size);
     vws_buffer_free(binary);
 
     return bytes;

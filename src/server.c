@@ -1110,8 +1110,6 @@ void on_uv_close(uv_handle_t* handle)
 
 void on_uv_walk(uv_handle_t* handle, void* arg)
 {
-    vws.trace(VL_INFO, "on_uv_walk(): %p", (void*)handle);
-
     // If this handle has not been closed, it should have been. Nevertheless we
     // will make an attempt to close it.
     if (uv_is_closing(handle) == 0)
@@ -1414,8 +1412,6 @@ void svr_on_close(uv_handle_t* handle)
     vws_tcp_svr* server  = handle->data;
     vws_svr_cnx_map* map = &server->cnxs;
     vws_svr_cnx* cnx     = sc_map_get_64v(map, (uint64_t)handle);
-
-    vws.trace(VL_INFO, "svr_on_close(): %p", handle);
 
     // If entry exists
     if (sc_map_found(map) == true)
