@@ -778,7 +778,7 @@ vws_buffer* vws_serialize(vws_frame* f)
     //> Section 1: Size calculation
 
     // Calculate the frame size
-    size_t payload_length = f->size;
+    uint64_t payload_length = f->size;
 
     // Set the mask bit and payload length. Maximum frame size with extended
     // payload length and masking key
@@ -1289,7 +1289,7 @@ void dump_websocket_header(const ws_header* header)
     printf("  fin:      %u\n", header->fin);
     printf("  opcode:   %u\n", header->opcode);
     printf("  mask:     %u (0x%08x)\n", header->mask, header->masking_key);
-    printf("  payload:  %lu bytes\n", header->payload_len);
+    printf("  payload:  %" PRIu64 " bytes\n", header->payload_len);
     printf("\n");
 }
 
