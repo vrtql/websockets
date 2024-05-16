@@ -2,7 +2,7 @@
 
 ## Description
 
-This is a robust and performance-oriented WebSocket library written in C. It
+This is a robust and performance-oriented WebSockets library written in C. It
 provides a simple yet flexible API for building WebSocket clients and
 servers. It supports all standard WebSocket features including text and binary
 messages, ping/pong frames, control frames and includes built-in OpenSSL
@@ -52,7 +52,7 @@ requirement of this library, as its original intent was to provide client-side
 connections only. Thus if you want use the server-side API, you simply add a
 configuration switch at build time to include the code
 
-## Webockets Overview
+## WebSockets Overview
 
 WebSockets significantly enhance the capabilities of web applications compared
 to standard HTTP or raw TCP connections. They enable real-time data exchange
@@ -68,7 +68,7 @@ software systems support WebSocket, including Node.js, Apache, and Nginx.
 
 ### Background
 
-Websockets emerged in the late 2000s in response to the growing need for
+WebSockets emerged in the late 2000s in response to the growing need for
 real-time, bidirectional communication in web applications. The goal was to
 provide a standardized way for web servers to send content to browsers without
 being prompted by the user, and vice versa. In December 2011 they were
@@ -85,7 +85,7 @@ established through an HTTP handshake (HTTP Upgrade request), which is then
 upgraded to a WebSocket connection if the server supports it. The connection
 remains open until explicitly closed, enabling low-latency data exchange.
 
-The WebSocket protocol communicates through a series of data units called
+The WebSockets protocol communicates through a series of data units called
 frames. Each WebSocket frame has a maximum size of 2^64 bytes (but the actual
 size limit may be smaller due to network or system constraints). There are
 several types of frames, including text frames, binary frames, continuation
@@ -107,7 +107,7 @@ and run `./server` which starts a simple websocket server. Then run
 
 ### Client API
 
-The WebSockets API is built solely upon WebSocket constructs: frames, messages
+The WebSockets API is built solely upon WebSockets constructs: frames, messages
 and connections, as you would expect. It intuitively follows the concepts and
 structure laid out in the standard. The following is a basic example of the
 Websockets API:
