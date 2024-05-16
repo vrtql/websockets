@@ -36,6 +36,7 @@ if(BUILD_SERVER)
   list(APPEND test_targets
     test_http_request
     test_server
+    test_ws_server
     test_inetd_server
     test_msg_server )
 endif()
@@ -43,7 +44,7 @@ endif()
 foreach(x ${test_targets})
   add_executable(${x} ${x}.c)
   target_include_directories(${x} PRIVATE ${PREFIX}/include)
-  target_link_libraries(${x} PRIVATE static_test_lib static_lib ${OS_LIBS})
+  target_link_libraries(${x} PRIVATE static_test_lib static_lib ${OS_LIBS} -lm)
 
   if(WIN32)
     target_link_libraries(${x} PRIVATE ws2_32)

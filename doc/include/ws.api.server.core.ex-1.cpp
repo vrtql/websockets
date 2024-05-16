@@ -1,13 +1,13 @@
-#include <vrtql/server.h>
+#include <vws/server.h>
 
 cstr server_host = "127.0.0.1";
 int  server_port = 8181;
 
-void process_data(vws_svr_data* req)
+void process(vws_svr_data* req, void* ctx)
 {
-    vrtql_svr* server = req->cnx->server;
+    vws.trace(VL_INFO, "process (%p)", req);
 
-    vws.trace(VL_INFO, "process_data (%p)", req);
+    vws_tcp_svr* server = req->server;
 
     //> Prepare the response: echo the data back
 
@@ -18,29 +18,30 @@ void process_data(vws_svr_data* req)
     strncpy(data, req->data, req->size);
 
     // Create response
-    vws_svr_data* reply = vws_svr_data_own(req->cnx, data, req->size);
+    vws_svr_data* reply;
+
+    reply = vws_svr_data_own(req->server, req->cid, (ucstr)data, req->size);
 
     // Free request
     vws_svr_data_free(req);
 
     if (vws.tracelevel >= VT_APPLICATION)
     {
-        vws.trace( VL_INFO,
-                   "process_data(%p): %i bytes",
-                   reply->cnx,
-                   reply->size );
+        vws.trace(VL_INFO, "process(%lu): %i bytes", reply->cid, reply->size);
     }
 
     // Send reply. This will wakeup network thread.
-    vrtql_svr_send(server, reply);
+    vws_tcp_svr_send(reply);
 }
 
 int main(int argc, const char* argv[])
 {
+    // Setup
     vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
     vws.tracelevel     = VT_THREAD;
-    server->on_data_in = process_data;
+    server->on_data_in = process;
 
+    // Run
     vrtql_svr_run(server, server_host, server_port);
 
     // Shutdown

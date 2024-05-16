@@ -34,11 +34,14 @@ typedef enum
  */
 typedef struct vrtql_msg
 {
-    struct sc_map_str routing; /**< A map storing routing information. */
-    struct sc_map_str headers; /**< A map storing header fields.       */
+    vws_kvs* routing;          /**< A map storing routing information. */
+    vws_kvs* headers;          /**< A map storing header fields.       */
+
     vws_buffer* content;       /**< Buffer for the message content.    */
     uint64_t flags;            /**< Message state flags                */
     vrtql_msg_format_t format; /**< Message format                     */
+    void* data;                /**< User-defined data                  */
+
 } vrtql_msg;
 
 /**

@@ -90,7 +90,6 @@ typedef enum
  */
 void vws_trace(vws_log_level_t level, const char* format, ...);
 
-
 /**
  * @brief Lock the log mutex to synchronize access to the logging functionality.
  *
@@ -196,6 +195,24 @@ typedef void* (*vws_realloc_cb)(void* ptr, size_t size);
 typedef void* (*vws_realloc_error_cb)(void* ptr, size_t size);
 
 /**
+ * @brief Callback for memory allocation with strdup.
+ *
+ * @param ptr The ptr argument passed to vrtql.strdup()
+ */
+typedef void* (*vws_strdup_cb)(cstr ptr);
+
+/**
+ * @brief Callback for strdup failure. This is called when vrtql.strdup()
+ * fails to allocate memory. This function is meant to handle, report and/or
+ * recover from the error. Whatever this function returns will be returned from
+ * the vrtql.strdup().
+ *
+ * @param ptr The ptr argument passed to vrtql.strdup()
+ * @param size The size argument passed to vrtql.strdup()
+ */
+typedef void* (*vws_strdup_error_cb)(cstr ptr);
+
+/**
  * @brief Callback for error submission. Error submission function. Error
  * submission takes care of recording the error in the vrtql.e member. The next
  * step is the process the error.
@@ -231,6 +248,8 @@ typedef struct
     vws_calloc_error_cb calloc_error;   /**< calloc error hanlding       */
     vws_realloc_cb realloc;             /**< realloc function            */
     vws_realloc_error_cb realloc_error; /**< calloc error hanlding       */
+    vws_strdup_cb strdup;               /**< strdup function             */
+    vws_strdup_error_cb strdup_error;   /**< calloc error hanlding       */
     vws_free_cb free;                   /**< free function               */
     vws_error_submit_cb error;          /**< Error submission function   */
     vws_error_process_cb process_error; /**< Error processing function   */
@@ -238,9 +257,9 @@ typedef struct
     vws_error_clear_cb success;         /**< Error clear function        */
     vws_error_value e;                  /**< Last error value            */
     vws_trace_cb trace;                 /**< Error clear function        */
-    uint8_t tracelevel;                   /**< Tracing leve (0 is off)     */
-    uint64_t state;                       /**< Contains global state flags */
-    unsigned char sslbuf[4096];           /**< Thread-local SSL buffer */
+    uint8_t tracelevel;                 /**< Tracing leve (0 is off)     */
+    uint64_t state;                     /**< Contains global state flags */
+    unsigned char sslbuf[4096];         /**< Thread-local SSL buffer     */
 } vws_env;
 
 /**
@@ -375,6 +394,116 @@ void vws_map_remove(struct sc_map_str* map, cstr key);
 void vws_map_clear(struct sc_map_str* map);
 
 //------------------------------------------------------------------------------
+// KVS Map
+//------------------------------------------------------------------------------
+
+/**
+ * @brief Structure to hold a value with a pointer to data and its size.
+ */
+typedef struct
+{
+    void* data;  ///< Pointer to the data.
+    size_t size; ///< Size of the data.
+} vws_value;
+
+/**
+ * @brief Structure to hold a key-value pair, where the key is a string and the
+ *   value is a vws_value struct.
+ */
+typedef struct
+{
+    const char* key; ///< String key.
+    vws_value value; ///< Value associated with the key.
+} vws_kvp;
+
+/**
+ * @brief Structure to represent a dynamic array of key-value pairs.
+ */
+typedef struct
+{
+    vws_kvp* array; ///< Pointer to the array of key-value pairs.
+    size_t used;    ///< Number of key-value pairs currently in use.
+    size_t size;    ///< Capacity of the allocated array.
+} vws_kvs;
+
+/**
+ * @brief Initializes a new dynamic array for key-value pairs.
+ *
+ * @param size Initial capacity of the dynamic array.
+ * @return Pointer to the newly created vws_kvs structure.
+ */
+vws_kvs* vws_kvs_new(size_t size);
+
+/**
+ * @brief Frees the allocated memory for the dynamic array and its contents.
+ *
+ * @param m Pointer to the vws_kvs structure to be freed.
+ */
+void vws_kvs_free(vws_kvs* m);
+
+/**
+ * @brief Clear all key/value pairs from map
+ *
+ * @param m Pointer to the vws_kvs structure to be cleared
+ */
+void vws_kvs_clear(vws_kvs* m);
+
+/**
+ * @brief Returns the number of key/value pairs
+ *
+ * @return Number of key/value pairs
+ */
+size_t vws_kvs_size(vws_kvs* m);
+
+/**
+ * @brief Inserts a key-value pair into the dynamic array in sorted order.
+ *
+ * @param m Pointer to the vws_kvs structure.
+ * @param key String key to insert.
+ * @param data Pointer to the data to be associated with the key.
+ * @param size Size of the data.
+ */
+void vws_kvs_set(vws_kvs* m, const char* key, void* data, size_t size);
+
+/**
+ * @brief Retrieves the value associated with the given key using binary search.
+ *
+ * @param m Pointer to the vws_kvs structure.
+ * @param key String key to search for.
+ * @return Pointer to the vws_value structure if found, otherwise NULL.
+ */
+vws_value* vws_kvs_get(vws_kvs* m, const char* key);
+
+/**
+ * @brief Inserts a key-value pair with a C-string as the value into the dynamic
+ * array in sorted order.
+ *
+ * @param m Pointer to the vws_kvs structure.
+ * @param key String key to insert.
+ * @param value C-string to be associated with the key.
+ */
+void vws_kvs_set_cstring(vws_kvs* m, const char* key, const char* value);
+
+/**
+ * @brief Retrieves the C-string value associated with the given key using
+ * binary search.
+ *
+ * @param m Pointer to the vws_kvs structure.
+ * @param key String key to search for.
+ * @return Pointer to the C-string if found, otherwise NULL.
+ */
+cstr vws_kvs_get_cstring(vws_kvs* m, const char* key);
+
+/**
+ * @brief Removes the key-value pair associated with the given key.
+ *
+ * @param m Pointer to the vws_kvs structure.
+ * @param key String key to remove.
+ * @return 1 if the key was found and removed, 0 otherwise.
+ */
+int vws_kvs_remove(vws_kvs* m, const char* key);
+
+//------------------------------------------------------------------------------
 // URL
 //------------------------------------------------------------------------------
 
@@ -491,6 +620,31 @@ char* vws_base64_encode(const unsigned char* data, size_t size);
  * @return Returns a pointer to the decoded data
  */
 unsigned char* vws_base64_decode(const char* data, size_t* size);
+
+/**
+ * @brief Joins a path a filename to create new path
+ *
+ * @param root The path
+ * @param root The file name
+ * @return Returns dynamically allocate string (user must free()) containing the
+ * path and file
+ */
+char* vws_file_path(const char* root, const char* filename);
+
+/**
+ * @brief Checks to see if integer is valid within string
+ * @param str The string to check
+ * @param value Pointer to long for output value
+ * @return Resturn 1 if valid, 0 otherwise.
+ */
+bool vws_cstr_to_long(cstr str, long* value);
+
+/**
+ * @brief Cleans up any allocated memory in vws structure. This is not really
+ * required but it is helpful for threads to calls this so that valgrind does no
+ * show any memory leaks in the vws.e string.
+ */
+void vws_cleanup();
 
 #ifdef __cplusplus
 }

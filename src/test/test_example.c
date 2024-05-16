@@ -18,7 +18,7 @@ int main()
     // format as they are sent and received.
     vws.tracelevel = VT_PROTOCOL;
 
-  // Create
+    // Create
     vrtql_msg* request = vrtql_msg_new();
 
     vrtql_msg_set_routing(request, "key", "value");

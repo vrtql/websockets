@@ -35,6 +35,14 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
   list(APPEND OS_LIBS socket)
 endif()
 
+if(BDB_VERSION_MAJOR)
+  if(BDB_VERSION_MAJOR GREATER_EQUAL 6)
+    set(BDB_DEFINITIONS "-DBDB_VERSION=6")
+  elseif(BDB_VERSION_MAJOR GREATER_EQUAL 5)
+    set(BDB_DEFINITIONS "-DBDB_VERSION=5")
+  endif()
+endif()
+
 #-------------------------------------------------------------------------------
 # Source Targets
 #-------------------------------------------------------------------------------
@@ -57,7 +65,7 @@ set(core_sources
 )
 
 # Server (optional)
-option(BUILD_SERVER "Build the server" OFF)
+option(BUILD_SERVER "Build the server" ON)
 
 # Address Sanitizer
 option(ASAN "Build the server" OFF)

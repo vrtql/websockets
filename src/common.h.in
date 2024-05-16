@@ -1,14 +1,14 @@
-#ifndef VRTQL_PLATFORM_DECL
-#define VRTQL_PLATFORM_DECL
+#ifndef VWS_PLATFORM_DECL
+#define VWS_PLATFORM_DECL
 
-#define RELEASE_VERSION "${RELEASE_VERSION}"
-#define RELEASE_DATE    "${RELEASE_DATE}"
+#define VWS_RELEASE_VERSION "${RELEASE_VERSION}"
+#define VWS_RELEASE_DATE    "${RELEASE_DATE}"
 
-#define VERSION_MAJ     "${VERSION_MAJ}"
-#define VERSION_MIN     "${VERSION_MIN}"
-#define VERSION_CL      "${VERSION_CL}"
-#define VERSION_PL      "${VERSION_PL}"
-#define VERSION_BN      "${VERSION_BN}"
-#define VERSION         "${RELEASE_VERSION}"
+#define VWS_VERSION_MAJ     "${VERSION_MAJ}"
+#define VWS_VERSION_MIN     "${VERSION_MIN}"
+#define VWS_VERSION_CL      "${VERSION_CL}"
+#define VWS_VERSION_PL      "${VERSION_PL}"
+#define VWS_VERSION_BN      "${VERSION_BN}"
+#define VWS_VERSION         "${RELEASE_VERSION}"
 
-#endif /* VRTQL_PLATFORM_DECL */
+#endif /* VWS_PLATFORM_DECL */

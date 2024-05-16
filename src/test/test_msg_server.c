@@ -11,18 +11,18 @@ cstr uri         = "ws://localhost:8181/websocket";
 cstr content     = "Lorem ipsum dolor sit amet";
 
 // Server function to process messages. Runs in context of worker thread.
-void process_message(vws_svr_cnx* cnx, vrtql_msg* m)
+void process(vws_svr* s, vws_cid_t cid, vrtql_msg* m, void* ctx)
 {
-    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
+    vrtql_msg_svr* server = (vrtql_msg_svr*)s;
 
-    vws.trace(VL_INFO, "process_message (%p) %p", cnx, m);
+    vws.trace(VL_INFO, "process (%lu) %p", cid, m);
 
     // Echo back. Note: You should always set reply messages format to the
     // format of the connection.
 
     // Create reply message
     vrtql_msg* reply = vrtql_msg_new();
-    reply->format    = cnx->format;
+    reply->format    = m->format;
 
     // Copy content
     ucstr data  = m->content->data;
@@ -30,7 +30,7 @@ void process_message(vws_svr_cnx* cnx, vrtql_msg* m)
     vws_buffer_append(reply->content, data, size);
 
     // Send. We don't free message as send() does it for us.
-    server->send(cnx, reply);
+    server->send(s, cid, reply, NULL);
 
     // Clean up request
     vrtql_msg_free(m);
@@ -43,6 +43,8 @@ void server_thread(void* arg)
     server->trace       = vws.tracelevel;
 
     vws_tcp_svr_run(server, server_host, server_port);
+
+    vws_cleanup();
 }
 
 void client_thread(void* arg)
@@ -105,6 +107,8 @@ restart:
     // Disconnect
     vws_disconnect(cnx);
     vws_cnx_free(cnx);
+
+    vws_cleanup();
 }
 
 void client_test(int iterations, int nt)
@@ -132,7 +136,7 @@ void client_test(int iterations, int nt)
 CTEST(test_msg_server, echo)
 {
     vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
-    server->process       = process_message;
+    server->process       = process;
 
     uv_thread_t server_tid;
     uv_thread_create(&server_tid, server_thread, server);
@@ -146,6 +150,14 @@ CTEST(test_msg_server, echo)
     client_test(5, 50);
 
     // Shutdown
+
+    // Need to give the server time to properly send out CLOSE frames, etc. If
+    // we don't give it time, then it will it may fail to complete sending
+    // CLOSE_FRAME ws_svr_process_frame() and look like a memory leak in
+    // valgrind.
+    sleep(1);
+
+    // Shutdown server
     vws_tcp_svr_stop((vws_tcp_svr*)server);
     uv_thread_join(&server_tid);
     vrtql_msg_svr_free(server);

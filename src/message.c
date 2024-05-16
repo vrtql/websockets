@@ -18,7 +18,7 @@
  * @param map The map to populate with parsed key-value pairs.
  * @return True if the parsing was successful, false otherwise.
  */
-static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map);
+static bool msg_parse_map(mpack_reader_t* reader, vws_kvs* map);
 
 /**
  * @brief Parses content from a MessagePack reader into a buffer.
@@ -39,11 +39,13 @@ vrtql_msg* vrtql_msg_new()
 {
     vrtql_msg* msg = vws.calloc(1, sizeof(vrtql_msg));
 
-    sc_map_init_str(&msg->routing, 0, 0);
-    sc_map_init_str(&msg->headers, 0, 0);
+    msg->routing = vws_kvs_new(10);
+    msg->headers = vws_kvs_new(10);
+
     msg->content = vws_buffer_new();
     msg->flags   = 0;
     msg->format  = VM_MPACK_FORMAT;
+    msg->data    = NULL;
 
     vws_set_flag(&msg->flags, VM_MSG_VALID);
 
@@ -58,11 +60,8 @@ void vrtql_msg_free(vrtql_msg* msg)
         return;
     }
 
-    vws_map_clear(&msg->routing);
-    vws_map_clear(&msg->headers);
-
-    sc_map_term_str(&msg->routing);
-    sc_map_term_str(&msg->headers);
+    vws_kvs_free(msg->routing);
+    vws_kvs_free(msg->headers);
 
     vws_buffer_free(msg->content);
 
@@ -96,20 +95,21 @@ vws_buffer* vrtql_msg_serialize(vrtql_msg* msg)
         // Generate routing
 
         mpack_build_map(&writer);
-        sc_map_foreach(&msg->routing, key, value)
+        for (size_t i = 0; i < msg->routing->used; i++)
         {
-            mpack_write_cstr(&writer, key);
-            mpack_write_cstr(&writer, value);
+            mpack_write_cstr(&writer, msg->routing->array[i].key);
+            mpack_write_cstr(&writer, msg->routing->array[i].value.data);
         }
         mpack_complete_map(&writer);
 
         // Generate headers
 
         mpack_build_map(&writer);
-        sc_map_foreach(&msg->headers, key, value)
+
+        for (size_t i = 0; i < msg->headers->used; i++)
         {
-            mpack_write_cstr(&writer, key);
-            mpack_write_cstr(&writer, value);
+            mpack_write_cstr(&writer, msg->headers->array[i].key);
+            mpack_write_cstr(&writer, msg->headers->array[i].value.data);
         }
         mpack_complete_map(&writer);
 
@@ -159,16 +159,23 @@ vws_buffer* vrtql_msg_serialize(vrtql_msg* msg)
         // Generate routing
         yyjson_mut_val* routing = yyjson_mut_arr_add_obj(doc, root);
         cstr key; cstr value;
-        sc_map_foreach(&msg->routing, key, value)
+        for (size_t i = 0; i < msg->routing->used; i++)
         {
-            yyjson_mut_obj_add_str(doc, routing, key, value);
+            yyjson_mut_obj_add_str( doc,
+                                    routing,
+                                    msg->routing->array[i].key,
+                                    msg->routing->array[i].value.data );
         }
 
         // Generate headers
         yyjson_mut_val* headers = yyjson_mut_arr_add_obj(doc, root);
-        sc_map_foreach(&msg->headers, key, value)
+
+        for (size_t i = 0; i < msg->routing->used; i++)
         {
-            yyjson_mut_obj_add_str(doc, headers, key, value);
+            yyjson_mut_obj_add_str( doc,
+                                    routing,
+                                    msg->headers->array[i].key,
+                                    msg->headers->array[i].value.data );
         }
 
         // Add content
@@ -247,14 +254,14 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
 
         // Parse routing map
 
-        if (msg_parse_map(&reader, &msg->routing) == false)
+        if (msg_parse_map(&reader, msg->routing) == false)
         {
             return false;
         }
 
         // Parse header map
 
-        if (msg_parse_map(&reader, &msg->headers) == false)
+        if (msg_parse_map(&reader, msg->headers) == false)
         {
             return false;
         }
@@ -323,9 +330,9 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             while ((key = yyjson_obj_iter_next(&iter)))
             {
                 value = yyjson_obj_iter_get_val(key);
-                vws_map_set( &msg->routing,
-                             yyjson_get_str(key),
-                             yyjson_get_str(value) );
+                vws_kvs_set_cstring( msg->routing,
+                                     yyjson_get_str(key),
+                                     yyjson_get_str(value) );
             }
         }
         else
@@ -342,9 +349,9 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             while ((key = yyjson_obj_iter_next(&iter)))
             {
                 value = yyjson_obj_iter_get_val(key);
-                vws_map_set( &msg->headers,
-                             yyjson_get_str(key),
-                             yyjson_get_str(value) );
+                vws_kvs_set_cstring( msg->headers,
+                                     yyjson_get_str(key),
+                                     yyjson_get_str(value) );
             }
         }
         else
@@ -393,16 +400,23 @@ void vrtql_msg_dump(vrtql_msg* msg)
     // Generate routing
     yyjson_mut_val* routing = yyjson_mut_arr_add_obj(doc, root);
     cstr key; cstr value;
-    sc_map_foreach(&msg->routing, key, value)
+
+    for (size_t i = 0; i < msg->routing->used; i++)
     {
-        yyjson_mut_obj_add_str(doc, routing, key, value);
+        yyjson_mut_obj_add_str( doc,
+                                routing,
+                                msg->routing->array[i].key,
+                                msg->routing->array[i].value.data );
     }
 
     // Generate headers
     yyjson_mut_val* headers = yyjson_mut_arr_add_obj(doc, root);
-    sc_map_foreach(&msg->headers, key, value)
+    for (size_t i = 0; i < msg->headers->used; i++)
     {
-        yyjson_mut_obj_add_str(doc, headers, key, value);
+        yyjson_mut_obj_add_str( doc,
+                                headers,
+                                msg->headers->array[i].key,
+                                msg->headers->array[i].value.data );
     }
 
     // To string, minified
@@ -431,32 +445,32 @@ void vrtql_msg_dump(vrtql_msg* msg)
 
 cstr vrtql_msg_get_header(vrtql_msg* msg, cstr key)
 {
-    return vws_map_get(&msg->headers, key);
+    return vws_kvs_get_cstring(msg->headers, key);
 }
 
 void vrtql_msg_set_header(vrtql_msg* msg, cstr key, cstr value)
 {
-    vws_map_set(&msg->headers, key, value);
+    vws_kvs_set_cstring(msg->headers, key, value);
 }
 
 void vrtql_msg_clear_header(vrtql_msg* msg, cstr key)
 {
-    vws_map_remove(&msg->headers, key);
+    vws_kvs_remove(msg->headers, key);
 }
 
 cstr vrtql_msg_get_routing(vrtql_msg* msg, cstr key)
 {
-    return vws_map_get(&msg->routing, key);
+    return vws_kvs_get_cstring(msg->routing, key);
 }
 
 void vrtql_msg_set_routing(vrtql_msg* msg, cstr key, cstr value)
 {
-    vws_map_set(&msg->routing, key, value);
+    vws_kvs_set_cstring(msg->routing, key, value);
 }
 
 void vrtql_msg_clear_routing(vrtql_msg* msg, cstr key)
 {
-    vws_map_remove(&msg->routing, key);
+    vws_kvs_remove(msg->routing, key);
 }
 
 void vrtql_msg_clear_content(vrtql_msg* msg)
@@ -525,10 +539,10 @@ vrtql_msg* vrtql_msg_recv(vws_cnx* c)
 // Utility functions
 //------------------------------------------------------------------------------
 
-static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map)
+bool msg_parse_map(mpack_reader_t* reader, vws_kvs* map)
 {
     // Clear contents
-    vws_map_clear(map);
+    vws_kvs_clear(map);
 
     mpack_tag_t tag = mpack_read_tag(reader);
 
@@ -589,7 +603,10 @@ static bool msg_parse_map(mpack_reader_t* reader, struct sc_map_str* map)
         value[length] = 0;
         mpack_done_str(reader);
 
-        sc_map_put_str(map, key, value);
+        vws_kvs_set_cstring(map, key, value);
+
+        vws.free(key);
+        vws.free(value);
 
         if (mpack_reader_error(reader) != mpack_ok)
         {

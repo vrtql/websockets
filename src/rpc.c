@@ -115,7 +115,7 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
         vws_trace_lock();
         printf("\n\n");
         printf("+----------------------------------------------------+\n");
-        printf("| Message Sent                                       |\n");
+        printf("| vrtql_rpc_exec(): Message Sent                     |\n");
         printf("+----------------------------------------------------+\n");
         vrtql_msg_dump(req);
         printf("------------------------------------------------------\n");
@@ -213,7 +213,7 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
         vws_trace_lock();
         printf("\n\n");
         printf("+----------------------------------------------------+\n");
-        printf("| Message Received                                   |\n");
+        printf("| vrtql_rpc_exec(): Message Recived                  |\n");
         printf("+----------------------------------------------------+\n");
         vrtql_msg_dump(reply);
         printf("------------------------------------------------------\n");
@@ -311,6 +311,7 @@ vrtql_rpc_module* vrtql_rpc_module_new(cstr name)
     m = (vrtql_rpc_module*)vws.malloc(sizeof(vrtql_rpc_module));
 
     m->name = strdup(name);
+    m->data = NULL;
     sc_map_init_sv(&m->calls, 0, 0);
 
     return m;
@@ -423,17 +424,46 @@ bool parse_rpc_string(const char* input, char** module, char** function)
     return false;
 }
 
-vrtql_msg* vrtql_rpc_service(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m)
+vrtql_msg* vrtql_rpc_reply(vrtql_msg* req)
+{
+    vrtql_msg* reply = vrtql_msg_new();
+
+    cstr tag = vrtql_msg_get_routing(req, "tag");
+
+    if (tag != NULL)
+    {
+        vrtql_msg_set_routing(req, "tag", tag);
+    }
+
+    // Use same format as request (JSON/MessagePack)
+    reply->format = req->format;
+
+    return reply;
+}
+
+vrtql_msg* vrtql_rpc_service(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* req)
 {
     vws.success();
 
-    cstr id = vrtql_msg_get_header(m, "id");
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws_trace_lock();
+        printf("\n\n");
+        printf("+----------------------------------------------------+\n");
+        printf("| Message Received                                   |\n");
+        printf("+----------------------------------------------------+\n");
+        vrtql_msg_dump(req);
+        printf("------------------------------------------------------\n");
+        vws_trace_unlock();
+    }
+
+    cstr id = vrtql_msg_get_header(req, "id");
 
     if (id == NULL)
     {
         vws.error(VE_RT, "ID not specified");
 
-        vrtql_msg_free(m);
+        vrtql_msg_free(req);
 
         return NULL;
     }
@@ -444,7 +474,7 @@ vrtql_msg* vrtql_rpc_service(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m
     {
         vws.error(VE_RT, "Invalid ID format");
 
-        vrtql_msg_free(m);
+        vrtql_msg_free(req);
 
         return NULL;
     }
@@ -456,12 +486,15 @@ vrtql_msg* vrtql_rpc_service(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m
     {
         vws.error(VE_RT, "RPC does not exist");
 
-        vrtql_msg_free(m);
+        vrtql_msg_free(req);
         vws.free(mn);
         vws.free(fn);
 
         return NULL;
     }
+
+    // Set module reference in environment
+    e->module = module;
 
     // Lookup RPC in module
     vrtql_rpc_call rpc = vrtql_rpc_module_get(module, fn);
@@ -470,7 +503,7 @@ vrtql_msg* vrtql_rpc_service(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m
     {
         vws.error(VE_RT, "RPC does not exist");
 
-        vrtql_msg_free(m);
+        vrtql_msg_free(req);
         vws.free(mn);
         vws.free(fn);
 
@@ -481,10 +514,22 @@ vrtql_msg* vrtql_rpc_service(vrtql_rpc_system* s, vrtql_rpc_env* e, vrtql_msg* m
     vws.free(fn);
 
     // Invoke RPC
-    vrtql_msg* reply = rpc(e, m);
+    vrtql_msg* reply = rpc(e, req);
 
     // Free request
-    vrtql_msg_free(m);
+    vrtql_msg_free(req);
+
+    if ((vws.tracelevel >= VT_SERVICE) && (reply != NULL))
+    {
+        vws_trace_lock();
+        printf("\n\n");
+        printf("+----------------------------------------------------+\n");
+        printf("| Message Sent                                       |\n");
+        printf("+----------------------------------------------------+\n");
+        vrtql_msg_dump(reply);
+        printf("------------------------------------------------------\n");
+        vws_trace_unlock();
+    }
 
     // Return reply
     return reply;

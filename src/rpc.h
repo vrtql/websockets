@@ -20,6 +20,7 @@ extern "C" {
 
 struct vrtql_rpc;
 
+
 /**
  * @brief Callback for out-of-band messages received during RPC call
  * @param e The RPC environment
@@ -76,6 +77,14 @@ vrtql_rpc* vrtql_rpc_new(vws_cnx* cnx);
 void vrtql_rpc_free(vrtql_rpc* rpc);
 
 /**
+ * @brief Creates random tag for message identification
+ *
+ * @param length The size (characters) of the tag to be generated
+ * @return A C string (caller from free());
+ */
+char* vrtql_rpc_tag(uint16_t length);
+
+/**
  * @brief Low-level RPC call invocation. This takes a message as input, sends
  * and waits for a response.
  *
@@ -110,23 +119,6 @@ bool vrtql_rpc_invoke(vrtql_rpc* rpc, vrtql_msg* req);
 // Server Side
 //------------------------------------------------------------------------------
 
-/**
- * @brief Struct representing a RPC environment
- */
-typedef struct vrtql_rpc_env
-{
-    /**< The data */
-    char* data;
-
-} vrtql_rpc_env;
-
-/**
- * @brief Callback for RPC call
- * @param e The RPC environment
- * @param m The incoming message to process
- */
-typedef vrtql_msg* (*vrtql_rpc_call)(vrtql_rpc_env* e, vrtql_msg* m);
-
 /** Abbreviation for generic RPC map This is used to store registry of modules
  * for the module system and registry of RPC calls for each module. */
 typedef struct sc_map_sv vrtql_rpc_map;
@@ -139,7 +131,30 @@ typedef struct vrtql_rpc_module
     /**< Map of RPC calls. Key is call name. Value is vrtql_rpc_call. */
     vrtql_rpc_map calls;
 
+    /**> User-defined data*/
+    void* data;
+
 } vrtql_rpc_module;
+
+/**
+ * @brief Struct representing a RPC environment
+ */
+typedef struct vrtql_rpc_env
+{
+    /**< The user-defined data */
+    void* data;
+
+    /**< Reference to current module */
+    vrtql_rpc_module* module;
+
+} vrtql_rpc_env;
+
+/**
+ * @brief Callback for RPC call
+ * @param e The RPC environment
+ * @param m The incoming message to process
+ */
+typedef vrtql_msg* (*vrtql_rpc_call)(vrtql_rpc_env* e, vrtql_msg* m);
 
 typedef struct vrtql_rpc_system
 {
@@ -210,6 +225,13 @@ void vrtql_rpc_system_set(vrtql_rpc_system* s, vrtql_rpc_module* m);
  * @return m The RPC module if exists, NULL otherwise
  */
 vrtql_rpc_module* vrtql_rpc_system_get(vrtql_rpc_system* s, cstr n);
+
+/**
+ * @brief Creates and initializes reply message for RPC call
+ * @param m The incoming message to process
+ * @return A reply message. User takes ownership of memory and must free.
+ */
+vrtql_msg* vrtql_rpc_reply(vrtql_msg* req);
 
 /**
  * @brief Service an RPC call

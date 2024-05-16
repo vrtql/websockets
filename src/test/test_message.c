@@ -26,18 +26,24 @@ CTEST(test_message, mpack_serialization)
 
     vws_buffer_free(binary);
 
-    char* key; char* value;
+    char* key; char* val;
 
-    sc_map_foreach(&receive->routing, key, value)
+    for (size_t i = 0; i < receive->routing->used; i++)
     {
+        key = receive->routing->array[i].key;
+        val = receive->routing->array[i].value.data;
+
         ASSERT_STR(key, "key");
-        ASSERT_STR(value, "value");
+        ASSERT_STR(val, "value");
     }
 
-    sc_map_foreach(&receive->headers, key, value)
+    for (size_t i = 0; i < receive->headers->used; i++)
     {
+        key = receive->headers->array[i].key;
+        val = receive->headers->array[i].value.data;
+
         ASSERT_STR(key, "key");
-        ASSERT_STR(value, "value");
+        ASSERT_STR(val, "value");
     }
 
     ASSERT_STR((cstr)receive->content->data, "content");
@@ -66,18 +72,24 @@ CTEST(test_message, json_serialization)
 
     vws_buffer_free(binary);
 
-    char* key; char* value;
+    char* key; char* val;
 
-    sc_map_foreach(&receive->routing, key, value)
+    for (size_t i = 0; i < receive->routing->used; i++)
     {
+        key = receive->routing->array[i].key;
+        val = receive->routing->array[i].value.data;
+
         ASSERT_STR(key, "key");
-        ASSERT_STR(value, "value");
+        ASSERT_STR(val, "value");
     }
 
-    sc_map_foreach(&receive->headers, key, value)
+    for (size_t i = 0; i < receive->headers->used; i++)
     {
+        key = receive->headers->array[i].key;
+        val = receive->headers->array[i].value.data;
+
         ASSERT_STR(key, "key");
-        ASSERT_STR(value, "value");
+        ASSERT_STR(val, "value");
     }
 
     ASSERT_STR((cstr)receive->content->data, "content");

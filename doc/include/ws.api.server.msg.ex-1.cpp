@@ -1,29 +1,29 @@
-#include <vrtql/server.h>
+#include <vws/server.h>
 
 cstr server_host = "127.0.0.1";
 int  server_port = 8181;
 
 // Server function to process messages. Runs in context of worker thread.
-void process_message(vws_svr_cnx* cnx, vrtql_msg* m)
+void process(vws_svr* s, vws_cid_t cid, vrtql_msg* m, void* ctx)
 {
-    vrtql_msg_svr* server = (vrtql_msg_svr*)cnx->server;
+    vrtql_msg_svr* server = (vrtql_msg_svr*)s;
 
-    vws.trace(VL_INFO, "process_message (%p) %p", cnx, m);
+    vws.trace(VL_INFO, "process (%lu) %p", cid, m);
 
     // Echo back. Note: You should always set reply messages format to the
     // format of the connection.
 
     // Create reply message
     vrtql_msg* reply = vrtql_msg_new();
-    reply->format    = cnx->format;
+    reply->format    = m->format;
 
     // Copy content
-    cstr data   = m->content->data;
+    ucstr data  = m->content->data;
     size_t size = m->content->size;
-    vrtql_buffer_append(reply->content, data, size);
+    vws_buffer_append(reply->content, data, size);
 
     // Send. We don't free message as send() does it for us.
-    server->send(cnx, reply);
+    server->send(s, cid, reply, NULL);
 
     // Clean up request
     vrtql_msg_free(m);
@@ -31,14 +31,17 @@ void process_message(vws_svr_cnx* cnx, vrtql_msg* m)
 
 int main(int argc, const char* argv[])
 {
+    // Setup
     vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
-    server->process       = process_message;
+    server->process       = process;
 
+    // Run
     vrtql_svr_run((vrtql_svr*)server, server_host, server_port);
 
     // Shutdown
     vrtql_svr_stop((vrtql_svr*)server);
     uv_thread_join(&server_tid);
     vrtql_msg_svr_free(server);
+    vws_cleanup();
 }
 

@@ -53,7 +53,130 @@
 extern "C" {
 #endif
 
+/**
+ * @struct address_pool
+ * @brief Manages a dynamically resizable pool of addresses.
+ *
+ * The address_pool structure is designed to handle a collection of memory
+ * addresses. It is a dynamically resizable array that works like ring
+ * buffer. It supports efficient addition, lookup and removal of items while
+ * automatically handling memory resizing based on usage. It's main use is to
+ * track and identify connections. It is significantly faster a hashtable which
+ * provided much better overall server performance.
+ *
+ * Connections change over time and for the most part keep moving forward in the
+ * ring buffer in a sort of statistical distribtion. By the time it reachs the
+ * end of the ring to wrap around, all previous connections at the beginning
+ * have most likely disconnected.
+ *
+ * @details
+ *
+ * - The pool grows in capacity by a specified growth factor each time the array
+ *   reaches its current capacity limit. This growth behavior helps in managing
+ *   memory more efficiently by minimizing the number of memory reallocations
+ *   required as the number of items grows.
+ *
+ * - The implementation uses a ring buffer approach with a last used index to
+ *   optimize the search for free slots, allowing for O(1) time complexity for
+ *   addition in most cases, barring the necessity for resizing.
+ */
+
+typedef struct
+{
+    /**< Pointer to the array holding memory addresses or similar values */
+    uintptr_t* slots;
+
+    /**< Total number of slots in the array */
+    uint32_t capacity;
+
+    /**< Number of used slots */
+    uint32_t count;
+
+    /**< Last used index to optimize search for empty slots */
+    uint32_t last_used_index;
+
+    /**< Factor by which the array size is increased upon realloc */
+    uint16_t growth_factor;
+} address_pool;
+
+/**
+ * @brief Creates a new address pool.
+ *
+ * This function allocates and initializes an address pool with specified
+ * initial size and growth factor. Memory for the pool and its slots is
+ * allocated dynamically.
+ *
+ * @param initial_size The initial number of slots in the pool.
+ * @param growth_factor The factor by which the pool size is increased when
+ *   resized.
+ * @return address_pool* A pointer to the newly created address pool or NULL if
+ *   allocation fails.
+ */
+address_pool* address_pool_new(int initial_size, int growth_factor);
+
+/**
+ * @brief Frees the memory associated with an address pool.
+ *
+ * This function deallocates the memory for the address pool and sets the
+ * pointer to NULL to prevent dangling references. It safely handles NULL
+ * pointers.
+ *
+ * @param pool A pointer to the pointer of the address pool to be freed.
+ */
+void address_pool_free(address_pool** pool);
+
+/**
+ * @brief Resizes an address pool to accommodate more items.
+ *
+ * The function increases the capacity of the address pool based on its growth
+ * factor. Existing items are preserved, and additional space is initialized to
+ * zero. If memory allocation fails, the pool's slots pointer remains unchanged.
+ *
+ * @param pool A pointer to the address pool to be resized.
+ */
+void address_pool_resize(address_pool* pool);
+
+/**
+ * @brief Adds a new item to the address pool.
+ *
+ * This function adds a new item to the address pool. If the pool is full, it is
+ * resized. The function searches for the first free slot to use, starting from
+ * the last used index and wrapping around if necessary.
+ *
+ * @param pool A pointer to the address pool.
+ * @param address The uintptr_t item to be added to the pool.
+ * @return int The index at which the item was added, or -1 if resizing failed.
+ */
+uint32_t address_pool_set(address_pool* pool, uintptr_t address);
+
+/**
+ * @brief Retrieves the item stored at the specified index in the address pool.
+ *
+ * This function returns the value at a given index in the address pool's slots
+ * array. If the index is out of bounds or the slot at the index is empty
+ * (zero), the function returns 0. This method is intended for quick access to
+ * items in the pool without any modifications.
+ *
+ * @param pool A pointer to the address pool.
+ * @param index The index of the item to retrieve.
+ * @return uintptr_t The value at the specified index if it exists and is not
+ *   empty; otherwise, 0.
+ */
+uintptr_t address_pool_get(address_pool* pool, uint32_t index);
+
+/**
+ * @brief Removes an item from the address pool.
+ *
+ * This function sets the slot at the specified index to zero, marking it as
+ * free. The count of used slots is decremented.
+ *
+ * @param pool A pointer to the address pool.
+ * @param index The index of the slot to be freed.
+ */
+void address_pool_remove(address_pool* pool, uint32_t index);
+
 struct vws_svr_cnx;
+struct vws_svr;
 
 typedef enum
 {
@@ -61,6 +184,20 @@ typedef enum
     VM_SVR_DATA_CLOSE  = (1 << 1)
 
 } vws_svr_data_state_t;
+
+/** Connection ID. This is the index within the address pool that the
+ * connection's pointer is stored. */
+typedef uint32_t vws_cid_t;
+
+/** This is used to associate connection info with uv_stream_t handles */
+typedef struct vws_cinfo
+{
+    struct vws_tcp_svr* server;
+    struct vws_svr_cnx* cnx;
+    vws_cid_t cid;
+} vws_cinfo;
+
+struct vws_tcp_svr;
 
 /**
  * @brief Struct representing server data for inter-thread communication
@@ -72,8 +209,8 @@ typedef enum
  */
 typedef struct
 {
-    /**< The client connection associated with the data */
-    struct vws_svr_cnx* cnx;
+    /**< The client connection index associated with the data */
+    vws_cid_t cid;
 
     /**< The number of bytes of data */
     size_t size;
@@ -83,6 +220,9 @@ typedef struct
 
     /**< Message state flags */
     uint64_t flags;
+
+    /**< Reference to server this data belongs to */
+    struct vws_tcp_svr* server;
 
 } vws_svr_data;
 
@@ -141,6 +281,9 @@ typedef struct vws_svr_cnx
      *  WebSockets */
     bool upgraded;
 
+    /** Index in connection address pool */
+    vws_cid_t cid;
+
     /**< User-defined data associated with the connection */
     char* data;
 
@@ -150,6 +293,45 @@ typedef struct vws_svr_cnx
     vrtql_msg_format_t format;
 
 } vws_svr_cnx;
+
+
+/** Thread context constructor (factory) function */
+typedef void* (*vws_thread_ctx_ctor)(void* data);
+
+/** Thread context constructor (factory) function */
+typedef void (*vws_thread_ctx_dtor)(void* data);
+
+/**
+ * @brief Represents a worker thread context
+ *
+ * Thread Context. Worker threads can carry a user-defined context which they
+ * pass to process_message() handlers. They call a factory method to create this
+ * context. Upon exit, they likewise call a factory method to destruct it.
+ *
+ * This context acts as a lifelong state within the worker_thread which provides
+ * tasks with additional resources to do their job. This context is ideal for
+ * maintaining state across tasks like database connections.
+ */
+typedef struct vws_thread_ctx
+{
+    /**< Context constructor: A pointer to a function which creates the thread
+     * context. The context is returned as a void* pointer and is stored in the
+     * data member. */
+    vws_thread_ctx_ctor ctor;
+
+    /**< Context constructor data: A pointer to optional user-data passed into
+     * the ctor to help in context construction. */
+    void* ctor_data;
+
+    /**< Context destructor: A pointer to a function which deallocates the
+     * thread context. This is where for worker thread shutdown used to clean up
+     * resources. */
+    vws_thread_ctx_dtor dtor;
+
+    /**< Thread context: This points to the context allocated by ctor. It will
+     * be passed passed to from worker thread to process_message(void* ctx). */
+    void* data;
+} vws_thread_ctx;
 
 /**
  * @brief Callback for a new connection connection
@@ -176,7 +358,7 @@ typedef void (*vws_tcp_svr_read)(vws_svr_cnx* c, ssize_t n, const uv_buf_t* b);
  * @param s The server instance
  * @param t The incoming request to process
  */
-typedef void (*vws_tcp_svr_process_data)(vws_svr_data* t);
+typedef void (*vws_tcp_svr_process_data)(vws_svr_data* t, void* data);
 
 /**
  * @brief Enumerates server states
@@ -227,8 +409,8 @@ typedef struct vws_tcp_svr
     /**< Thread handles */
     uv_thread_t* threads;
 
-    /**< Map of active connections */
-    vws_svr_cnx_map cnxs;
+    /**< Pool of active connections */
+    address_pool* cpool;
 
     /**< Callback function for connect */
     vws_tcp_svr_connect on_connect;
@@ -245,7 +427,16 @@ typedef struct vws_tcp_svr
     /**< Function for processing data from the worker back to the client */
     vws_tcp_svr_process_data on_data_out;
 
-    /**< Tracing leve (0 is off) */
+    /**< Worker thread constructor */
+    vws_thread_ctx_ctor worker_ctor;
+
+    /**< Worker thread constructor data */
+    void* worker_ctor_data;
+
+    /**< Worker thread destructor */
+    vws_thread_ctx_dtor worker_dtor;
+
+    /**< Tracing level (0 is off) */
     uint8_t trace;
 
     /**< inetd mode (default 0). vws_tcp_svr_inetd_run() sets it to 1. */
@@ -257,22 +448,24 @@ typedef struct vws_tcp_svr
  * @brief Creates a new thread data. This TAKES OWNERSHIP of the buffer data and
  * sets the buffer to zero.
  *
- * @param c The connection
- * @param buffer The buffer
+ * @param s The server
+ * @param cid The connection ID
+ * @param b Pointer reference to The buffer
  * @return A new vws_svr_data instance with memory
  */
-vws_svr_data* vws_svr_data_new(vws_svr_cnx* c, vws_buffer* memory);
+vws_svr_data* vws_svr_data_new(vws_tcp_svr* s, vws_cid_t cid, vws_buffer** b);
 
 /**
  * @brief Creates a new thread data. This TAKES OWNERSHIP of the data. The
  * caller MUST NOT free() this data.
  *
- * @param c The connection
+ * @param s The server
+ * @param cid The connection ID
  * @param size The number of bytes of data
  * @param data The data
  * @return A new vws_svr_data instance with memory
  */
-vws_svr_data* vws_svr_data_own(vws_svr_cnx* c, ucstr data, size_t size);
+vws_svr_data* vws_svr_data_own(vws_tcp_svr* s, vws_cid_t c, ucstr data, size_t size);
 
 /**
  * @brief Frees the resources allocated to a thread data
@@ -334,14 +527,15 @@ void vws_tcp_svr_inetd_stop(vws_tcp_svr* server);
  * @param data The data to be sent.
  * @return 0 if successful, an error code otherwise.
  */
-int vws_tcp_svr_send(vws_tcp_svr* server, vws_svr_data* data);
+int vws_tcp_svr_send(vws_svr_data* data);
 
 /**
  * @brief Close a VRTQL server connection.
  *
- * @param cnx The server connection to close.
+ * @param cnx The server
+ * @param cnx The ID of connection to close
  */
-void vws_tcp_svr_close(vws_svr_cnx* cnx);
+void vws_tcp_svr_close(vws_tcp_svr* server, vws_cid_t cid);
 
 /**
  * @brief Stops a VRTQL server.
@@ -372,9 +566,11 @@ typedef void (*vws_svr_process_frame)(vws_svr_cnx* s, vws_frame* f);
 /**
  * @brief Callback for data processing a WebSocket message
  * @param s The server instance
- * @param f The incoming message to process
+ * @param c The client connection index
+ * @param x The user-defined context
  */
-typedef void (*vws_svr_process_msg)(vws_svr_cnx* s, vws_msg* f);
+typedef void
+(*vws_svr_process_msg)(struct vws_svr* s, vws_cid_t c, vws_msg* m, void* x);
 
 /**
  * @brief Struct representing a WebSocket server. It speaks the WebSocket
@@ -441,9 +637,12 @@ int vws_svr_run(vws_svr* server, cstr host, int port);
 /**
  * @brief Callback for data processing a message
  * @param s The server instance
+ * @param c The client connection index
  * @param m The incoming message to process
+ * @param x The user-defined context
  */
-typedef void (*vrtql_svr_process_msg)(vws_svr_cnx* s, vrtql_msg* m);
+typedef void
+(*vrtql_svr_process_msg)(vws_svr* s, vws_cid_t c, vrtql_msg* m, void* x);
 
 /**
  * @brief Struct representing a VTQL message server. It is derived from the
@@ -467,6 +666,9 @@ typedef struct vrtql_msg_svr
     /**< Derived: for sending messages to the client (calls on_msg_out()) */
     vrtql_svr_process_msg send;
 
+    /**< User-defined data */
+    void* data;
+
 } vrtql_msg_svr;
 
 /**
@@ -487,6 +689,38 @@ vrtql_msg_svr* vrtql_msg_svr_new(int pool_size, int backlog, int queue_size);
  * @param s The server to free.
  */
 void vrtql_msg_svr_free(vrtql_msg_svr* s);
+
+/**
+ * @brief Message server instance constructor
+ *
+ * Constructs a new message server instance. This takes a new, empty
+ * vrtql_msg_svr instance and initializes all of its members. It is used by
+ * derived structs as well (vrtql_msg_svr) to construct the base struct.
+ *
+ * @param server The server instance to be initialized
+ * @return The initialized server instance
+ *
+ * @ingroup ServerFunctions
+ */
+
+vrtql_msg_svr* vrtql_msg_svr_ctor( vrtql_msg_svr* server,
+                                   int num_threads,
+                                   int backlog,
+                                   int queue_size );
+
+/**
+ * @brief Message server instance destructor
+ *
+ * Destructs an initialized message server instance. This takes a vrtql_msg_svr
+ * instance and deallocates all of its members -- everything but the top-level
+ * struct. This is used by derived structs as well to destruct the base struct.
+ *
+ * @param server The message server instance to be destructed
+ *
+ * @ingroup ServerFunctions
+ */
+
+void vrtql_msg_svr_dtor(vrtql_msg_svr* s);
 
 /**
  * @brief Starts a VRTQL message server.

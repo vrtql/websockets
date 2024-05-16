@@ -850,6 +850,8 @@ vws_buffer* vws_serialize(vws_frame* f)
         {
             vws.error(VE_RT, "RAND_bytes() failed");
             vws.free(frame_data);
+            vws_frame_free(f);
+
             return NULL;
         }
 
@@ -1289,7 +1291,7 @@ void dump_websocket_header(const ws_header* header)
     printf("  fin:      %u\n", header->fin);
     printf("  opcode:   %u\n", header->opcode);
     printf("  mask:     %u (0x%08x)\n", header->mask, header->masking_key);
-    printf("  payload:  %" PRIu64 " bytes\n", header->payload_len);
+    printf("  payload:  %lu bytes\n", header->payload_len);
     printf("\n");
 }
 

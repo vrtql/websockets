@@ -1,4 +1,6 @@
 #include <time.h>
+#include <ctype.h>
+#include <errno.h>
 
 #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 #include <unistd.h>
@@ -299,6 +301,28 @@ void* vws_realloc_error(void* ptr, size_t size)
     return NULL;
 }
 
+void* vws_strdup(cstr ptr)
+{
+    ptr = strdup(ptr);
+
+    if (ptr == NULL)
+    {
+        return vws.strdup_error(ptr);
+    }
+
+    return ptr;
+}
+
+void* vws_strdup_error(cstr ptr)
+{
+    // No error string since memory allocation has already failed and error
+    // handler uses malloc() for copying error string.
+    vws.error(VE_MEM, NULL);
+
+    // Default does not provide any recovery attempt.
+    return NULL;
+}
+
 //------------------------------------------------------------------------------
 // Error handling
 //------------------------------------------------------------------------------
@@ -449,6 +473,8 @@ __thread vws_env vws =
     .calloc_error  = vws_calloc_error,
     .realloc       = vws_realloc,
     .realloc_error = vws_realloc_error,
+    .strdup        = vws_strdup,
+    .strdup_error  = vws_strdup_error,
     .free          = vws_free,
     .error         = vws_error_default_submit,
     .process_error = vws_error_default_process,
@@ -459,6 +485,14 @@ __thread vws_env vws =
     .tracelevel    = 0,
     .state         = 0
 };
+
+void vws_cleanup()
+{
+    if (vws.e.text != NULL)
+    {
+        free(vws.e.text);
+    }
+}
 
 //------------------------------------------------------------------------------
 // Buffer
@@ -575,7 +609,7 @@ void vws_buffer_drain(vws_buffer* buffer, size_t size)
 }
 
 //------------------------------------------------------------------------------
-// Map
+// Hashtable
 //------------------------------------------------------------------------------
 
 cstr vws_map_get(struct sc_map_str* map, cstr key)
@@ -593,21 +627,15 @@ cstr vws_map_get(struct sc_map_str* map, cstr key)
 
 void vws_map_set(struct sc_map_str* map, cstr key, cstr value)
 {
-    // See if we have an existing entry
     sc_map_get_str(map, key);
-
-    if (sc_map_found(map) == false)
-    {
-        // We don't. Therefore we need to allocate new key.
-        key = strdup(key);
-    }
-
-    cstr v = sc_map_put_str(map, key, strdup(value));
 
     if (sc_map_found(map) == true)
     {
-        vws.free(v);
+        // We have an existing entry
+        vws_map_remove(map, key);
     }
+
+    sc_map_put_str(map, strdup(key), strdup(value));
 }
 
 void vws_map_remove(struct sc_map_str* map, cstr key)
@@ -633,6 +661,149 @@ void vws_map_clear(struct sc_map_str* map)
     }
 
     sc_map_clear_str(map);
+}
+
+//------------------------------------------------------------------------------
+// Key/value store
+//------------------------------------------------------------------------------
+
+int vws_kvs_comp(const void* a, const void* b)
+{
+    return strcmp(((vws_kvp*)a)->key, ((vws_kvp*)b)->key);
+}
+
+vws_kvs* vws_kvs_new(size_t size)
+{
+    vws_kvs* m = (vws_kvs*)malloc(sizeof(vws_kvs));
+
+    if (m)
+    {
+        m->array = (vws_kvp*)malloc(size * sizeof(vws_kvp));
+        m->used  = 0;
+        m->size  = size;
+    }
+
+    return m;
+}
+
+void vws_kvs_clear(vws_kvs* m)
+{
+    for (size_t i = 0; i < m->used; i++)
+    {
+        free((void*)m->array[i].key); // Free copied key
+        free(m->array[i].value.data);  // Free copied data
+    }
+
+    m->used  = 0;
+}
+
+void vws_kvs_free(vws_kvs* m)
+{
+    vws_kvs_clear(m);
+
+    free(m->array);
+    free(m);
+}
+
+size_t vws_kvs_size(vws_kvs* m)
+{
+    return m->used;
+}
+
+void vws_kvs_set(vws_kvs* m, const char* key, void* data, size_t size)
+{
+    if (m->used == m->size)
+    {
+        m->size *= 2;
+        m->array = (vws_kvp*)realloc(m->array, m->size * sizeof(vws_kvp));
+    }
+
+    // Copy the key
+    char* key_copy = strdup(key);
+
+    // Copy the data
+    void* data_copy = malloc(size);
+    memcpy(data_copy, data, size);
+
+    vws_kvp kvp = {key_copy, {data_copy, size}};
+
+    size_t i;
+    for (i = m->used; i > 0 && vws_kvs_comp(&kvp, &m->array[i-1]) < 0; i--)
+    {
+        m->array[i] = m->array[i - 1];
+    }
+
+    m->array[i] = kvp;
+    m->used++;
+}
+
+vws_value* vws_kvs_get(vws_kvs* m, const char* key)
+{
+    vws_kvp kvp = {key, {NULL, 0}};
+    vws_kvp* result  = bsearch( &kvp,
+                                m->array,
+                                m->used,
+                                sizeof(m->array[0]),
+                                vws_kvs_comp );
+
+    if (result != NULL)
+    {
+        return &result->value;
+    }
+
+    return NULL;
+}
+
+void vws_kvs_set_cstring(vws_kvs* m, const char* key, const char* value)
+{
+    vws_kvs_set(m, key, (void*)value, strlen(value) + 1);
+}
+
+const char* vws_kvs_get_cstring(vws_kvs* m, const char* key)
+{
+    vws_value* value = vws_kvs_get(m, key);
+
+    if (value != NULL)
+    {
+        return (const char*)value->data;
+    }
+
+    return NULL;
+}
+
+int vws_kvs_remove(vws_kvs* m, const char* key)
+{
+    vws_kvp kvp     = {key, {NULL, 0}};
+    vws_kvp* result = bsearch( &kvp,
+                                m->array,
+                                m->used,
+                                sizeof(m->array[0]),
+                                vws_kvs_comp );
+
+    if (result != NULL)
+    {
+        size_t index = result - m->array;
+
+        // Free the copied key and data
+        free((void*)m->array[index].key);
+        free(m->array[index].value.data);
+
+        // Shift elements to maintain order
+        if (index < m->used - 1)
+        {
+            memmove( &m->array[index],
+                     &m->array[index + 1],
+                     (m->used - index - 1) * sizeof(vws_kvp) );
+        }
+
+        m->used--;
+
+        // Key was found and removed
+        return 1;
+    }
+
+    // Key not found
+    return 0;
 }
 
 //------------------------------------------------------------------------------
@@ -782,5 +953,76 @@ void vws_set_flag(uint64_t* flags, uint64_t flag)
 void vws_clear_flag(uint64_t* flags, uint64_t flag)
 {
     *flags &= ~flag;
+}
+
+char* vws_file_path(const char* root, const char* filename)
+{
+    // Initial guess for the required buffer size
+
+    // +2 for slash and null terminator
+    size_t size = strlen(root) + strlen(filename) + 2;
+    char* path  = vws.malloc(size);
+
+    if (path == NULL)
+    {
+        fprintf(stderr, "Memory allocation failed\n");
+        return NULL;
+    }
+
+    // Attempt to write to the buffer
+    size_t written = snprintf(path, size, "%s/%s", root, filename);
+
+    // Check if the buffer was large enough
+    if (written >= size)
+    {
+        // Buffer was too small, allocate again with the correct size
+        size = written + 1; // +1 for the null terminator
+        char* temp = vws.realloc(path, size);
+
+        if (temp == NULL)
+        {
+            fprintf(stderr, "Memory reallocation failed\n");
+            free(path);
+            return NULL;
+        }
+
+        path = temp;
+
+        // Write again
+        snprintf(path, size, "%s/%s", root, filename);
+    }
+
+    return path;
+}
+
+bool vws_cstr_to_long(cstr str, long* value)
+{
+    char* endptr;
+
+    // To distinguish success/failure after call
+    errno = 0;
+
+    if (str == NULL || *str == '\0' || isspace(*str))
+    {
+        // String is empty or whitespace only
+        return false;
+    }
+
+    *value = strtol(str, &endptr, 10);  // Base 10 conversion
+
+    // Check for conversion errors or incomplete conversion
+    if (errno == ERANGE)
+    {
+        // Value out of range for long
+        return false;
+    }
+    if (*endptr != '\0' || endptr == str)
+    {
+        // Whole string wasn’t converted
+        return false;
+    }
+
+    // Successful conversion
+    return true;
 }
 
