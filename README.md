@@ -344,9 +344,9 @@ void process(vws_svr_data* req, void* data)
 // Allocate context for worker thread
 void* worker_thread_startup(void* data)
 {
-    vrtql_svr* server = (vrtql_svr*)data;
-
     // Worker thread specific initialization
+
+    vrtql_svr* server = (vrtql_svr*)data;
     my_ctx* ctx = (my_ctx*)malloc(sizeof(my_ctx));
     ctx->thingy = malloc(1);
 
@@ -356,12 +356,11 @@ void* worker_thread_startup(void* data)
 // Deallocate context for worker thread
 void worker_thread_shutdown(void* data)
 {
-    my_ctx* ctx = (my_ctx*)data;
+    // Worker thread specific cleanup
 
+    my_ctx* ctx = (my_ctx*)data;
     free(ctx->thingy);
     free(ctx);
-
-    // Worker thread specific cleanup
 }
 
 int main(int argc, const char* argv[])
