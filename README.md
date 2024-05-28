@@ -305,7 +305,7 @@ int  server_port = 8181;
 type struct my_env
 {
     void* thingy;
-} worker_thread_stuff;
+} my_env;
 
 void process(vws_svr_data* req, void* ctx)
 {
