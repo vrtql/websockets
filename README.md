@@ -50,7 +50,7 @@ The requirement of `libuv` is what makes the server component optional. While
 `libuv` runs on every major operating system, it is not expected to be a
 requirement of this library, as its original intent was to provide client-side
 connections only. Thus if you want use the server-side API, you simply add a
-configuration switch `-DBUILD_SERVER=1` at build time to include the code 
+configuration switch `-DBUILD_SERVER=1` at build time to include the code
 
 ## WebSockets Overview
 
@@ -302,13 +302,13 @@ Build as follows:
 ```bash
 $ git clone https://github.com/vrtql/websockets.git
 $ cd websockets
-$ cmake . 
+$ cmake .
 $ make
 $ sudo make install
 ```
 Consider deactivating or activating the server side API, depending on your use case:
 ```bash
-$ cmake . -DBUILD_SERVER=0 
+$ cmake . -DBUILD_SERVER=0
 ```
 (instead of previous `cmake .` command)
 
