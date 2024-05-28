@@ -298,10 +298,10 @@ user-defined data which is passed into the processing function as the last
 argument. The `worker_ctor_data` is user-defined data passed into the
 `worker_ctor` function to assist setting up the environment. Finally the
 `worker_dtor` is called on worker thread shutdown and passed the context
-returned by `worker_ctor` for cleanup. All of these are optional -- you don't
-have to use them them. But if you have any processing that requires things like
-dedicated database connections or other environmental resources specific to the
-thread envrionment, these can be very useful.
+returned by `worker_ctor` for cleanup. All of these are optional, but if you
+have any processing that requires things like dedicated database connections or
+other environmental resources specific to the thread envrionment, they can be
+very useful.
 
 If you need to send data back to the peer, you do so using
 `vrtql_svr_send()`. With all these things in place, you call `vrtql_svr_run()`
