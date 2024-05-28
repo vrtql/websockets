@@ -285,11 +285,27 @@ maximum message queue size. If you set the latter two arguments to zero, it will
 use the default values. Next, you create a processing function. The signature of
 this function varies according to the server. For the core server, which deals
 with unstructured data, this signature is given by the `vrtql_svr_process_data`
-callback. It takes a single argument: a `vrtql_svr_data` instance created on the
-heap. This structure simply holds a blob of data. It is up to your processing
-function to make sense of that data and respond accordingly. If you need to send
-data back to the peer, you do so using `vrtql_svr_send()`. With all these things
-in place, you call `vrtql_svr_run()` to start the server.
+callback. It takes a two arguments. The first argument is a `vrtql_svr_data`
+instance, created on the heap, which simply holds a blob of data. It is up to
+your processing function to make sense of that data and respond accordingly.
+
+The second argument is the worker thread context, which allows you to create
+application-specific envrionment for processing. Since the server uses a thread
+pool of worker threads for processing, you may want to have some context or
+environment for your processing available. This is the job of the `worker_ctor`,
+`worker_ctor_data` and `worker_dtor` members. The `worker_ctor` constructs the
+user-defined data which is passed into the processing function as the last
+argument. The `worker_ctor_data` is user-defined data passed into the
+`worker_ctor` function to assist setting up the environment. Finally the
+`worker_dtor` is called on worker thread shutdown and passed the context
+returned by `worker_ctor` for cleanup. All of these are optional -- you don't
+have to use them them. But if you have any processing that requires things like
+dedicated database connections or other environmental resources specific to the
+thread envrionment, these can be very useful.
+
+If you need to send data back to the peer, you do so using
+`vrtql_svr_send()`. With all these things in place, you call `vrtql_svr_run()`
+to start the server.
 
 The following illustrates writing a basic echo server:
 
@@ -385,18 +401,6 @@ int main(int argc, const char* argv[])
     vrtql_svr_free(server);
 }
 ```
-
-Since the server uses a thread pool of worker threads for processing, you may
-want to have some context or environment for your processing available. This is
-the job of the `worker_ctor`, `worker_ctor_data` and `worker_dtor` members. The
-`worker_ctor` constructs the user-defined data which is passed into the
-processing function as the last argument. The `worker_ctor_data` is user-defined
-data passed into the `worker_ctor` function to assist setting up the
-environment. Finally the `worker_dtor` is called on worker thread shutdown and
-passed the context returned by `worker_ctor` for cleanup. All of these are
-optional -- you don't have to use them them. But if you have any processing that
-requires things like dedicated database connections or other environmental
-resources specific to the thread envrionment, these can be very useful.
 
 Writing a WebSocket server is even simpler. It follows the same pattern but uses
 `vws_svr_new()` to create the server. The processing function signature is given
