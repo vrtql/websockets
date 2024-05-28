@@ -342,7 +342,7 @@ void process(vws_svr_data* req, void* data)
 }
 
 // Allocate context for worker thread
-void* vcs_thread_startup(void* data)
+void* worker_thread_startup(void* data)
 {
     vrtql_svr* server = (vrtql_svr*)data;
 
@@ -354,7 +354,7 @@ void* vcs_thread_startup(void* data)
 }
 
 // Deallocate context for worker thread
-void vcs_thread_shutdown(void* data)
+void worker_thread_shutdown(void* data)
 {
     my_ctx* ctx = (my_ctx*)data;
 
@@ -372,9 +372,9 @@ int main(int argc, const char* argv[])
     server->on_data_in = process;
 
     // Worker thread context
-    server->worker_ctor      = vcs_thread_startup;
+    server->worker_ctor      = worker_thread_startup;
     server->worker_ctor_data = server;
-    server->worker_dtor      = vcs_thread_shutdown;
+    server->worker_dtor      = worker_thread_shutdown;
 
     // Run
     vrtql_svr_run(server, server_host, server_port);
