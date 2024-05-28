@@ -365,7 +365,8 @@ void worker_thread_shutdown(void* data)
 
 int main(int argc, const char* argv[])
 {
-    // Setup
+    // Run server with 10 worker threads, default TCP listen backlog (128) and
+    // default work queue size (1024 pending requests).
     vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
     vws.tracelevel     = VT_THREAD;
     server->on_data_in = process;
