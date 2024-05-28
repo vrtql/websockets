@@ -302,17 +302,17 @@ int  server_port = 8181;
 /* Stuff you want allocated in every worker thread for you to do your
 ** application-specific processing.
 */
-type struct my_ctx
+type struct my_env
 {
     void* thingy;
 } worker_thread_stuff;
 
-void process(vws_svr_data* req, void* data)
+void process(vws_svr_data* req, void* ctx)
 {
     vws.trace(VL_INFO, "process (%p)", req);
 
-    // Instance of your my_ctx for this specific worker thread
-    my_ctx* ctx = (my_ctx*)data;
+    // Instance of your my_env for this specific worker thread
+    my_env* env = (my_env*)ctx;
 
     vws_tcp_svr* server = req->server;
 
@@ -347,10 +347,10 @@ void* worker_thread_startup(void* data)
     // Worker thread specific initialization
 
     vrtql_svr* server = (vrtql_svr*)data;
-    my_ctx* ctx = (my_ctx*)malloc(sizeof(my_ctx));
-    ctx->thingy = malloc(1);
+    my_env* env = (my_env*)malloc(sizeof(my_env));
+    env->thingy = malloc(1);
 
-    return my_ctx;
+    return env;
 }
 
 // Deallocate context for worker thread
@@ -358,9 +358,9 @@ void worker_thread_shutdown(void* data)
 {
     // Worker thread specific cleanup
 
-    my_ctx* ctx = (my_ctx*)data;
-    free(ctx->thingy);
-    free(ctx);
+    my_env* env = (my_env*)data;
+    free(env->thingy);
+    free(env);
 }
 
 int main(int argc, const char* argv[])
