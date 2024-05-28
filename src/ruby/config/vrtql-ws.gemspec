@@ -8,7 +8,7 @@ c_files  += Dir.glob('ext/vrtql/ws/vrtql/mpack/*')
 
 Gem::Specification.new do |s|
   s.name          = 'vrtql-ws'
-  s.version       = '1.0.0'
+  s.version       = '2.0.0'
   s.authors       = ['VRTQL']
   s.email         = ['dev@vrtql.com']
   s.summary       = 'VRTQL websocket library'

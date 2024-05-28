@@ -21,7 +21,7 @@ typedef struct vws_http_msg
     llhttp_settings_t* settings;
 
     /**< A map storing header fields. */
-    struct sc_map_str headers;
+    vws_kvs* headers;
 
     /**< The url */
     vws_buffer* url;
@@ -40,7 +40,6 @@ typedef struct vws_http_msg
 
     /** Flag indicates a complete message has been parsed. */
     bool done;
-
 } vws_http_msg;
 
 /**
@@ -65,6 +64,76 @@ int vws_http_msg_parse(vws_http_msg* req, cstr data, size_t size);
  * @param req The vws_http_msg instance to free.
  */
 void vws_http_msg_free(vws_http_msg* req);
+
+/**
+ * @brief Get the content length from the HTTP message.
+ *
+ * This function retrieves the content length of the HTTP message.
+ *
+ * @param m Pointer to the HTTP message.
+ * @return The content length as a 64-bit unsigned integer.
+ */
+uint64_t vws_http_msg_content_length(vws_http_msg* m);
+
+/**
+ * @brief Get the major version number of the HTTP message.
+ *
+ * This function retrieves the major version number of the HTTP message.
+ *
+ * @param m Pointer to the HTTP message.
+ * @return The major version number as a 64-bit unsigned integer.
+ */
+uint64_t vws_http_msg_version_major(vws_http_msg* m);
+
+/**
+ * @brief Get the minor version number of the HTTP message.
+ *
+ * This function retrieves the minor version number of the HTTP message.
+ *
+ * @param m Pointer to the HTTP message.
+ * @return The minor version number as a 64-bit unsigned integer.
+ */
+uint64_t vws_http_msg_version_minor(vws_http_msg* m);
+
+/**
+ * @brief Get the error number of the HTTP message.
+ *
+ * This function retrieves the error number of the HTTP message.
+ *
+ * @param m Pointer to the HTTP message.
+ * @return The error number as a 64-bit unsigned integer.
+ */
+uint64_t vws_http_msg_errno(vws_http_msg* m);
+
+/**
+ * @brief Get the status code of the HTTP message.
+ *
+ * This function retrieves the status code of the HTTP message.
+ *
+ * @param m Pointer to the HTTP message.
+ * @return The status code as an 8-bit unsigned integer.
+ */
+uint8_t vws_http_msg_status_code(vws_http_msg* m);
+
+/**
+ * @brief Get the status string of the HTTP message.
+ *
+ * This function retrieves the status string of the HTTP message.
+ *
+ * @param m Pointer to the HTTP message.
+ * @return The status string as a cstr.
+ */
+cstr vws_http_msg_status_string(vws_http_msg* m);
+
+/**
+ * @brief Get the method string of the HTTP message.
+ *
+ * This function retrieves the method string of the HTTP message.
+ *
+ * @param m Pointer to the HTTP message.
+ * @return The method string as a cstr.
+ */
+cstr vws_http_msg_method_string(vws_http_msg* m);
 
 #ifdef __cplusplus
 }

@@ -667,12 +667,17 @@ void vws_map_clear(struct sc_map_str* map)
 // Key/value store
 //------------------------------------------------------------------------------
 
-int vws_kvs_comp(const void* a, const void* b)
+int vws_kvs_cs_comp(const void* a, const void* b)
 {
     return strcmp(((vws_kvp*)a)->key, ((vws_kvp*)b)->key);
 }
 
-vws_kvs* vws_kvs_new(size_t size)
+int vws_kvs_ci_comp(const void* a, const void* b)
+{
+    return strcasecmp(((vws_kvp*)a)->key, ((vws_kvp*)b)->key);
+}
+
+vws_kvs* vws_kvs_new(size_t size, bool case_sensitive)
 {
     vws_kvs* m = (vws_kvs*)malloc(sizeof(vws_kvs));
 
@@ -681,6 +686,15 @@ vws_kvs* vws_kvs_new(size_t size)
         m->array = (vws_kvp*)malloc(size * sizeof(vws_kvp));
         m->used  = 0;
         m->size  = size;
+
+        if (case_sensitive == true)
+        {
+            m->cmp = vws_kvs_cs_comp;
+        }
+        else
+        {
+            m->cmp = vws_kvs_ci_comp;
+        }
     }
 
     return m;
@@ -728,7 +742,7 @@ void vws_kvs_set(vws_kvs* m, const char* key, void* data, size_t size)
     vws_kvp kvp = {key_copy, {data_copy, size}};
 
     size_t i;
-    for (i = m->used; i > 0 && vws_kvs_comp(&kvp, &m->array[i-1]) < 0; i--)
+    for (i = m->used; i > 0 && m->cmp(&kvp, &m->array[i-1]) < 0; i--)
     {
         m->array[i] = m->array[i - 1];
     }
@@ -744,7 +758,7 @@ vws_value* vws_kvs_get(vws_kvs* m, const char* key)
                                 m->array,
                                 m->used,
                                 sizeof(m->array[0]),
-                                vws_kvs_comp );
+                                m->cmp );
 
     if (result != NULL)
     {
@@ -775,10 +789,10 @@ int vws_kvs_remove(vws_kvs* m, const char* key)
 {
     vws_kvp kvp     = {key, {NULL, 0}};
     vws_kvp* result = bsearch( &kvp,
-                                m->array,
-                                m->used,
-                                sizeof(m->array[0]),
-                                vws_kvs_comp );
+                               m->array,
+                               m->used,
+                               sizeof(m->array[0]),
+                               m->cmp );
 
     if (result != NULL)
     {

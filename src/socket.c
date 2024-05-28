@@ -850,6 +850,11 @@ int connect_to_host(const char* host, const char* port)
 {
     int sockfd = -1;
 
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "connect_to_host(): enter");
+    }
+
     #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
     // Resolve the host
@@ -970,5 +975,52 @@ int connect_to_host(const char* host, const char* port)
 
     vws.success();
 
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "connect_to_host(): leave");
+    }
+
     return sockfd;
 }
+
+bool vws_socket_addr_info(const struct sockaddr* addr, cstr* host, int* port)
+{
+    char hoststr[512];
+    char portstr[24];
+    int addrlen = 0;
+
+    *host = NULL;
+    *port = -1;
+
+    switch (addr->sa_family)
+    {
+        case AF_INET:
+        {
+            addrlen = sizeof (struct sockaddr_in);
+            break;
+        }
+        case AF_INET6:
+        {
+            addrlen = sizeof (struct sockaddr_in6);
+            break;
+        }
+        default:
+        {
+            return false;
+        }
+    }
+
+    int rc = getnameinfo( addr, addrlen,
+                          hoststr, sizeof(hoststr),
+                          portstr, sizeof(portstr),
+                          NI_NUMERICHOST | NI_NUMERICSERV );
+
+    if (rc == 0)
+    {
+        *host = strdup(hoststr);
+        *port = atoi(portstr);
+    }
+
+    return true;
+}
+

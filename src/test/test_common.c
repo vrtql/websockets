@@ -39,7 +39,7 @@ CTEST_TEARDOWN(test)
 CTEST2(test, vws_kvs)
 {
     // Initialize the dynamic array
-    vws_kvs* map = vws_kvs_new(20);
+    vws_kvs* map = vws_kvs_new(20, false);
 
     // Insert items
     int val1    = 100;
@@ -114,7 +114,7 @@ CTEST2(test, vws_kvs)
 CTEST2(test, map_bench)
 {
     // Initialize the dynamic array
-    vws_kvs* map = vws_kvs_new(20);
+    vws_kvs* map = vws_kvs_new(20, false);
 
     // Initialize the hashtable
     struct sc_map_str ht;

@@ -387,7 +387,6 @@ bool vws_cnx_is_connected(vws_cnx* c)
 {
     if (vws_socket_is_connected((vws_socket*)c) == false)
     {
-        vws.error(VE_SOCKET, "vws_cnx_is_connected()");
         return false;
     }
 
@@ -515,8 +514,8 @@ bool socket_handshake(vws_socket* s)
         }
     }
 
-    struct sc_map_str* headers = &http->headers;
-    cstr accept_key = vws_map_get(headers, "sec-websocket-accept");
+    vws_kvs* headers = http->headers;
+    cstr accept_key  = vws_kvs_get_cstring(headers, "sec-websocket-accept");
 
     if (accept_key == NULL)
     {

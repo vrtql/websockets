@@ -35,10 +35,12 @@ set(test_targets
 if(BUILD_SERVER)
   list(APPEND test_targets
     test_http_request
-    test_server
-    test_ws_server
+    test_http_server
     test_inetd_server
-    test_msg_server )
+    test_msg_server
+    test_peering
+    test_server
+    test_ws_server )
 endif()
 
 foreach(x ${test_targets})

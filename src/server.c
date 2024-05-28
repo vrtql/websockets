@@ -74,7 +74,7 @@ uint32_t address_pool_set(address_pool* pool, uintptr_t address)
     return allocated_index;
 }
 
-uintptr_t address_pool_get(address_pool* pool, vws_cid_t index)
+uintptr_t address_pool_get(address_pool* pool, uint32_t index)
 {
     if (index >= pool->capacity || pool->slots[index] == 0)
     {
@@ -111,13 +111,14 @@ void address_pool_remove(address_pool* pool, uint32_t index)
  * networking thread.
  *
  * Worker threads pass data to it through a queue. The data is in the form of
- * vws_svr_data instances. When a worker sends a vws_svr_data instance, it
- * adds it to the queue (server->responses) and notifies (wakes up) the main UV
- * loop (uv_run() in vrtql_tcp_svr_run()) by calling uv_async_send(server->wakeup)
- * which in turn calls this function to check the server->responses queue. This
- * function unloads all data in the queue and sends the data out to each
- * respective client. It then returns control back to the main UV loop which
- * resumes polling the network connections (blocking if there is no activity).
+ * vws_svr_data instances. When a worker sends a vws_svr_data instance, it adds
+ * it to the queue (server->responses) and notifies (wakes up) the main UV loop
+ * (uv_run() in vrtql_tcp_svr_run()) by calling uv_async_send(server->wakeup)
+ * which in turn calls uv_thread() to check the server->responses queue. The
+ * uv_thread() function unloads all data in the queue and sends the data out to
+ * each respective client. It then returns control back to the main UV loop
+ * which resumes polling the network connections (blocking if there is no
+ * activity).
  *
  * @param handle A pointer to the uv_async_t handle that triggered the callback.
  *
@@ -253,9 +254,19 @@ static void svr_on_realloc(uv_handle_t* handle, size_t size, uv_buf_t* buf);
  * @param handle The handle that was closed.
  *
  * @ingroup ServerFunctions
-
  */
 static void svr_on_close(uv_handle_t* handle);
+
+/**
+ * @brief Callback for handle closure.
+ *
+ * This function is invoked when a peer_timer handle is closed.
+ *
+ * @param handle The handle that was closed.
+ *
+ * @ingroup ServerFunctions
+ */
+static void svr_on_timer_close(uv_handle_t* handle);
 
 /**
  * @brief Callback for reading data.
@@ -789,7 +800,7 @@ void worker_thread(void* arg)
                     vws.trace(VL_INFO, "worker_thread(): Exiting");
                 }
 
-                return;
+                break;
             }
             else
             {
@@ -832,6 +843,112 @@ void uv_thread(uv_async_t* handle)
         return;
     }
 
+    // Check for closeed peer connections.
+    for (size_t i = 0; i < server->peers->used; i++)
+    {
+        vws_peer* peer = (vws_peer*)server->peers->array[i].value.data;
+
+        // If closed
+        if (peer->state == VWS_PEER_CLOSED)
+        {
+            // Set to pending
+            peer->state = VWS_PEER_PENDING;
+
+            // Create queue element
+            vws_svr_data* block;
+            block = vws_svr_data_own( server,
+                                      peer->info.cid,
+                                      (ucstr)peer,
+                                      sizeof(vws_peer*) );
+
+            // Flag as closed connection
+            vws_set_flag(&block->flags, VWS_SVR_DATA_CONNECTION);
+
+            // Queue request
+            queue_push(&server->requests, block);
+        }
+
+        // NOTE: This code is very similar to vws_tcp_svr_inetd_run() but
+        // different enough in that it cannot be easily factored and reused. In
+        // both cases we are taking an open socket descriptor and importing it
+        // into libuv loop.
+        if (peer->state == VWS_PEER_RECONNECTED)
+        {
+            // We have successfully connected to remote peer and have an active
+            // socket descriptor. We now need to take ownership of the socket
+            // descriptor, create an associated vws_svr_cnx connection instance
+            // for that socket descriptor, customize it for websocket operation
+            // and add to connection pool.
+
+            // Set socket to non-blocking mode for libuv
+            if (vws_socket_set_nonblocking(peer->sockfd) == false)
+            {
+                vws.error(VE_RT, "Failed to set socket to nonblocking");
+                return;
+            }
+
+            // Adopt socket descriptor into libuv loop
+            uv_tcp_t* c = (uv_tcp_t*)vws.malloc(sizeof(uv_tcp_t));
+
+            if (uv_tcp_init(server->loop, c))
+            {
+                // Handle uv_tcp_init failure.
+                vws.error(VE_RT, "Failed to initialize new TCP handle");
+                vws.free(c);
+                return;
+            }
+
+            if (uv_tcp_open(c, peer->sockfd))
+            {
+                // Handle uv_tcp_open failure.
+                vws.error(VE_RT, "Failed to adopt the socket descriptor.");
+                vws.free(c);
+                return;
+            }
+
+            // Create socket info structure
+            vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
+            memcpy(ci, &peer->info, sizeof(vws_cinfo));
+            c->data = ci;
+
+            // Start reads on socket
+            if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
+            {
+                vws.error(VE_RT, "Failed to start reading from client");
+                vws.free(c);
+                vws.free(ci);
+                return;
+            }
+
+            if (vws.tracelevel >= VT_THREAD)
+            {
+                vws.trace(VL_INFO, "uv_thread(): connecting peer");
+            }
+
+            //> Add connection to registry and initialize
+
+            vws_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)c);
+            ci->cnx          = cnx;
+            ci->cid          = cnx->cid;
+
+            // We have already upgraded this connection.
+            cnx->upgraded = true;
+            vws_http_msg_free(cnx->http);
+            cnx->http = NULL;
+
+            // Call svr_on_connect() handler to complete initialization
+            server->on_connect(cnx);
+
+            //> Update peer record
+
+            // New connection information
+            peer->info = *ci;
+
+            // New connection state
+            peer->state = VWS_PEER_CONNECTED;
+        }
+    }
+
     while (queue_empty(&server->responses) == false)
     {
         vws_svr_data* data = queue_pop(&server->responses);
@@ -846,10 +963,18 @@ void uv_thread(uv_async_t* handle)
             return;
         }
 
-        if (vws_is_flag(&data->flags, VM_SVR_DATA_CLOSE))
+        if (vws_is_flag(&data->flags, VWS_SVR_DATA_CLOSE))
         {
-            // Close connection
-            svr_cnx_close(server, data->cid);
+            // Lookup connection
+            uintptr_t ptr = address_pool_get(server->cpool, data->cid.key);
+
+            if (ptr != 0)
+            {
+                // Close connections
+                vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
+                uv_close((uv_handle_t*)cnx->handle, svr_on_close);
+            }
+
             vws_svr_data_free(data);
         }
         else
@@ -904,6 +1029,19 @@ vws_tcp_svr* vws_tcp_svr_new(int num_threads, int backlog, int queue_size)
     return tcp_svr_ctor(server, num_threads, backlog, queue_size);
 }
 
+void vws_tcp_svr_close(vws_tcp_svr* server, vws_cid_t cid)
+{
+    // Create reply
+    vws_svr_data* reply;
+    reply = vws_svr_data_own(server, cid, NULL, 0);
+
+    // Set connection close flag
+    vws_set_flag(&reply->flags, VWS_SVR_DATA_CLOSE);
+
+    // Queue the data to uv_thread() to send out on wire
+    vws_tcp_svr_send(reply);
+}
+
 uint8_t vws_tcp_svr_state(vws_tcp_svr* server)
 {
     return server->state;
@@ -948,15 +1086,13 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     //> Create listening socket
 
     uv_tcp_t* socket = vws.malloc(sizeof(uv_tcp_t));
-
     uv_tcp_init(server->loop, socket);
 
-    vws_cinfo* cinfo  = vws.malloc(sizeof(vws_cinfo));
-    cinfo->cnx        = NULL;
-    cinfo->server     = server;
-    cinfo->cid        = 0;
-
-    socket->data      = cinfo;
+    vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
+    ci->cnx       = NULL;
+    ci->server    = server;
+    ci->cid.key   = 0;
+    socket->data  = ci;
 
     //> Bind to address
 
@@ -991,7 +1127,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     if (vws.tracelevel >= VT_SERVICE)
     {
         vws.trace( VL_INFO,
-                   "vws_tcp_svr_run(%s): Listen %s:%lu",
+                   "vws_tcp_svr_run(%p): Listen %s:%lu",
                    server, host, port );
     }
 
@@ -1002,7 +1138,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
 
     if (vws.tracelevel >= VT_SERVICE)
     {
-        vws.trace(VL_INFO, "vws_tcp_svr_run(%s): Starting uv_run()", server);
+        vws.trace(VL_INFO, "vws_tcp_svr_run(%p): Starting uv_run()", server);
     }
 
     while (server->state == VS_RUNNING)
@@ -1014,6 +1150,32 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     }
 
     //> Shutdown server
+
+    vws.trace( VL_INFO, "vws_tcp_svr_run(%p): Shutdown connections=%lu",
+               server,
+               server->cpool->count );
+
+    // Close connections.
+    for (uint32_t i = 0; i < server->cpool->capacity; i++)
+    {
+        uintptr_t ptr = server->cpool->slots[i];
+
+        if (ptr != 0)
+        {
+            // Close connection
+            vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
+
+            if (vws.tracelevel >= VT_SERVICE)
+            {
+                vws.trace( VL_INFO,
+                           "vws_tcp_svr_run(%p): closing %p",
+                           server,
+                           cnx->handle );
+            }
+
+            uv_close((uv_handle_t*)cnx->handle, svr_on_close);
+        }
+    }
 
     // Close the listening socket handle
     uv_close((uv_handle_t*)socket, svr_on_close);
@@ -1092,7 +1254,7 @@ int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd)
     // Set to inetd mode
     server->inetd_mode = 1;
 
-    // Initialize and adopt the existing socket descriptor.
+    // Adopt socket descriptor into libuv loop
     uv_tcp_t* c = (uv_tcp_t*)vws.malloc(sizeof(uv_tcp_t));
 
     if (uv_tcp_init(server->loop, c))
@@ -1111,29 +1273,28 @@ int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd)
         return 1;
     }
 
-    vws_cinfo* addr  = vws.malloc(sizeof(vws_cinfo));
-    addr->cnx        = NULL;
-    addr->server     = server;
+    // Create socket info structure
+    vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
+    ci->cnx       = NULL;
+    ci->server    = server;
+    c->data       = ci;
 
-    c->data = addr;
-
+    // Start reads on socket
     if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
     {
         vws.error(VE_RT, "Failed to start reading from client");
         vws.free(c);
-        vws.free(addr);
+        vws.free(ci);
         return 1;
     }
 
     //> Add connection to registry and initialize
 
-    // Associate server with this handle for callbacks.
     vws_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)c);
-    addr->cnx        = cnx;
-    addr->cid        = cnx->cid;
+    ci->cnx          = cnx;
+    ci->cid          = cnx->cid;
 
-    //> Call svr_on_connect() handler
-
+    // Call svr_on_connect() handler to complete initialization
     server->on_connect(cnx);
 
     // Now, the handle is associated with the socket and is ready to be used.
@@ -1182,6 +1343,187 @@ void vws_tcp_svr_inetd_stop(vws_tcp_svr* server)
     server->state = VS_HALTED;
 }
 
+bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
+{
+    int sockfd = -1;
+
+    // Resolve the host
+    struct addrinfo hints, *res, *res0;
+    int error;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family   = PF_UNSPEC; // Accept any family (IPv4 or IPv6)
+    hints.ai_socktype = SOCK_STREAM;
+
+    char port_str[50];
+    sprintf(port_str, "%lu", port);
+
+    error = getaddrinfo(host, &port_str[0], &hints, &res0);
+
+    if (error)
+    {
+        if (vws.tracelevel > 0)
+        {
+            cstr msg = gai_strerror(error);
+            vws.trace(VL_ERROR, "getaddrinfo failed: %s: %s", host, msg);
+        }
+
+        vws.error(VE_SYS, "getaddrinfo() failed");
+
+        return -1;
+    }
+
+    for (res = res0; res; res = res->ai_next)
+    {
+        sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+
+        if (sockfd == -1)
+        {
+            vws.error(VE_SYS, "Failed to create socket");
+            continue;
+        }
+
+        if (vws.tracelevel >= VT_SERVICE)
+        {
+            cstr host; int port;
+            struct sockaddr* addr = (struct sockaddr*)res->ai_addr;
+            if (vws_socket_addr_info(addr, &host, &port) == true)
+            {
+                vws.trace(VL_INFO, "svr_resolve() connect %s:%lu", host, port);
+                free(host);
+            }
+            else
+            {
+                vws.trace(VL_INFO, "svr_resolve(): connect");
+            }
+        }
+
+        if (connect(sockfd, res->ai_addr, res->ai_addrlen) == -1)
+        {
+            close(sockfd);
+            sockfd = -1;
+
+            vws.error(VE_SYS, "Failed to connect");
+            continue;
+        }
+
+        break; // If we get here, we must have connected successfully
+    }
+
+    // Free the addrinfo structure for this host
+    freeaddrinfo(res0);
+
+    if (sockfd == -1)
+    {
+        vws.error(VE_SYS, "Unable to resolve host %s:%lu", host, port);
+        return false;
+    }
+
+    close(sockfd);
+
+    return true;
+}
+
+bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer)
+{
+    // Attempt reconnection
+    peer->sockfd = peer->connect(&peer->info);
+
+    // Successful it sockfd not -1
+    return (peer->sockfd != -1);
+}
+
+void peer_timer_callback(uv_timer_t* handle)
+{
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "peer_timer_callback(%p)", handle);
+    }
+
+    // Stop timer
+    uv_timer_stop(handle);
+
+    // Wakeup server
+    vws_tcp_svr* s = (vws_tcp_svr*)handle->data;
+    uv_async_send(s->wakeup);
+}
+
+void vws_tcp_svr_peer_timer(vws_tcp_svr* s)
+{
+    uint32_t interval = 1;
+
+    // Get the current time
+    time_t current_time = time(NULL);
+
+    if (s->peer_timeout > current_time)
+    {
+        // If we have a timeout already set in the future
+        return;
+    }
+
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "vws_tcp_svr_peer_timer(%p)", s);
+    }
+
+    // Calculate the time 15 seconds in advance
+    time_t timeout_time = current_time + interval;
+
+    // Set data
+    s->peer_timer->data = s;
+
+    // Start the timer with a 15-second timeout
+    uv_timer_start(s->peer_timer, peer_timer_callback, interval * 1000, 0);
+
+    // Update peer_timeout to the timeout time
+    s->peer_timeout = timeout_time;
+}
+
+bool vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn)
+{
+    vws_peer peer;
+
+    if (fn == NULL)
+    {
+        vws.error( VL_WARN,
+                   "vws_tcp_svr_peer_add(): "
+                   "connection function not provided" );
+        return false;
+    }
+
+    // Set connection function
+    peer.connect = fn;
+
+    // Set connection as closed. uv_thread() will connect
+    peer.state = VWS_PEER_CLOSED;
+
+    struct sockaddr_storage* addr = &peer.info.cid.addr;
+    if (svr_resolve(h, p, &addr) == false)
+    {
+        vws.error( VL_WARN,
+                   "vws_tcp_svr_peer_add(): "
+                   "Failed to resolve host %s:%lu", h, p );
+
+        return false;
+    }
+
+    char key[514];
+    sprintf(key, "%s:%lu", h, p);
+    vws_kvs_set(s->peers, key, &peer, sizeof(vws_peer));
+
+    // Set wakeup timer
+    vws_tcp_svr_peer_timer(s);
+
+    return true;
+}
+
+void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p)
+{
+    char key[514];
+    sprintf(key, "%s:%lu", h, p);
+    vws_kvs_remove(s->peers, key);
+}
+
 //------------------------------------------------------------------------------
 // Server construction / destruction
 //------------------------------------------------------------------------------
@@ -1213,6 +1555,8 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->state            = VS_HALTED;
     svr->trace            = vws.tracelevel;
     svr->inetd_mode       = 0;
+    svr->peers            = vws_kvs_new(10, false);
+    svr->peer_timeout     = 0;
 
     uv_loop_init(svr->loop);
     svr->cpool = address_pool_new(1000, 2);
@@ -1222,11 +1566,14 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     vws_cinfo* cinfo  = vws.malloc(sizeof(vws_cinfo));
     cinfo->cnx        = NULL;
     cinfo->server     = svr;
-    cinfo->cid        = 0;
+    cinfo->cid.key    = 0;
 
     svr->wakeup = vws.malloc(sizeof(uv_async_t));
     svr->wakeup->data = cinfo;
     uv_async_init(svr->loop, svr->wakeup, uv_thread);
+
+    svr->peer_timer = vws.malloc(sizeof(uv_timer_t));
+    uv_timer_init(svr->loop, svr->peer_timer);
 
     return svr;
 }
@@ -1242,7 +1589,9 @@ void on_uv_close(uv_handle_t* handle)
         if (handle->data != NULL)
         {
             vws.trace( VL_WARN,
-                       "on_uv_close(): libuv resource not properly freed: %p",
+                       "on_uv_close(): libuv resource not properly freed:"
+                       "handle=%p handle->data=%p",
+                       (void*)handle,
                        (void*)handle->data );
         }
     }
@@ -1264,6 +1613,12 @@ void tcp_svr_dtor(vws_tcp_svr* svr)
 
     if (svr->state == VS_RUNNING)
     {
+        // Wait for connections to close
+        while (svr->cpool->count > 0)
+        {
+            uv_run(svr->loop, UV_RUN_DEFAULT);
+        }
+
         vws_tcp_svr_stop(svr);
     }
 
@@ -1272,6 +1627,10 @@ void tcp_svr_dtor(vws_tcp_svr* svr)
 
     // Close the server async handle
     uv_close((uv_handle_t*)svr->wakeup, svr_on_close);
+
+    // Close peer timer
+    svr->peer_timer->data = NULL;
+    uv_close((uv_handle_t*)svr->peer_timer, svr_on_timer_close);
 
     //> Shutdown libuv
 
@@ -1292,6 +1651,9 @@ void tcp_svr_dtor(vws_tcp_svr* svr)
 
     // Free address pool
     address_pool_free(&svr->cpool);
+
+    // Free peers
+    vws_kvs_free(svr->peers);
 }
 
 //------------------------------------------------------------------------------
@@ -1348,7 +1710,7 @@ void svr_client_data_out(vws_svr_data* data, void* x)
     req->data       = data;
 
     // Check address pool and ensure connection is still active
-    uintptr_t ptr = address_pool_get(data->server->cpool, data->cid);
+    uintptr_t ptr = address_pool_get(data->server->cpool, data->cid.key);
 
     if (ptr == 0)
     {
@@ -1385,7 +1747,17 @@ vws_svr_cnx* svr_cnx_new(vws_tcp_svr* s, uv_stream_t* handle)
     cnx->http        = vws_http_msg_new(HTTP_REQUEST);
 
     // Add to address pool
-    cnx->cid = address_pool_set(s->cpool, (uintptr_t)cnx);
+    cnx->cid.key     = address_pool_set(s->cpool, (uintptr_t)cnx);
+
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "svr_cnx_new(%p): added %lu", s, cnx->cid.key);
+    }
+
+    // Get peer info
+    int len = sizeof(struct sockaddr_storage);
+    uv_tcp_getpeername( (const uv_tcp_t*)handle,
+                        (struct sockaddr*)&cnx->cid.addr, &len );
 
     return cnx;
 }
@@ -1400,7 +1772,7 @@ void svr_cnx_free(vws_svr_cnx* c)
         }
 
         // Remove from pool
-        address_pool_remove(c->server->cpool, c->cid);
+        address_pool_remove(c->server->cpool, c->cid.key);
 
         vws.free(c);
     }
@@ -1486,7 +1858,7 @@ void svr_shutdown(vws_tcp_svr* server)
         vws.trace(VL_INFO, "svr_shutdown(%p): Shutdown starting", server);
     }
 
-    // Cleanup queues
+    //> Cleanup queues
 
     vws_svr_queue* queue = &server->responses;
     uv_mutex_lock(&queue->mutex);
@@ -1512,7 +1884,6 @@ void svr_on_connect(uv_stream_t* socket, int status)
 {
     vws_cinfo* svr_addr = (vws_cinfo*)socket->data;
     vws_tcp_svr* server = svr_addr->server;
-    //vws_tcp_svr* server = (vws_tcp_svr*) socket->data;
 
     if (status < 0)
     {
@@ -1567,9 +1938,9 @@ void svr_on_connect(uv_stream_t* socket, int status)
 void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
 {
     vws_cinfo* cinfo    = (vws_cinfo*)c->data;
-    vws_svr_cnx* cnx    = cinfo->cnx;;
+    vws_svr_cnx* cnx    = cinfo->cnx;
     vws_tcp_svr* server = cinfo->server;
-    vws_cid_t cid           = cinfo->cid;
+    vws_cid_t cid       = cinfo->cid;
 
     if (nread < 0)
     {
@@ -1579,7 +1950,7 @@ void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
     }
 
     // Lookup connection
-    uintptr_t ptr = address_pool_get(server->cpool, cid);
+    uintptr_t ptr = address_pool_get(server->cpool, cid.key);
 
     if (ptr != 0)
     {
@@ -1594,15 +1965,33 @@ void svr_on_write_complete(uv_write_t* req, int status)
     vws.free(req);
 }
 
+void svr_on_timer_close(uv_handle_t* handle)
+{
+    vws.free(handle);
+}
+
 void svr_on_close(uv_handle_t* handle)
 {
-    vws_cinfo* cinfo     = (vws_cinfo*)handle->data;
-    vws_svr_cnx* cnx     = cinfo->cnx;
-    vws_tcp_svr* server  = cinfo->server;
-    vws_cid_t cid            = cinfo->cid;
+    vws_cinfo* cinfo    = (vws_cinfo*)handle->data;
+    vws_svr_cnx* cnx    = cinfo->cnx;
+    vws_tcp_svr* server = cinfo->server;
+    vws_cid_t cid       = cinfo->cid;
+
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "svr_on_close(%p, %p)", server, handle);
+    }
+
+    if (server == NULL)
+    {
+        vws.free(handle->data);
+        vws.free(handle);
+
+        return;
+    }
 
     // Lookup connection
-    uintptr_t ptr = address_pool_get(server->cpool, cid);
+    uintptr_t ptr = address_pool_get(server->cpool, cid.key);
 
     if (ptr != 0)
     {
@@ -1610,9 +1999,6 @@ void svr_on_close(uv_handle_t* handle)
 
         // Call on_disconnect() handler
         server->on_disconnect(cnx);
-
-        // Remove from map
-        //sc_map_del_64v(map, (uint64_t)handle);
 
         // Cleanup
         svr_cnx_free(cnx);
@@ -1737,6 +2123,48 @@ bool queue_empty(vws_svr_queue* queue)
 // Pure WebSocket Server
 //------------------------------------------------------------------------------
 
+// For handling HTTP requests
+int ws_svr_on_http_read(vws_svr_cnx* cnx)
+{
+    // The the HTTP request complete?
+    if (cnx->http->done == true)
+    {
+        vws_svr* server = (vws_svr*)cnx->server;
+
+        // Pass to some processing function if defined
+        if (server->process_http != NULL)
+        {
+            // Pass message pointer in block
+            vws_svr_data* block;
+            block = vws_svr_data_own( cnx->server,
+                                      cnx->cid,
+                                      (ucstr)cnx->http,
+                                      sizeof(vws_http_msg*) );
+
+            // Flag this message as HTTP request
+            vws_set_flag(&block->flags, VWS_SVR_DATA_HTTP);
+
+            // Queue request
+            queue_push(&cnx->server->requests, block);
+        }
+        else
+        {
+            // No HTTP processing function defined. Since we take ownership of
+            // message to we must up clean up.
+            vws_http_msg_free(cnx->http);
+        }
+
+        // By returning 1 we tell the caller we handled the request and took
+        // owndership of it (freed memory). Caller will allocate a new request
+        // and continue with connection processing.
+        return 1;
+    }
+
+    // By returning 0, we tell caller that the HTTP request is not
+    // complete. Keep reading and call us again when more data arrives.
+    return 0;
+}
+
 void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
 {
     vws_svr_cnx* cnx = (vws_svr_cnx*)c->data;
@@ -1815,7 +2243,21 @@ void ws_svr_client_connect(vws_svr_cnx* c)
 {
     if (vws.tracelevel >= VT_SERVICE)
     {
-        vws.trace(VL_INFO, "ws_svr_client_connect(%p)", c->handle);
+        cstr host;
+        int port;
+
+        struct sockaddr* addr = (struct sockaddr*)&c->cid.addr;
+        if (vws_socket_addr_info(addr, &host, &port) == true)
+        {
+            vws.trace( VL_INFO,
+                       "ws_svr_client_connect(%p, %p) socket %s:%lu",
+                       c->server, c->handle, host, port);
+            free(host);
+        }
+        else
+        {
+            vws.trace(VL_INFO, "ws_svr_client_connect(%p)", c->handle);
+        }
     }
 
     // Create a new vws_cnx
@@ -1839,24 +2281,11 @@ void ws_svr_client_disconnect(vws_svr_cnx* c)
     }
 }
 
-void vws_tcp_svr_close(vws_tcp_svr* server, vws_cid_t cid)
-{
-    // Create reply
-    vws_svr_data* reply;
-    reply = vws_svr_data_own(server, cid, NULL, 0);
-
-    // Set connection close flag
-    vws_set_flag(&reply->flags, VM_SVR_DATA_CLOSE);
-
-    // Queue the data to uv_thread() to send out on wire
-    vws_tcp_svr_send(reply);
-}
-
 // Runs in uv_thread()
 void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
 {
-    vws_tcp_svr* server = cnx->server;
-    vws_cnx* c          = (vws_cnx*)cnx->data;
+    vws_svr* server = (vws_svr*)cnx->server;
+    vws_cnx* c      = (vws_cnx*)cnx->data;
 
     // Add to client socket buffer
     vws_buffer_append(c->base.buffer, (ucstr)buf->base, size);
@@ -1887,7 +2316,7 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
                            llhttp_get_error_reason(cnx->http->parser) );
 
                 // Close connection
-                svr_cnx_close(server, cnx->cid);
+                svr_cnx_close(cnx->server, cnx->cid);
 
                 return;
             }
@@ -1897,11 +2326,59 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
 
             //> Generate HTTP response and send
 
-            vws_buffer* http = vws_buffer_new();
+            vws_kvs* headers = cnx->http->headers;
 
-            struct sc_map_str* headers = &cnx->http->headers;
-            cstr key   = vws_map_get(headers, "sec-websocket-key");
-            cstr proto = vws_map_get(headers, "sec-websocket-protocol");
+            // Check if it's an upgrade request
+            cstr upgrade = vws_kvs_get_cstring(headers, "upgrade");
+
+            if (upgrade == NULL)
+            {
+                // Handle regular HTTP request via callback
+                if (server->on_http_read)
+                {
+                    int rc = server->on_http_read(cnx);
+
+                    if (rc == 0)
+                    {
+                        // Keep reading
+                        return;
+                    }
+
+                    if (rc == 1)
+                    {
+                        // Allocate new message
+                        cnx->http = vws_http_msg_new(HTTP_REQUEST);
+                    }
+
+                    if (rc == -1)
+                    {
+                        // We are not handling HTTP requests
+                        svr_cnx_close(cnx->server, cnx->cid);
+                    }
+                }
+                else
+                {
+                    // We are not handling HTTP requests
+                    svr_cnx_close(cnx->server, cnx->cid);
+                }
+
+                return;
+            }
+
+            cstr key   = vws_kvs_get_cstring(headers, "sec-websocket-key");
+            cstr proto = vws_kvs_get_cstring(headers, "sec-websocket-protocol");
+
+            if (key == NULL)
+            {
+                vws.error(VE_RT, "Error: missing sec-websocket-key");
+
+                // Close connection
+                svr_cnx_close(cnx->server, cnx->cid);
+
+                return;
+            }
+
+            vws_buffer* http = vws_buffer_new();
 
             vws_buffer_printf(http, "HTTP/1.1 101 Switching Protocols\r\n");
             vws_buffer_printf(http, "Upgrade: websocket\r\n");
@@ -1930,7 +2407,7 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
             reply = vws_svr_data_new(cnx->server, cnx->cid, &http);
 
             // Send directly out as we are in uv_thread()
-            server->on_data_out(reply, NULL);
+            cnx->server->on_data_out(reply, NULL);
 
             // Cleanup. Buffer data was passed to reply.
             vws_buffer_free(http);
@@ -1981,7 +2458,7 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
                                       cnx->cid,
                                       (ucstr)wsm,
                                       sizeof(vws_msg*) );
-            queue_push(&server->requests, block);
+            queue_push(&cnx->server->requests, block);
         }
     }
 }
@@ -1991,8 +2468,64 @@ void ws_svr_client_data_in(vws_svr_data* block, void* x)
 {
     //> Append data to connection buffer
 
-    vws_cid_t cid       = block->cid;
+    vws_cid_t cid   = block->cid;
     vws_svr* server = (vws_svr*)block->server;
+
+    // If this is a HTTP request
+    if (vws_is_flag(&block->flags, VWS_SVR_DATA_HTTP))
+    {
+        // Data simply contains a pointer to a websocket message
+        vws_http_msg* req = (vws_http_msg*)block->data;
+
+        // Free incoming data
+        block->data = NULL;
+        block->size = 0;
+        vws_svr_data_free(block);
+
+        // Process message
+        if (server->process_http(server, cid, req, x) == false)
+        {
+            // If processing function returns false, we close connection.
+            vws_tcp_svr_close((vws_tcp_svr*)server, cid);
+        }
+
+        // Since we take ownership of message to we must up clean up.
+        vws_http_msg_free(req);
+
+        return;
+    }
+
+    // If this is a peer which needs connecting
+    if (vws_is_flag(&block->flags, VWS_SVR_DATA_CONNECTION))
+    {
+        // Data simply contains a pointer to a websocket message
+        vws_peer* peer = (vws_peer*)block->data;
+
+        // Free incoming data
+        block->data = NULL;
+        block->size = 0;
+        vws_svr_data_free(block);
+
+        // Connect
+        if (vws_tcp_svr_peer_connect((vws_tcp_svr*)server, peer) == false)
+        {
+            // Set state back to closed
+            peer->state = VWS_PEER_CLOSED;
+        }
+        else
+        {
+            // Set state back to connected. uv_thread() will add it to
+            // connection pool.
+            peer->state = VWS_PEER_RECONNECTED;
+        }
+
+        // We don't need to send message back regarding this request, but we do
+        // need the server to wakeup and realize that this peer connection state
+        // has changed and needs to be attended to.
+        uv_async_send(((vws_tcp_svr*)server)->wakeup);
+
+        return;
+    }
 
     // Data simply contains a pointer to a websocket message
     vws_msg* wsm = (vws_msg*)block->data;
@@ -2040,7 +2573,7 @@ void ws_svr_client_msg_in(vws_svr* s, vws_cid_t c, vws_msg* m, void* x)
     vws_svr* server = (vws_svr*)s;
 
     // Route to application-specific processing callback
-    server->process(server, c, m, x);
+    server->process_ws(server, c, m, x);
 }
 
 void ws_svr_client_process(vws_svr* s, vws_cid_t c, vws_msg* m, void* x)
@@ -2069,8 +2602,12 @@ void ws_svr_ctor(vws_svr* server, int nt, int bl, int qs)
     server->on_msg_in          = ws_svr_client_msg_in;
     server->on_msg_out         = ws_svr_client_msg_out;
 
+    // HTTP handlers
+    server->on_http_read       = ws_svr_on_http_read;
+    server->process_http       = NULL;
+
     // Application functions
-    server->process            = ws_svr_client_process;
+    server->process_ws         = ws_svr_client_process;
     server->send               = ws_svr_client_msg_out;
 }
 
@@ -2130,9 +2667,10 @@ void msg_svr_client_ws_msg_in(vws_svr* s, vws_cid_t cid, vws_msg* wsm, void* x)
 
     // Deserialized succeeded
 
-    // TODO
-    // We send back the format we get. More than that, a request with different
-    // format effectively changes the entire connection default format setting.
+    // TODO: We send back the format we get. More than that, a request with
+    // different format effectively changes the entire connection default format
+    // setting.
+    //
     // cnx->format = msg->format;
 
     // Free websocket message
@@ -2190,15 +2728,15 @@ vrtql_msg_svr_ctor(vrtql_msg_svr* server, int threads, int backlog, int qsize)
     ws_svr_ctor((vws_svr*)server, threads, backlog, qsize);
 
     // Server base function overrides
-    server->base.process = msg_svr_client_ws_msg_in;
+    server->base.process_ws = msg_svr_client_ws_msg_in;
 
     // Message handling
-    server->on_msg_in    = msg_svr_client_msg_in;
-    server->on_msg_out   = msg_svr_client_msg_out;
+    server->on_msg_in       = msg_svr_client_msg_in;
+    server->on_msg_out      = msg_svr_client_msg_out;
 
     // Application functions
-    server->process      = msg_svr_client_process;
-    server->send         = msg_svr_client_msg_out;
+    server->process        = msg_svr_client_process;
+    server->send           = msg_svr_client_msg_out;
 
     // User-defined data
     server->data         = NULL;

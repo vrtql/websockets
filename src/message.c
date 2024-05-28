@@ -39,8 +39,8 @@ vrtql_msg* vrtql_msg_new()
 {
     vrtql_msg* msg = vws.calloc(1, sizeof(vrtql_msg));
 
-    msg->routing = vws_kvs_new(10);
-    msg->headers = vws_kvs_new(10);
+    msg->routing = vws_kvs_new(10, false);
+    msg->headers = vws_kvs_new(10, false);
 
     msg->content = vws_buffer_new();
     msg->flags   = 0;

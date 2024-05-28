@@ -269,6 +269,304 @@ int main()
 }
 ```
 
+### Server API
+
+The server API is layered and works the same for all media formats: binary data,
+WebSockets, HTTP and VRTQL messages. Once you understand how the basic API
+works, everything else is intuitive. The API is simple and designed to make it
+very easy for you to focus on processing messages. There are only a few steps
+required to create a server. You create a server instance, define a processing
+function to handle incoming data, and send data back to the remote peer. We will
+take each of these in turn.
+
+You create a server instance using the `vrtql_svr_new()` function. This takes
+three arguments: the number of worker threads, the connection backlog, and the
+maximum message queue size. If you set the latter two arguments to zero, it will
+use the default values. Next, you create a processing function. The signature of
+this function varies according to the server. For the core server, which deals
+with unstructured data, this signature is given by the `vrtql_svr_process_data`
+callback. It takes a single argument: a `vrtql_svr_data` instance created on the
+heap. This structure simply holds a blob of data. It is up to your processing
+function to make sense of that data and respond accordingly. If you need to send
+data back to the peer, you do so using `vrtql_svr_send()`. With all these things
+in place, you call `vrtql_svr_run()` to start the server.
+
+The following illustrates writing a basic echo server:
+
+```c
+#include <vws/server.h>
+
+cstr server_host = "127.0.0.1";
+int  server_port = 8181;
+
+/* Stuff you want allocated in every worker thread for you to do your
+** application-specific processing.
+*/
+type struct my_ctx
+{
+    void* thingy;
+} worker_thread_stuff;
+
+void process(vws_svr_data* req, void* data)
+{
+    vws.trace(VL_INFO, "process (%p)", req);
+
+    // Instance of your my_ctx for this specific worker thread
+    my_ctx* ctx = (my_ctx*)data;
+
+    vws_tcp_svr* server = req->server;
+
+    //> Prepare the response: echo the data back
+
+    // Allocate memory for the data to be sent in response
+    char* data = (char*)vws.malloc(req->size);
+
+    // Copy the request's data to the response data
+    strncpy(data, req->data, req->size);
+
+    // Create response
+    vws_svr_data* reply;
+
+    reply = vws_svr_data_own(req->server, req->cid, (ucstr)data, req->size);
+
+    // Free request
+    vws_svr_data_free(req);
+
+    if (vws.tracelevel >= VT_APPLICATION)
+    {
+        vws.trace(VL_INFO, "process(%lu): %i bytes", reply->cid, reply->size);
+    }
+
+    // Send reply. This will wakeup network thread.
+    vws_tcp_svr_send(reply);
+}
+
+// Allocate context for worker thread
+void* vcs_thread_startup(void* data)
+{
+    vrtql_svr* server = (vrtql_svr*)data;
+
+    // Worker thread specific initialization
+    my_ctx* ctx = (my_ctx*)malloc(sizeof(my_ctx));
+    ctx->thingy = malloc(1);
+
+    return my_ctx;
+}
+
+// Deallocate context for worker thread
+void vcs_thread_shutdown(void* data)
+{
+    my_ctx* ctx = (my_ctx*)data;
+
+    free(ctx->thingy);
+    free(ctx);
+
+    // Worker thread specific cleanup
+}
+
+int main(int argc, const char* argv[])
+{
+    // Setup
+    vrtql_svr* server  = vrtql_svr_new(10, 0, 0);
+    vws.tracelevel     = VT_THREAD;
+    server->on_data_in = process;
+
+    // Worker thread context
+    server->worker_ctor      = vcs_thread_startup;
+    server->worker_ctor_data = server;
+    server->worker_dtor      = vcs_thread_shutdown;
+
+    // Run
+    vrtql_svr_run(server, server_host, server_port);
+
+    // Shutdown
+    vrtql_svr_stop(server);
+    uv_thread_join(&server_tid);
+    vrtql_svr_free(server);
+}
+```
+
+Since the server uses a thread pool of worker threads for processing, you may
+want to have some context or environment for your processing available. This is
+the job of the `worker_ctor`, `worker_ctor_data` and `worker_dtor` members. The
+`worker_ctor` constructs the user-defined data which is passed into the
+processing function as the last argument. The `worker_ctor_data` is user-defined
+data passed into the `worker_ctor` function to assist setting up the
+environment. Finally the `worker_dtor` is called on worker thread shutdown and
+passed the context returned by `worker_ctor` for cleanup. All of these are
+optional -- you don't have to use them them. But if you have any processing that
+requires things like dedicated database connections or other environmental
+resources specific to the thread envrionment, these can be very useful.
+
+Writing a WebSocket server is even simpler. It follows the same pattern but uses
+`vws_svr_new()` to create the server. The processing function signature is given
+by the `vws_svr_process_msg` callback. Rather than using unstructured data, it
+operates on WebSocket messages.
+
+The following illustrates writing a WebSocket server:
+
+```c
+#include <vws/server.h>
+
+cstr server_host = "127.0.0.1";
+int  server_port = 8181;
+
+// Server function to process messages. Runs in context of worker thread.
+void process(vws_svr* s, vws_cid_t cid, vws_msg* m, void* ctx)
+{
+    vws.trace(VL_INFO, "process_message (%ul) %p", cid, m);
+
+    // Echo back. Note: You should always set reply messages format to the
+    // format of the connection.
+
+    // Create reply message
+    vws_msg* reply = vws_msg_new();
+
+    // Use same format
+    reply->opcode  = m->opcode;
+
+    // Copy content
+    vws_buffer_append(reply->data, m->data->data, m->data->size);
+
+    // Send. We don't free message as send() does it for us.
+    s->send(s, cid, reply, NULL);
+
+    // Clean up request
+    vws_msg_free(m);
+}
+
+int main(int argc, const char* argv[])
+{
+    // Setup
+    vws_svr* server = vws_svr_new(10, 0, 0);
+    server->process = process;
+
+    // Run
+    vrtql_tcp_svr_run((vrtql_svr*)server, server_host, server_port);
+
+    // Shutdown
+    vrtql_svr_stop((vrtql_svr*)server);
+    uv_thread_join(&server_tid);
+    vws_svr_free(server);
+    vws_cleanup();
+}
+```
+
+Additionally, the framework includes operating as a pure HTTP server. If HTTP
+requests come in which are not WebSocket upgrades, the framework will attempt to
+pass the request to a user-defined handler `process_http`. If this is defined
+then that callback will invoked with the HTTP request passed to it. The
+following is an example of running a pure HTTP server.
+
+```c
+#include <vws/server.h>
+
+cstr server_host = "127.0.0.1";
+int  server_port = 8181;
+
+// Server function to process HTTP messages. Runs in context of worker thread.
+bool process(vws_svr* s, vws_cid_t cid, vws_http_msg* msg, void* ctx)
+{
+    vws_tcp_svr* server = (vws_tcp_svr*)s;
+
+    if (vws.tracelevel >= VT_APPLICATION)
+    {
+        vws.trace(VL_INFO, "server: process (%ul) %p", cid, msg);
+    }
+
+    cstr response = "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: 12\r\n"
+        "\r\n"
+        "Hello world";
+
+    // Allocate memory for the data to be sent in response
+    char* data = (char*)vws.strdup(response);
+
+    // Create response
+    vws_svr_data* reply = vws_svr_data_own(server, cid, (ucstr)data, strlen(data));
+
+    // Send reply. This will wakeup network thread.
+    vws_tcp_svr_send(reply);
+
+    return true;
+}
+
+int main(int argc, const char* argv[])
+{
+    // Setup
+    vws_svr* server = vws_svr_new(10, 0, 0);
+    server->process_http = process;
+
+    // Run
+    vrtql_tcp_svr_run((vrtql_svr*)server, server_host, server_port);
+
+    // Shutdown
+    vrtql_svr_stop((vrtql_svr*)server);
+    uv_thread_join(&server_tid);
+    vws_svr_free(server);
+    vws_cleanup();
+}
+```
+
+This can run in tandem with websocket server as well. As long as you specificy
+the appropriate callbacks, the framework will call the corresponding handler
+based on the context.
+
+Finally, the Message API server works in exactly the same way. The only
+difference is that it operates on vrtql_msg messages.
+
+The following illustrates creating a Message server:
+
+```c
+#include <vws/server.h>
+
+cstr server_host = "127.0.0.1";
+int  server_port = 8181;
+
+// Server function to process messages. Runs in context of worker thread.
+void process(vws_svr* s, vws_cid_t cid, vrtql_msg* m, void* ctx)
+{
+    vrtql_msg_svr* server = (vrtql_msg_svr*)s;
+
+    vws.trace(VL_INFO, "process (%lu) %p", cid, m);
+
+    // Echo back. Note: You should always set reply messages format to the
+    // format of the connection.
+
+    // Create reply message
+    vrtql_msg* reply = vrtql_msg_new();
+    reply->format    = m->format;
+
+    // Copy content
+    ucstr data  = m->content->data;
+    size_t size = m->content->size;
+    vws_buffer_append(reply->content, data, size);
+
+    // Send. We don't free message as send() does it for us.
+    server->send(s, cid, reply, NULL);
+
+    // Clean up request
+    vrtql_msg_free(m);
+}
+
+int main(int argc, const char* argv[])
+{
+    // Setup
+    vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
+    server->process       = process;
+
+    // Run
+    vrtql_svr_run((vrtql_svr*)server, server_host, server_port);
+
+    // Shutdown
+    vrtql_svr_stop((vrtql_svr*)server);
+    uv_thread_join(&server_tid);
+    vrtql_msg_svr_free(server);
+    vws_cleanup();
+}
+```
+
 ## Documentation
 
 Full documentation is located [here](https://vrtql.github.io/ws/ws.html). Source

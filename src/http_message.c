@@ -95,7 +95,7 @@ static void process_header(vws_http_msg* req)
 
         ucstr field = lcase((cstr)req->field->data);
         ucstr data  = req->value->data;
-        vws_map_set(&req->headers, (cstr)field, (cstr)data);
+        vws_kvs_set_cstring(req->headers, (cstr)field, (cstr)data);
 
         // Reset for the next field-value pair.
         vws_buffer_clear(req->field);
@@ -114,6 +114,7 @@ vws_http_msg* vws_http_msg_new(int mode)
     req->value            = vws_buffer_new();
     req->headers_complete = false;
     req->done             = false;
+    req->headers          = vws_kvs_new(10, false); // Case-insensitive headers
 
     llhttp_settings_init(req->settings);
 
@@ -128,8 +129,6 @@ vws_http_msg* vws_http_msg_new(int mode)
     llhttp_init(req->parser, mode, req->settings);
     req->parser->data = req;
 
-    sc_map_init_str(&req->headers, 0, 0);
-
     return req;
 }
 
@@ -140,14 +139,7 @@ void vws_http_msg_free(vws_http_msg* req)
         return;
     }
 
-    cstr key; cstr value;
-    sc_map_foreach(&req->headers, key, value)
-    {
-        vws.free(key);
-        vws.free(value);
-    }
-
-    sc_map_term_str(&req->headers);
+    vws_kvs_free(req->headers);
     vws_buffer_free(req->url);
     vws_buffer_free(req->body);
     vws_buffer_free(req->field);
@@ -213,7 +205,7 @@ int on_header_value(llhttp_t* p, cstr at, size_t l)
 int on_body(llhttp_t* p, cstr at, size_t l)
 {
     vws_http_msg* req = p->data;
-    vws_buffer_append(req->url, (ucstr)at, l);
+    vws_buffer_append(req->body, (ucstr)at, l);
 
     return 0;
 }
@@ -263,3 +255,42 @@ int vws_http_msg_parse(vws_http_msg* req, cstr data, size_t size)
     // was consumed in message parsing.
     return size;
 }
+
+uint64_t vws_http_msg_content_length(vws_http_msg* m)
+{
+    return m->parser->content_length;
+}
+
+uint64_t vws_http_msg_version_major(vws_http_msg* m)
+{
+    return m->parser->http_major;
+}
+
+uint64_t vws_http_msg_version_minor(vws_http_msg* m)
+{
+    return m->parser->http_minor;
+}
+
+uint64_t vws_http_msg_errno(vws_http_msg* m)
+{
+    return llhttp_get_errno(m->parser);
+}
+
+uint8_t vws_http_msg_status_code(vws_http_msg* m)
+{
+    return llhttp_get_status_code(m->parser);
+}
+
+cstr vws_http_msg_status_string(vws_http_msg* m)
+{
+    uint8_t code = vws_http_msg_status_code(m);
+
+    return (cstr)llhttp_status_name(code);
+}
+
+cstr vws_http_msg_method_string(vws_http_msg* m)
+{
+    llhttp_method_t method = (llhttp_method_t)llhttp_get_method(m->parser);
+    return llhttp_method_name(method);
+}
+

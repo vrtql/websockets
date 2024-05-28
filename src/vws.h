@@ -416,14 +416,17 @@ typedef struct
     vws_value value; ///< Value associated with the key.
 } vws_kvp;
 
+typedef int (*vws_kvs_comp_fn)(const void* a, const void* b);
+
 /**
  * @brief Structure to represent a dynamic array of key-value pairs.
  */
 typedef struct
 {
-    vws_kvp* array; ///< Pointer to the array of key-value pairs.
-    size_t used;    ///< Number of key-value pairs currently in use.
-    size_t size;    ///< Capacity of the allocated array.
+    vws_kvp* array;      ///< Pointer to the array of key-value pairs.
+    size_t used;         ///< Number of key-value pairs currently in use.
+    size_t size;         ///< Capacity of the allocated array.
+    vws_kvs_comp_fn cmp; ///< Compare function
 } vws_kvs;
 
 /**
@@ -432,7 +435,7 @@ typedef struct
  * @param size Initial capacity of the dynamic array.
  * @return Pointer to the newly created vws_kvs structure.
  */
-vws_kvs* vws_kvs_new(size_t size);
+vws_kvs* vws_kvs_new(size_t size, bool case_sensitive);
 
 /**
  * @brief Frees the allocated memory for the dynamic array and its contents.

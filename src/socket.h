@@ -186,7 +186,7 @@ void vws_socket_close(vws_socket* c);
 /**
  * @brief Reads data from a socket connection into a buffer
  *
- * @param c The vws_cnx representing the Socket connection.
+ * @param s The vws_socket representing the Socket connection.
  * @param data The buffer to read data into.
  * @param size The size of the buffer.
  * @return The number of bytes read, or an error code if an error occurred.
@@ -198,7 +198,7 @@ ssize_t vws_socket_read(vws_socket* s);
 /**
  * @brief Writes data from a buffer to a socket
  *
- * @param c The vws_cnx representing the socket
+ * @param s The vws_socket representing the socket
  * @param data The buffer containing the data to write.
  * @param size The size of the data to write.
  * @return The number of bytes written, or an error code if an error occurred.
@@ -206,6 +206,18 @@ ssize_t vws_socket_read(vws_socket* s);
  * @ingroup SocketFunctions
  */
 ssize_t vws_socket_write(vws_socket* s, ucstr data, size_t size);
+
+struct sockaddr;
+
+/**
+ * @brief Get host and port from sockaddr
+ *
+ * @param host String pointer to hold host info. Caller must free() value.
+ * @param port int pointer to hold port info
+ *
+ * @return Returns true on success, false on failure.
+ */
+bool vws_socket_addr_info(const struct sockaddr* addr, cstr* host, int* port);
 
 #ifdef __cplusplus
 }

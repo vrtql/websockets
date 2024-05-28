@@ -20,9 +20,11 @@ CTEST(test_rpc, call)
 
     printf("\n");
 
-    cstr key; cstr value;
-    sc_map_foreach(&req->headers, key, value)
+    for(uint32_t i = 0; i < req->headers->used; i++)
     {
+        cstr key   = req->headers->array[i].key;
+        cstr value = req->headers->array[i].value.data;
+
         printf("Header: %s: %s\n", key, value);
     }
 

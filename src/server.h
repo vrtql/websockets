@@ -181,13 +181,18 @@ struct vws_svr;
 typedef enum
 {
     /* uv_thread() is to close connection */
-    VM_SVR_DATA_CLOSE  = (1 << 1)
-
+    VWS_SVR_DATA_CLOSE      = (1 << 1),
+    VWS_SVR_DATA_HTTP       = (1 << 2),
+    VWS_SVR_DATA_CONNECTION = (1 << 3)
 } vws_svr_data_state_t;
 
 /** Connection ID. This is the index within the address pool that the
  * connection's pointer is stored. */
-typedef uint32_t vws_cid_t;
+typedef struct vws_cid_t
+{
+    uint32_t key;
+    struct sockaddr_storage addr;
+} vws_cid_t;
 
 /** This is used to associate connection info with uv_stream_t handles */
 typedef struct vws_cinfo
@@ -196,6 +201,33 @@ typedef struct vws_cinfo
     struct vws_svr_cnx* cnx;
     vws_cid_t cid;
 } vws_cinfo;
+
+typedef enum
+{
+    VWS_PEER_CLOSED      = 1,
+    VWS_PEER_CONNECTED   = 2,
+    VWS_PEER_PENDING     = 3,
+    VWS_PEER_RECONNECTED = 4
+} vws_peer_state_t;
+
+/**
+ * @brief Callback for establishing new peer connection.
+ *
+ * @param info The connection info. Uses the info.addr for establishing
+ *   connection.
+ * @return Returns the established socket descriptor upon successful connection,
+ *   -1 on failure.
+*/
+typedef int (*vws_peer_connect)(struct vws_cinfo* info);
+
+/** This is used to associate connection info with uv_stream_t handles */
+typedef struct vws_peer
+{
+    struct vws_cinfo info;
+    vws_peer_state_t state;
+    int sockfd;
+    vws_peer_connect connect;
+} vws_peer;
 
 struct vws_tcp_svr;
 
@@ -293,7 +325,6 @@ typedef struct vws_svr_cnx
     vrtql_msg_format_t format;
 
 } vws_svr_cnx;
-
 
 /** Thread context constructor (factory) function */
 typedef void* (*vws_thread_ctx_ctor)(void* data);
@@ -442,6 +473,14 @@ typedef struct vws_tcp_svr
     /**< inetd mode (default 0). vws_tcp_svr_inetd_run() sets it to 1. */
     uint8_t inetd_mode;
 
+    /**< A map peer connections */
+    vws_kvs* peers;
+
+    /**< The next wakeup time to check peer connections */
+    uint32_t peer_timeout;
+
+    /**< The peer timer */
+    uv_timer_t* peer_timer;
 } vws_tcp_svr;
 
 /**
@@ -532,10 +571,10 @@ int vws_tcp_svr_send(vws_svr_data* data);
 /**
  * @brief Close a VRTQL server connection.
  *
- * @param cnx The server
+ * @param s The server
  * @param cnx The ID of connection to close
  */
-void vws_tcp_svr_close(vws_tcp_svr* server, vws_cid_t cid);
+void vws_tcp_svr_close(vws_tcp_svr* s, vws_cid_t cid);
 
 /**
  * @brief Stops a VRTQL server.
@@ -547,10 +586,49 @@ void vws_tcp_svr_stop(vws_tcp_svr* server);
 /**
  * @brief Returns the server operational state.
  *
- * @param server The server to check.
+ * @param s The server to check.
  * @return The state of the server in the form of the vws_tcp_svr_state_t enum.
  */
-uint8_t vws_tcp_svr_state(vws_tcp_svr* server);
+uint8_t vws_tcp_svr_state(vws_tcp_svr* s);
+
+/**
+ * @brief Add a peer
+ *
+ * @param s The server
+ * @param h The host name or IP address
+ * @param p The host port
+ *
+ * @return Returns true of peer was added, false otherwise.
+ */
+bool vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn);
+
+/**
+ * @brief Remove a peer
+ *
+ * @param s The server
+ * @param h The host name or IP address
+ * @param p The host port
+ */
+void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p);
+
+/**
+ * @brief Connect a peer
+ *
+ * @param s The server
+ * @param p The peer to connect
+ *
+ * @return Returns true if peer was connected, false otherwise.
+ */
+bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer);
+
+/**
+ * @brief Set timeout to wakup loop for peer connection maintenance
+ *
+ * @param s The server
+ *
+ * @return Returns true if peer was connected, false otherwise.
+ */
+void vws_tcp_svr_peer_timeout(vws_tcp_svr* s);
 
 //------------------------------------------------------------------------------
 // WebSocket Server
@@ -567,10 +645,43 @@ typedef void (*vws_svr_process_frame)(vws_svr_cnx* s, vws_frame* f);
  * @brief Callback for data processing a WebSocket message
  * @param s The server instance
  * @param c The client connection index
+ * @param m The message
  * @param x The user-defined context
  */
 typedef void
 (*vws_svr_process_msg)(struct vws_svr* s, vws_cid_t c, vws_msg* m, void* x);
+
+/**
+ * @brief Callback to process HTTP data read on a connection. This is a request
+ *   in process which is NOT a websocket upgrade. This is a standalone HTTP
+ *   request coming in.
+ * @param c The connection structure
+ * @return Returns 1, 0 or -1 as follows:
+ *
+ *   Return 0 if message is not complete and more data is needed.
+ *
+ *   Return 1 if message is complete and therefore sent for processing. In this
+ *   case, the handler TAKES OWNERSHIP of the request object (c->http) object
+ *   and the caller allocates a new one.
+ *
+ *   Return -1 if there is an error and connection needs to be close. The
+ *   request will be deallocated by the server.
+ */
+typedef int (*vws_svr_http_read)(vws_svr_cnx* c);
+
+/**
+ * @brief Callback to process a complete HTTP request on connection
+ * @param s The server
+ * @param c The connection ID
+ * @param m The message
+ * @param x The user-defined context
+ * @return Returns true of request is processed, false if error. If false is
+ *   returned, connection will be closed.
+ */
+typedef bool (*vws_svr_process_http_req)( struct vws_svr* s,
+                                  vws_cid_t c,
+                                  vws_http_msg* msg,
+                                  void* x );
 
 /**
  * @brief Struct representing a WebSocket server. It speaks the WebSocket
@@ -587,6 +698,12 @@ typedef struct vws_svr
     /**< Function for sending a frame to the client */
     vws_svr_process_frame on_frame_out;
 
+    /**< Callback function HTTP read (not websocket upgrade) */
+    vws_svr_http_read on_http_read;
+
+    /**< Callback function HTTP request (not websocket upgrade) */
+    vws_svr_process_http_req process_http;
+
     /**< Function for processing an incoming message */
     vws_svr_process_msg on_msg_in;
 
@@ -594,7 +711,7 @@ typedef struct vws_svr
     vws_svr_process_msg on_msg_out;
 
     /**< Derived: for processing incoming messages (called by on_msg_in()) */
-    vws_svr_process_msg process;
+    vws_svr_process_msg process_ws;
 
     /**< Derived: for sending messages to the client (calls on_msg_out()) */
     vws_svr_process_msg send;
