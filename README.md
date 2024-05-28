@@ -294,7 +294,7 @@ application-specific envrionment for processing. Since the server uses a thread
 pool of worker threads for processing, you may want to have some context or
 environment for your processing available. This is the job of the `worker_ctor`,
 `worker_ctor_data` and `worker_dtor` members. The `worker_ctor` constructs the
-user-defined data which is passed into the processing function as the last
+user-defined context which is passed into the processing function as the last
 argument. The `worker_ctor_data` is user-defined data passed into the
 `worker_ctor` function to assist setting up the environment. Finally the
 `worker_dtor` is called on worker thread shutdown and passed the context
