@@ -513,12 +513,12 @@ int main(int argc, const char* argv[])
 }
 ```
 
-This can run in tandem with websocket server as well. As long as you specificy
+This can run in tandem with websocket server as well. As long as you specific
 the appropriate callbacks, the framework will call the corresponding handler
 based on the context.
 
 Finally, the Message API server works in exactly the same way. The only
-difference is that it operates on vrtql_msg messages.
+difference is that it operates on `vrtql_msg` messages.
 
 The following illustrates creating a Message server:
 
