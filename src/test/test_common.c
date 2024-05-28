@@ -133,8 +133,8 @@ CTEST2(test, map_bench)
     // Find and print values
     for (size_t i = 0; i < size; i++)
     {
-        sprintf(&kbuf[0],"key%i", i);
-        sprintf(&vbuf[0],"value%i", i);
+        sprintf(&kbuf[0],"key%zu", i);
+        sprintf(&vbuf[0],"value%zu", i);
 
         keys[i]   = strdup(&kbuf[i]);
         values[i] = strdup(&vbuf[i]);
