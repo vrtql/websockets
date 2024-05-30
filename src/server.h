@@ -178,13 +178,17 @@ void address_pool_remove(address_pool* pool, uint32_t index);
 struct vws_svr_cnx;
 struct vws_svr;
 
+// We start at 10th bit so these can be used in vrtql_msg flags (which use bits
+// 1-3 with 4-9 reserved for future use)
 typedef enum
 {
-    /* uv_thread() is to close connection */
-    VWS_SVR_DATA_CLOSE      = (1 << 1),
-    VWS_SVR_DATA_HTTP       = (1 << 2),
-    VWS_SVR_DATA_CONNECTION = (1 << 3)
-} vws_svr_data_state_t;
+    VWS_SVR_STATE_CLOSE      = (1 << 10),
+    VWS_SVR_STATE_AUTH       = (1 << 11),
+    VWS_SVR_STATE_UNAUTH     = (1 << 12),
+    VWS_SVR_STATE_PEER       = (1 << 13),
+    VWS_SVR_STATE_HTTP       = (1 << 14),
+    VWS_SVR_STATE_CONNECTION = (1 << 15)
+} vws_svr_state_flags_t;
 
 /** Connection ID. This is the index within the address pool that the
  * connection's pointer is stored. */
@@ -192,6 +196,7 @@ typedef struct vws_cid_t
 {
     uint32_t key;
     struct sockaddr_storage addr;
+    uint64_t flags;
 } vws_cid_t;
 
 /** This is used to associate connection info with uv_stream_t handles */
@@ -325,6 +330,29 @@ typedef struct vws_svr_cnx
     vrtql_msg_format_t format;
 
 } vws_svr_cnx;
+
+/**
+ * @brief Callback for process each loop. Called from uv_thread().
+ *
+ * @param data A pointer to the vws_tcp_svr instance
+*/
+typedef void (*vws_svr_loop_cb)(void* data);
+
+/**
+ * @brief Callback for processing a new connection. Called from uv_thread().
+ *
+ * @param cnx The new connection.
+ * @return Returns true if connection is approved, false otherwise. If false is
+ * returned, connection will be closed.
+*/
+typedef bool (*vws_svr_cnx_open_cb)(struct vws_svr_cnx* cnx);
+
+/**
+ * @brief Callback for processing a closing connection. Called from uv_thread().
+ *
+ * @param cnx The new connection.
+*/
+typedef void (*vws_svr_cnx_close_cb)(struct vws_svr_cnx* cnx);
 
 /** Thread context constructor (factory) function */
 typedef void* (*vws_thread_ctx_ctor)(void* data);
@@ -467,6 +495,15 @@ typedef struct vws_tcp_svr
     /**< Worker thread destructor */
     vws_thread_ctx_dtor worker_dtor;
 
+    /**< User-defined called back for processing each UV loop iteration */
+    vws_svr_loop_cb loop_cb;
+
+    /**< User-defined called back for processing new connection */
+    vws_svr_cnx_open_cb cnx_open_cb;
+
+    /**< User-defined called back for processing closed connection */
+    vws_svr_cnx_close_cb cnx_close_cb;
+
     /**< Tracing level (0 is off) */
     uint8_t trace;
 
@@ -575,6 +612,17 @@ int vws_tcp_svr_send(vws_svr_data* data);
  * @param cnx The ID of connection to close
  */
 void vws_tcp_svr_close(vws_tcp_svr* s, vws_cid_t cid);
+
+/**
+ * @brief Close a VRTQL server connection from within UV loop. This should ONLY
+ * ever be called by functions operating in uv_thread(), specifically by the
+ * server->on_loop callback. If called from worker threads this will CORRUPT the
+ * UV loop and probably lead to SEGFAULTs and crash the program.
+ *
+ * @param s The server
+ * @param cnx The ID of connection to close
+ */
+void vws_tcp_svr_uv_close(vws_tcp_svr* server, uv_handle_t* handle);
 
 /**
  * @brief Stops a VRTQL server.

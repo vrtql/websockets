@@ -818,6 +818,11 @@ void worker_thread(void* arg)
     }
 }
 
+void vws_tcp_svr_uv_close(vws_tcp_svr* server, uv_handle_t* handle)
+{
+    uv_close(handle, svr_on_close);
+}
+
 void uv_thread(uv_async_t* handle)
 {
     vws_cinfo* cinfo    = (vws_cinfo*)handle->data;
@@ -862,7 +867,7 @@ void uv_thread(uv_async_t* handle)
                                       sizeof(vws_peer*) );
 
             // Flag as closed connection
-            vws_set_flag(&block->flags, VWS_SVR_DATA_CONNECTION);
+            vws_set_flag(&block->flags, VWS_SVR_STATE_CONNECTION);
 
             // Queue request
             queue_push(&server->requests, block);
@@ -939,6 +944,12 @@ void uv_thread(uv_async_t* handle)
             // Call svr_on_connect() handler to complete initialization
             server->on_connect(cnx);
 
+            // Mark connection as peer
+            vws_set_flag(&cnx->cid.flags, VWS_SVR_STATE_PEER);
+
+            // Remove UNAUTH flag as peers are automatically trusted
+            vws_clear_flag(&cnx->cid.flags, VWS_SVR_STATE_UNAUTH);
+
             //> Update peer record
 
             // New connection information
@@ -963,7 +974,7 @@ void uv_thread(uv_async_t* handle)
             return;
         }
 
-        if (vws_is_flag(&data->flags, VWS_SVR_DATA_CLOSE))
+        if (vws_is_flag(&data->flags, VWS_SVR_STATE_CLOSE))
         {
             // Lookup connection
             uintptr_t ptr = address_pool_get(server->cpool, data->cid.key);
@@ -981,6 +992,12 @@ void uv_thread(uv_async_t* handle)
         {
             server->on_data_out(data, NULL);
         }
+    }
+
+    // Call user-defined loop callback if defined
+    if (server->loop_cb != NULL)
+    {
+        server->loop_cb(server);
     }
 }
 
@@ -1036,7 +1053,7 @@ void vws_tcp_svr_close(vws_tcp_svr* server, vws_cid_t cid)
     reply = vws_svr_data_own(server, cid, NULL, 0);
 
     // Set connection close flag
-    vws_set_flag(&reply->flags, VWS_SVR_DATA_CLOSE);
+    vws_set_flag(&reply->flags, VWS_SVR_STATE_CLOSE);
 
     // Queue the data to uv_thread() to send out on wire
     vws_tcp_svr_send(reply);
@@ -1550,6 +1567,9 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->worker_ctor      = NULL;
     svr->worker_ctor_data = NULL;
     svr->worker_dtor      = NULL;
+    svr->loop_cb          = NULL;
+    svr->cnx_open_cb      = NULL;
+    svr->cnx_close_cb     = NULL;
     svr->backlog          = backlog;
     svr->loop             = (uv_loop_t*)vws.malloc(sizeof(uv_loop_t));
     svr->state            = VS_HALTED;
@@ -1749,6 +1769,9 @@ vws_svr_cnx* svr_cnx_new(vws_tcp_svr* s, uv_stream_t* handle)
     // Add to address pool
     cnx->cid.key     = address_pool_set(s->cpool, (uintptr_t)cnx);
 
+    // Mark connection as unauthorized
+    vws_set_flag(&cnx->cid.flags, VWS_SVR_STATE_UNAUTH);
+
     if (vws.tracelevel >= VT_SERVICE)
     {
         vws.trace(VL_INFO, "svr_cnx_new(%p): added %lu", s, cnx->cid.key);
@@ -1759,22 +1782,34 @@ vws_svr_cnx* svr_cnx_new(vws_tcp_svr* s, uv_stream_t* handle)
     uv_tcp_getpeername( (const uv_tcp_t*)handle,
                         (struct sockaddr*)&cnx->cid.addr, &len );
 
+    // Call user-defined connection open callback if defined
+    if (s->cnx_open_cb != NULL)
+    {
+        s->cnx_open_cb(cnx);
+    }
+
     return cnx;
 }
 
-void svr_cnx_free(vws_svr_cnx* c)
+void svr_cnx_free(vws_svr_cnx* cnx)
 {
-    if (c != NULL)
+    if (cnx != NULL)
     {
-        if (c->http != NULL)
+        // Call user-defined connection close callback if defined
+        if (cnx->server->cnx_close_cb != NULL)
         {
-            vws_http_msg_free(c->http);
+            cnx->server->cnx_close_cb(cnx);
+        }
+
+        if (cnx->http != NULL)
+        {
+            vws_http_msg_free(cnx->http);
         }
 
         // Remove from pool
-        address_pool_remove(c->server->cpool, c->cid.key);
+        address_pool_remove(cnx->server->cpool, cnx->cid.key);
 
-        vws.free(c);
+        vws.free(cnx);
     }
 }
 
@@ -2142,7 +2177,7 @@ int ws_svr_on_http_read(vws_svr_cnx* cnx)
                                       sizeof(vws_http_msg*) );
 
             // Flag this message as HTTP request
-            vws_set_flag(&block->flags, VWS_SVR_DATA_HTTP);
+            vws_set_flag(&block->flags, VWS_SVR_STATE_HTTP);
 
             // Queue request
             queue_push(&cnx->server->requests, block);
@@ -2472,7 +2507,7 @@ void ws_svr_client_data_in(vws_svr_data* block, void* x)
     vws_svr* server = (vws_svr*)block->server;
 
     // If this is a HTTP request
-    if (vws_is_flag(&block->flags, VWS_SVR_DATA_HTTP))
+    if (vws_is_flag(&block->flags, VWS_SVR_STATE_HTTP))
     {
         // Data simply contains a pointer to a websocket message
         vws_http_msg* req = (vws_http_msg*)block->data;
@@ -2496,7 +2531,7 @@ void ws_svr_client_data_in(vws_svr_data* block, void* x)
     }
 
     // If this is a peer which needs connecting
-    if (vws_is_flag(&block->flags, VWS_SVR_DATA_CONNECTION))
+    if (vws_is_flag(&block->flags, VWS_SVR_STATE_CONNECTION))
     {
         // Data simply contains a pointer to a websocket message
         vws_peer* peer = (vws_peer*)block->data;
