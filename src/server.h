@@ -197,6 +197,7 @@ typedef struct vws_cid_t
     uint32_t key;
     struct sockaddr_storage addr;
     uint64_t flags;
+    void* data;
 } vws_cid_t;
 
 /** This is used to associate connection info with uv_stream_t handles */
@@ -212,7 +213,8 @@ typedef enum
     VWS_PEER_CLOSED      = 1,
     VWS_PEER_CONNECTED   = 2,
     VWS_PEER_PENDING     = 3,
-    VWS_PEER_RECONNECTED = 4
+    VWS_PEER_RECONNECTED = 4,
+    VWS_PEER_FAILED      = 5,
 } vws_peer_state_t;
 
 /**
@@ -337,6 +339,15 @@ typedef struct vws_svr_cnx
  * @param data A pointer to the vws_tcp_svr instance
 */
 typedef void (*vws_svr_loop_cb)(void* data);
+
+/**
+ * @brief Callback for process each loop. Called from uv_thread().
+ *
+ * @param data A pointer to the data lost
+ * @param x The user-defined context
+*/
+typedef void (*vws_svr_data_lost_cb)(vws_svr_data* data, void* x);
+
 
 /**
  * @brief Callback for processing a new connection. Called from uv_thread().
@@ -498,11 +509,17 @@ typedef struct vws_tcp_svr
     /**< User-defined called back for processing each UV loop iteration */
     vws_svr_loop_cb loop_cb;
 
-    /**< User-defined called back for processing new connection */
+    /**< User-defined callback for processing new connection */
     vws_svr_cnx_open_cb cnx_open_cb;
 
-    /**< User-defined called back for processing closed connection */
+    /**< User-defined callback for processing closed connection */
     vws_svr_cnx_close_cb cnx_close_cb;
+
+    /**< User-defined callback for processing data sent to a closed connection.
+     * If this is defined, the callback takes ownership of data and must see
+     * that it is dellocated with vws_svr_data_free().
+     */
+    vws_svr_data_lost_cb data_lost_cb;
 
     /**< Tracing level (0 is off) */
     uint8_t trace;
@@ -646,9 +663,9 @@ uint8_t vws_tcp_svr_state(vws_tcp_svr* s);
  * @param h The host name or IP address
  * @param p The host port
  *
- * @return Returns true of peer was added, false otherwise.
+ * @return Returns pointer to peer on success was added, NULL otherwise.
  */
-bool vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn);
+vws_peer* vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn);
 
 /**
  * @brief Remove a peer
@@ -830,6 +847,9 @@ typedef struct vrtql_msg_svr
 
     /**< Derived: for sending messages to the client (calls on_msg_out()) */
     vrtql_svr_process_msg send;
+
+    /**< Derived: does all that send() does but does NOT clean up message. */
+    vrtql_svr_process_msg dispatch;
 
     /**< User-defined data */
     void* data;

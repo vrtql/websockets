@@ -601,6 +601,20 @@ static void msg_svr_client_msg_in(vws_svr* s, vws_cid_t c, vrtql_msg* m, void* x
 static void msg_svr_client_msg_out(vws_svr* s, vws_cid_t c, vrtql_msg* m, void* x);
 
 /**
+ * @brief Callback function for sending VRTQL messages to a client. This is jut
+ * like msg_svr_client_msg_out() but it does NOT deallocate msg. This is for
+ * when you want to send multiple copies of the same message.
+ *
+ * @param s The server instance
+ * @param c The server connection.
+ * @param m The outgoing VRTQL message.
+ * @param x The user-defined context
+ *
+ * @ingroup MessageServerFunctions
+ */
+static void msg_svr_client_msg_dispatch(vws_svr* s, vws_cid_t c, vrtql_msg* m, void* x);
+
+/**
  * @brief Default VRTQL message processing function.
  *
  * @param s The server instance
@@ -848,7 +862,45 @@ void uv_thread(uv_async_t* handle)
         return;
     }
 
-    // Check for closeed peer connections.
+    // We process requests first so that if a peer has disconnected, its cid
+    // still points to the closed connect. If a response maps to a closed peer
+    // connection, we can catch it and call hook which allows outside queue to
+    // queue and resend data when peer reconnects.
+    while (queue_empty(&server->responses) == false)
+    {
+        vws_svr_data* data = queue_pop(&server->responses);
+
+        if ((data == NULL) || (server->responses.state != VS_RUNNING))
+        {
+            if (data != NULL)
+            {
+                vws_svr_data_free(data);
+            }
+
+            return;
+        }
+
+        if (vws_is_flag(&data->flags, VWS_SVR_STATE_CLOSE))
+        {
+            // Lookup connection
+            uintptr_t ptr = address_pool_get(server->cpool, data->cid.key);
+
+            if (ptr != 0)
+            {
+                // Close connections
+                vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
+                uv_close((uv_handle_t*)cnx->handle, svr_on_close);
+            }
+
+            vws_svr_data_free(data);
+        }
+        else
+        {
+            server->on_data_out(data, NULL);
+        }
+    }
+
+    // Check for closed peer connections.
     for (size_t i = 0; i < server->peers->used; i++)
     {
         vws_peer* peer = (vws_peer*)server->peers->array[i].value.data;
@@ -957,40 +1009,6 @@ void uv_thread(uv_async_t* handle)
 
             // New connection state
             peer->state = VWS_PEER_CONNECTED;
-        }
-    }
-
-    while (queue_empty(&server->responses) == false)
-    {
-        vws_svr_data* data = queue_pop(&server->responses);
-
-        if ((data == NULL) || (server->responses.state != VS_RUNNING))
-        {
-            if (data != NULL)
-            {
-                vws_svr_data_free(data);
-            }
-
-            return;
-        }
-
-        if (vws_is_flag(&data->flags, VWS_SVR_STATE_CLOSE))
-        {
-            // Lookup connection
-            uintptr_t ptr = address_pool_get(server->cpool, data->cid.key);
-
-            if (ptr != 0)
-            {
-                // Close connections
-                vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
-                uv_close((uv_handle_t*)cnx->handle, svr_on_close);
-            }
-
-            vws_svr_data_free(data);
-        }
-        else
-        {
-            server->on_data_out(data, NULL);
         }
     }
 
@@ -1496,7 +1514,7 @@ void vws_tcp_svr_peer_timer(vws_tcp_svr* s)
     s->peer_timeout = timeout_time;
 }
 
-bool vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn)
+vws_peer* vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn)
 {
     vws_peer peer;
 
@@ -1505,7 +1523,7 @@ bool vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn)
         vws.error( VL_WARN,
                    "vws_tcp_svr_peer_add(): "
                    "connection function not provided" );
-        return false;
+        return NULL;
     }
 
     // Set connection function
@@ -1521,7 +1539,7 @@ bool vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn)
                    "vws_tcp_svr_peer_add(): "
                    "Failed to resolve host %s:%lu", h, p );
 
-        return false;
+        return NULL;
     }
 
     char key[514];
@@ -1531,7 +1549,7 @@ bool vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn)
     // Set wakeup timer
     vws_tcp_svr_peer_timer(s);
 
-    return true;
+    return vws_kvs_get(s->peers, key)->data;
 }
 
 void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p)
@@ -1568,6 +1586,7 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->worker_ctor_data = NULL;
     svr->worker_dtor      = NULL;
     svr->loop_cb          = NULL;
+    svr->data_lost_cb     = NULL;
     svr->cnx_open_cb      = NULL;
     svr->cnx_close_cb     = NULL;
     svr->backlog          = backlog;
@@ -1722,12 +1741,11 @@ void svr_client_data_out(vws_svr_data* data, void* x)
     {
         vws.trace(VL_INFO, "svr_client_data_out(): no data");
         vws.error(VL_WARN, "svr_client_data_out(): no data");
+
+        vws_svr_data_free(data);
+
         return;
     }
-
-    uv_buf_t buf    = uv_buf_init(data->data, data->size);
-    uv_write_t* req = (uv_write_t*)vws.malloc(sizeof(uv_write_t));
-    req->data       = data;
 
     // Check address pool and ensure connection is still active
     uintptr_t ptr = address_pool_get(data->server->cpool, data->cid.key);
@@ -1735,10 +1753,24 @@ void svr_client_data_out(vws_svr_data* data, void* x)
     if (ptr == 0)
     {
         // Connection no longer exists.
-        vws_svr_data_free(data);
-        vws.free(req);
+
+        // Call user-defined loop callback if defined
+        if (data->server->data_lost_cb != NULL)
+        {
+            data->server->data_lost_cb(data, x);
+        }
+        else
+        {
+            // Unhandled. Delete.
+            vws_svr_data_free(data);
+        }
+
         return;
     }
+
+    uv_buf_t buf    = uv_buf_init(data->data, data->size);
+    uv_write_t* req = (uv_write_t*)vws.malloc(sizeof(uv_write_t));
+    req->data       = data;
 
     // Write out to libuv
     uv_stream_t* handle = ((vws_svr_cnx*)ptr)->handle;
@@ -2739,6 +2771,19 @@ void msg_svr_client_msg_out(vws_svr* s, vws_cid_t c, vrtql_msg* m, void* x)
     vrtql_msg_free(m);
 }
 
+// Send VRTQL messages
+void msg_svr_client_msg_dispatch(vws_svr* s, vws_cid_t c, vrtql_msg* m, void* x)
+{
+    // Serialize message
+    vws_buffer* mdata = vrtql_msg_serialize(m);
+
+    // Send to base class
+    ws_svr_client_data_out(s, c, mdata, BINARY_FRAME);
+
+    // Cleanup
+    vws_buffer_free(mdata);
+}
+
 // Process incoming VRTQL messages
 void msg_svr_client_process(vws_svr* s, vws_cid_t c, vrtql_msg* m, void* x)
 {
@@ -2772,6 +2817,7 @@ vrtql_msg_svr_ctor(vrtql_msg_svr* server, int threads, int backlog, int qsize)
     // Application functions
     server->process        = msg_svr_client_process;
     server->send           = msg_svr_client_msg_out;
+    server->dispatch       = msg_svr_client_msg_dispatch;
 
     // User-defined data
     server->data         = NULL;
