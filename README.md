@@ -459,7 +459,7 @@ int main(int argc, const char* argv[])
 Additionally, the framework includes operating as a pure HTTP server. If HTTP
 requests come in which are not WebSocket upgrades, the framework will attempt to
 pass the request to a user-defined handler `process_http`. If this is defined
-then that callback will invoked with the HTTP request passed to it. The
+then that callback will be invoked with the HTTP request passed to it. The
 following is an example of running a pure HTTP server.
 
 ```c
@@ -513,8 +513,8 @@ int main(int argc, const char* argv[])
 }
 ```
 
-This can run in tandem with websocket server as well. As long as you specific
-the appropriate callbacks, the framework will call the corresponding handler
+This can run in tandem with the WebSocket server as well. As long as you provide
+the appropriate callbacks, the framework will call the corresponding callback
 based on the context.
 
 Finally, the Message API server works in exactly the same way. The only
