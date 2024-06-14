@@ -182,12 +182,13 @@ struct vws_svr;
 // 1-3 with 4-9 reserved for future use)
 typedef enum
 {
-    VWS_SVR_STATE_CLOSE      = (1 << 10),
-    VWS_SVR_STATE_AUTH       = (1 << 11),
-    VWS_SVR_STATE_UNAUTH     = (1 << 12),
-    VWS_SVR_STATE_PEER       = (1 << 13),
-    VWS_SVR_STATE_HTTP       = (1 << 14),
-    VWS_SVR_STATE_CONNECTION = (1 << 15)
+    VWS_SVR_STATE_CLOSE       = (1 << 10),
+    VWS_SVR_STATE_AUTH        = (1 << 11),
+    VWS_SVR_STATE_UNAUTH      = (1 << 12),
+    VWS_SVR_STATE_PEER        = (1 << 13),
+    VWS_SVR_STATE_HTTP        = (1 << 14),
+    VWS_SVR_STATE_CONNECTION  = (1 << 15),
+    VWS_SVR_STATE_OUT_OF_BAND = (1 << 16)
 } vws_svr_state_flags_t;
 
 /** Connection ID. This is the index within the address pool that the
@@ -217,23 +218,27 @@ typedef enum
     VWS_PEER_FAILED      = 5,
 } vws_peer_state_t;
 
+struct vws_peer;
+
 /**
  * @brief Callback for establishing new peer connection.
  *
- * @param info The connection info. Uses the info.addr for establishing
- *   connection.
+ * @param peer The peer struct (containing host and IP)
  * @return Returns the established socket descriptor upon successful connection,
  *   -1 on failure.
 */
-typedef int (*vws_peer_connect)(struct vws_cinfo* info);
+typedef int (*vws_peer_connect)(struct vws_peer* p);
 
 /** This is used to associate connection info with uv_stream_t handles */
 typedef struct vws_peer
 {
+    cstr host;
+    int port;
     struct vws_cinfo info;
     vws_peer_state_t state;
     int sockfd;
     vws_peer_connect connect;
+    void* data;
 } vws_peer;
 
 struct vws_tcp_svr;
@@ -662,10 +667,15 @@ uint8_t vws_tcp_svr_state(vws_tcp_svr* s);
  * @param s The server
  * @param h The host name or IP address
  * @param p The host port
+ * @param d User-defined data
  *
  * @return Returns pointer to peer on success was added, NULL otherwise.
  */
-vws_peer* vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn);
+vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
+                                cstr h,
+                                int p,
+                                vws_peer_connect fn,
+                                void* d );
 
 /**
  * @brief Remove a peer

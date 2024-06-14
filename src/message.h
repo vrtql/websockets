@@ -61,6 +61,18 @@ vrtql_msg* vrtql_msg_new();
 void vrtql_msg_free(vrtql_msg* msg);
 
 /**
+ * @brief Creates a deep copy of a vrtql_msg instance.
+ *
+ * This function creates a new vrtql_msg instance and copies the routing table,
+ * headers table, and content from the original message to the new message.
+ *
+ * @param original The vrtql_msg instance to be copied.
+ * @return A pointer to the new vrtql_msg instance. Returns NULL if the original
+ *         message is NULL or if memory allocation fails.
+ */
+vrtql_msg* vrtql_msg_copy(vrtql_msg* original);
+
+/**
  * @brief Dumps/traces a message to JSON format
  * @param msg The message
  *

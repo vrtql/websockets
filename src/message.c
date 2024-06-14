@@ -52,6 +52,45 @@ vrtql_msg* vrtql_msg_new()
     return msg;
 }
 
+vrtql_msg* vrtql_msg_copy(vrtql_msg* original)
+{
+    if (original == NULL)
+    {
+        return NULL;
+    }
+
+    // Create a new message
+    vrtql_msg* copy = vrtql_msg_new();
+
+    // Copy routing table
+    for (size_t i = 0; i < original->routing->used; i++)
+    {
+        vws_kvs_set_cstring( copy->routing,
+                             original->routing->array[i].key,
+                             original->routing->array[i].value.data );
+    }
+
+    // Copy headers table
+    for (size_t i = 0; i < original->headers->used; i++)
+    {
+        vws_kvs_set_cstring( copy->headers,
+                             original->headers->array[i].key,
+                             original->headers->array[i].value.data );
+    }
+
+    // Copy content
+    vws_buffer_append( copy->content,
+                       (ucstr)original->content->data,
+                       original->content->size );
+
+    // Copy flags and format
+    copy->flags  = original->flags;
+    copy->format = original->format;
+    copy->data   = original->data;
+
+    return copy;
+}
+
 void vrtql_msg_free(vrtql_msg* msg)
 {
     // Safety measure to prevent double freeing.

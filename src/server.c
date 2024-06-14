@@ -966,7 +966,8 @@ void uv_thread(uv_async_t* handle)
             // Create socket info structure
             vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
             memcpy(ci, &peer->info, sizeof(vws_cinfo));
-            c->data = ci;
+            ci->server = server;
+            c->data    = ci;
 
             // Start reads on socket
             if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
@@ -1462,7 +1463,7 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
 bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer)
 {
     // Attempt reconnection
-    peer->sockfd = peer->connect(&peer->info);
+    peer->sockfd = peer->connect(peer);
 
     // Successful it sockfd not -1
     return (peer->sockfd != -1);
@@ -1514,7 +1515,11 @@ void vws_tcp_svr_peer_timer(vws_tcp_svr* s)
     s->peer_timeout = timeout_time;
 }
 
-vws_peer* vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect fn)
+vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
+                                cstr h,
+                                int p,
+                                vws_peer_connect fn,
+                                void* data )
 {
     vws_peer peer;
 
@@ -1531,16 +1536,9 @@ vws_peer* vws_tcp_svr_peer_add(vws_tcp_svr* s, cstr h, int p, vws_peer_connect f
 
     // Set connection as closed. uv_thread() will connect
     peer.state = VWS_PEER_CLOSED;
-
-    struct sockaddr_storage* addr = &peer.info.cid.addr;
-    if (svr_resolve(h, p, &addr) == false)
-    {
-        vws.error( VL_WARN,
-                   "vws_tcp_svr_peer_add(): "
-                   "Failed to resolve host %s:%lu", h, p );
-
-        return NULL;
-    }
+    peer.host  = strdup(h);
+    peer.port  = p;
+    peer.data  = data;
 
     char key[514];
     sprintf(key, "%s:%lu", h, p);
@@ -1556,6 +1554,14 @@ void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p)
 {
     char key[514];
     sprintf(key, "%s:%lu", h, p);
+
+    vws_peer* peer = vws_kvs_get(s->peers, key)->data;
+
+    if (peer != NULL)
+    {
+        free(peer->host);
+    }
+
     vws_kvs_remove(s->peers, key);
 }
 
@@ -1692,6 +1698,13 @@ void tcp_svr_dtor(vws_tcp_svr* svr)
     address_pool_free(&svr->cpool);
 
     // Free peers
+
+    for (size_t i = 0; i < svr->peers->used; i++)
+    {
+        vws_peer* peer = (vws_peer*)svr->peers->array[i].value.data;
+        free(peer->host);
+    }
+
     vws_kvs_free(svr->peers);
 }
 
@@ -2572,6 +2585,21 @@ void ws_svr_client_data_in(vws_svr_data* block, void* x)
         block->data = NULL;
         block->size = 0;
         vws_svr_data_free(block);
+
+        // Resolve
+        struct sockaddr_storage* addr = &peer->info.cid.addr;
+        if (svr_resolve(peer->host, peer->port, &addr) == false)
+        {
+            vws.error( VL_WARN,
+                       "vws_tcp_svr_peer_add(): "
+                       "Failed to resolve host %s:%lu",
+                       peer->host, peer->port );
+
+            // Set state back to closed
+            peer->state = VWS_PEER_CLOSED;
+
+            return;
+        }
 
         // Connect
         if (vws_tcp_svr_peer_connect((vws_tcp_svr*)server, peer) == false)

@@ -66,7 +66,7 @@ void peer_thread(void* arg)
     vws_cleanup();
 }
 
-int peer_connect(vws_cinfo* info)
+int peer_connect(vws_peer* p)
 {
     vws.trace(VL_INFO, "peer_connect()");
 
@@ -95,7 +95,7 @@ void server_thread(void* arg)
     server->trace       = vws.tracelevel;
 
     // Add peer
-    vws_tcp_svr_peer_add(server, server_host, peer_port, peer_connect);
+    vws_tcp_svr_peer_add(server, server_host, peer_port, peer_connect, NULL);
 
     vws_tcp_svr_run(server, server_host, server_port);
     vws_cleanup();
