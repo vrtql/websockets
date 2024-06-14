@@ -49,6 +49,11 @@ void client_thread(void* arg)
 {
     vws_cnx* cnx = vws_cnx_new();
 
+    // For applications that don't want client-side WebSocket frame masking
+    // overhead, run client connections in server mode and it will turn frame
+    // masking off.
+    // vws_cnx_set_server_mode(cnx);
+
     while (vws_connect(cnx, uri) == false)
     {
         vws.trace(VL_ERROR, "[client]: connecting %s", uri);
