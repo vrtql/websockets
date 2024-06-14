@@ -337,7 +337,7 @@ void vws_cnx_free(vws_cnx* c);
 bool vws_cnx_is_connected(vws_cnx* c);
 
 /**
- * @brief Sets the connection to server mode
+ * @brief Sets the connection to server mode. Outgoing frames are not masked.
  *
  * @param c The websocket connection.
  * @return Returns void.

@@ -614,6 +614,13 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
         return -1;
     }
 
+    // Is connection in server mode?
+    if (vws_is_flag(&c->flags, CNX_SERVER))
+    {
+        // Don't mask it
+        frame->mask = 0;
+    }
+
     vws_buffer* binary = vws_serialize(frame);
 
     if (vws.tracelevel >= VT_PROTOCOL)
