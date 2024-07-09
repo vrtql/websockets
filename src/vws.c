@@ -708,7 +708,7 @@ void vws_kvs_clear(vws_kvs* m)
         free(m->array[i].value.data);  // Free copied data
     }
 
-    m->used  = 0;
+    m->used = 0;
 }
 
 void vws_kvs_free(vws_kvs* m)

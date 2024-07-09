@@ -422,6 +422,31 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
     return true;
 }
 
+bool vrtql_msg_is_empty(vrtql_msg* msg)
+{
+    if (msg->routing->used > 0)
+    {
+        return false;
+    }
+
+    if (msg->headers->used > 0)
+    {
+        return false;
+    }
+
+    if (msg->headers->used > 0)
+    {
+        return false;
+    }
+
+    if (msg->content->size > 0)
+    {
+        return false;
+    }
+
+    return true;
+}
+
 void vrtql_msg_dump(vrtql_msg* msg)
 {
     // Buffer to hold data
@@ -472,7 +497,7 @@ void vrtql_msg_dump(vrtql_msg* msg)
     // Free the doc
     yyjson_mut_doc_free(doc);
 
-    printf("%s\n", buffer->data);
+    printf("%.*s\n", buffer->size, buffer->data);
 
     if (msg->content->size > 0)
     {

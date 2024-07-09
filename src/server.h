@@ -182,13 +182,13 @@ struct vws_svr;
 // 1-3 with 4-9 reserved for future use)
 typedef enum
 {
-    VWS_SVR_STATE_CLOSE       = (1 << 10),
-    VWS_SVR_STATE_AUTH        = (1 << 11),
-    VWS_SVR_STATE_UNAUTH      = (1 << 12),
-    VWS_SVR_STATE_PEER        = (1 << 13),
-    VWS_SVR_STATE_HTTP        = (1 << 14),
-    VWS_SVR_STATE_CONNECTION  = (1 << 15),
-    VWS_SVR_STATE_OUT_OF_BAND = (1 << 16)
+    VWS_SVR_STATE_CLOSE        = (1 << 10),
+    VWS_SVR_STATE_AUTH         = (1 << 11),
+    VWS_SVR_STATE_UNAUTH       = (1 << 12),
+    VWS_SVR_STATE_PEER         = (1 << 13),
+    VWS_SVR_STATE_HTTP         = (1 << 14),
+    VWS_SVR_STATE_PEER_CONNECT = (1 << 15),
+    VWS_SVR_STATE_TRUSTED      = (1 << 16)
 } vws_svr_state_flags_t;
 
 /** Connection ID. This is the index within the address pool that the
@@ -198,6 +198,7 @@ typedef struct vws_cid_t
     uint32_t key;
     struct sockaddr_storage addr;
     uint64_t flags;
+    uint16_t plane;
     void* data;
 } vws_cid_t;
 
@@ -215,7 +216,7 @@ typedef enum
     VWS_PEER_CONNECTED   = 2,
     VWS_PEER_PENDING     = 3,
     VWS_PEER_RECONNECTED = 4,
-    VWS_PEER_FAILED      = 5,
+    VWS_PEER_FAILED      = 5
 } vws_peer_state_t;
 
 struct vws_peer;
@@ -352,7 +353,6 @@ typedef void (*vws_svr_loop_cb)(void* data);
  * @param x The user-defined context
 */
 typedef void (*vws_svr_data_lost_cb)(vws_svr_data* data, void* x);
-
 
 /**
  * @brief Callback for processing a new connection. Called from uv_thread().
@@ -514,6 +514,9 @@ typedef struct vws_tcp_svr
     /**< User-defined called back for processing each UV loop iteration */
     vws_svr_loop_cb loop_cb;
 
+    /**< User-defined called back called after UV loop shutdown */
+    vws_svr_loop_cb shutdown_cb;
+
     /**< User-defined callback for processing new connection */
     vws_svr_cnx_open_cb cnx_open_cb;
 
@@ -600,6 +603,14 @@ void vws_tcp_svr_free(vws_tcp_svr* s);
  * @return 0 if successful, an error code otherwise.
  */
 int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port);
+
+/**
+ * @brief Checks if VRTQL server is running
+ *
+ * @param server The server to run.
+ * @return true if running, false otherwise
+ */
+bool vws_tcp_svr_is_running(vws_tcp_svr* server);
 
 /**
  * @brief Starts a VRTQL server with a single open socket. This is designed to
@@ -695,6 +706,16 @@ void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p);
  * @return Returns true if peer was connected, false otherwise.
  */
 bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer);
+
+/**
+ * @brief Disconnect a peer
+ *
+ * @param s The server
+ * @param p The peer to connect
+ *
+ * @return Returns true if peer was connected, false otherwise.
+ */
+void vws_tcp_svr_peer_disconnect(vws_tcp_svr* s, vws_peer* peer);
 
 /**
  * @brief Set timeout to wakup loop for peer connection maintenance

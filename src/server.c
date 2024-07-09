@@ -862,7 +862,7 @@ void uv_thread(uv_async_t* handle)
         return;
     }
 
-    // We process requests first so that if a peer has disconnected, its cid
+    // We process responses first so that if a peer has disconnected, its cid
     // still points to the closed connect. If a response maps to a closed peer
     // connection, we can catch it and call hook which allows outside queue to
     // queue and resend data when peer reconnects.
@@ -919,7 +919,7 @@ void uv_thread(uv_async_t* handle)
                                       sizeof(vws_peer*) );
 
             // Flag as closed connection
-            vws_set_flag(&block->flags, VWS_SVR_STATE_CONNECTION);
+            vws_set_flag(&block->flags, VWS_SVR_STATE_PEER_CONNECT);
 
             // Queue request
             queue_push(&server->requests, block);
@@ -1177,7 +1177,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
         vws.trace(VL_INFO, "vws_tcp_svr_run(%p): Starting uv_run()", server);
     }
 
-    while (server->state == VS_RUNNING)
+    while (vws_tcp_svr_is_running(server))
     {
         // Run UV loop. This runs indefinitely, passing network I/O and and out
         // of system until server is shutdown by vws_tcp_svr_stop() (by external
@@ -1186,6 +1186,9 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     }
 
     //> Shutdown server
+
+    // Close the listening socket handle
+    uv_close((uv_handle_t*)socket, svr_on_close);
 
     vws.trace( VL_INFO, "vws_tcp_svr_run(%p): Shutdown connections=%lu",
                server,
@@ -1213,9 +1216,6 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
         }
     }
 
-    // Close the listening socket handle
-    uv_close((uv_handle_t*)socket, svr_on_close);
-
     if (vws.tracelevel >= VT_SERVICE)
     {
         vws.trace(VL_INFO, "vws_tcp_svr_run(%p): Shutdown complete", server);
@@ -1225,6 +1225,16 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     server->state = VS_HALTED;
 
     return 0;
+}
+
+bool vws_tcp_svr_is_running(vws_tcp_svr* server)
+{
+    if (server->state == VS_RUNNING)
+    {
+        return true;
+    }
+
+    return false;
 }
 
 void vws_tcp_svr_stop(vws_tcp_svr* server)
@@ -1469,6 +1479,12 @@ bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer)
     return (peer->sockfd != -1);
 }
 
+void vws_tcp_svr_peer_disconnect(vws_tcp_svr* s, vws_peer* peer)
+{
+    // Close the server-side connection
+    uv_close((uv_handle_t*)peer->info.cnx->handle, svr_on_close);
+}
+
 void peer_timer_callback(uv_timer_t* handle)
 {
     if (vws.tracelevel >= VT_SERVICE)
@@ -1592,6 +1608,7 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->worker_ctor_data = NULL;
     svr->worker_dtor      = NULL;
     svr->loop_cb          = NULL;
+    svr->shutdown_cb      = NULL;
     svr->data_lost_cb     = NULL;
     svr->cnx_open_cb      = NULL;
     svr->cnx_close_cb     = NULL;
@@ -1608,10 +1625,10 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     queue_init(&svr->requests, queue_size, "requests");
     queue_init(&svr->responses, queue_size, "responses");
 
-    vws_cinfo* cinfo  = vws.malloc(sizeof(vws_cinfo));
-    cinfo->cnx        = NULL;
-    cinfo->server     = svr;
-    cinfo->cid.key    = 0;
+    vws_cinfo* cinfo = vws.malloc(sizeof(vws_cinfo));
+    cinfo->cnx       = NULL;
+    cinfo->server    = svr;
+    cinfo->cid.key   = 0;
 
     svr->wakeup = vws.malloc(sizeof(uv_async_t));
     svr->wakeup->data = cinfo;
@@ -1654,20 +1671,6 @@ void on_uv_walk(uv_handle_t* handle, void* arg)
 
 void tcp_svr_dtor(vws_tcp_svr* svr)
 {
-    //> Stop/shutdown server
-
-    if (svr->state == VS_RUNNING)
-    {
-        // Wait for connections to close
-        while (svr->cpool->count > 0)
-        {
-            uv_run(svr->loop, UV_RUN_DEFAULT);
-        }
-
-        vws_tcp_svr_stop(svr);
-    }
-
-    svr_shutdown(svr);
     vws.free(svr->threads);
 
     // Close the server async handle
@@ -1693,6 +1696,12 @@ void tcp_svr_dtor(vws_tcp_svr* svr)
 
     // Free loop
     vws.free(svr->loop);
+
+    // Call user-defined loop callback if defined
+    if (svr->shutdown_cb != NULL)
+    {
+        svr->shutdown_cb(svr);
+    }
 
     // Free address pool
     address_pool_free(&svr->cpool);
@@ -1724,7 +1733,14 @@ void svr_client_disconnect(vws_svr_cnx* c)
 {
     if (vws.tracelevel >= VT_SERVICE)
     {
-        vws.trace(VL_INFO, "svr_client_disconnect(%p)", c->handle);
+        if (c != NULL)
+        {
+            vws.trace(VL_INFO, "svr_client_disconnect(%p)", c->handle);
+        }
+        else
+        {
+            vws.trace(VL_INFO, "svr_client_disconnect(%p)", NULL);
+        }
     }
 }
 
@@ -1813,6 +1829,8 @@ vws_svr_cnx* svr_cnx_new(vws_tcp_svr* s, uv_stream_t* handle)
 
     // Add to address pool
     cnx->cid.key     = address_pool_set(s->cpool, (uintptr_t)cnx);
+    cnx->cid.data    = NULL;
+    cnx->cid.plane   = 0;
 
     // Mark connection as unauthorized
     vws_set_flag(&cnx->cid.flags, VWS_SVR_STATE_UNAUTH);
@@ -1840,6 +1858,11 @@ void svr_cnx_free(vws_svr_cnx* cnx)
 {
     if (cnx != NULL)
     {
+        if (vws.tracelevel >= VT_SERVICE)
+        {
+            vws.trace(VL_INFO, "svr_cnx_free(%p)", cnx);
+        }
+
         // Call user-defined connection close callback if defined
         if (cnx->server->cnx_close_cb != NULL)
         {
@@ -2064,6 +2087,7 @@ void svr_on_close(uv_handle_t* handle)
 
     if (server == NULL)
     {
+        assert(false);
         vws.free(handle->data);
         vws.free(handle);
 
@@ -2075,21 +2099,34 @@ void svr_on_close(uv_handle_t* handle)
 
     if (ptr != 0)
     {
-        vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
+        if (vws.tracelevel >= VT_SERVICE)
+        {
+            vws.trace(VL_INFO, "svr_on_close(%p, %p) IN pool", server, handle);
+        }
 
-        // Call on_disconnect() handler
-        server->on_disconnect(cnx);
-
-        // Cleanup
-        svr_cnx_free(cnx);
+        cnx = (vws_svr_cnx*)ptr;
     }
+    else
+    {
+        if (vws.tracelevel >= VT_SERVICE)
+        {
+            vws.trace(VL_INFO, "svr_on_close(%p, %p) NOT IN pool", server, handle);
+        }
+    }
+
+    // Call on_disconnect() handler
+    server->on_disconnect(cnx);
+
+    // Cleanup
+    svr_cnx_free(cnx);
 
     vws.free(handle->data);
     vws.free(handle);
 
     // If we are running in inetd mode, there is only one socket and its closing
     // means we are done and should exit process.
-    if ((server->inetd_mode == 1) && (server->state == VS_RUNNING))
+
+    if ((server->inetd_mode == 1) && vws_tcp_svr_is_running(server))
     {
         vws_tcp_svr_inetd_stop(server);
     }
@@ -2349,6 +2386,11 @@ void ws_svr_client_connect(vws_svr_cnx* c)
 
 void ws_svr_client_disconnect(vws_svr_cnx* c)
 {
+    if (c == NULL)
+    {
+        return;
+    }
+
     if (vws.tracelevel >= VT_SERVICE)
     {
         vws.trace(VL_INFO, "ws_svr_client_disconnect(%p)", c->handle);
@@ -2576,7 +2618,7 @@ void ws_svr_client_data_in(vws_svr_data* block, void* x)
     }
 
     // If this is a peer which needs connecting
-    if (vws_is_flag(&block->flags, VWS_SVR_STATE_CONNECTION))
+    if (vws_is_flag(&block->flags, VWS_SVR_STATE_PEER_CONNECT))
     {
         // Data simply contains a pointer to a websocket message
         vws_peer* peer = (vws_peer*)block->data;

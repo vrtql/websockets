@@ -184,6 +184,15 @@ void vrtql_msg_set_content_binary(vrtql_msg* msg, cstr value, size_t size);
 void vrtql_msg_clear_content(vrtql_msg* msg);
 
 /**
+ * @brief Indicates emptry message: no content, no headers, no routing.
+ * @param msg The vrtql_msg instance.
+ * @return True if message is empty, false otherwise
+ *
+ * @ingroup MessageFunctions
+ */
+bool vrtql_msg_is_empty(vrtql_msg* msg);
+
+/**
  * @brief Serializes a vrtql_msg instance to a buffer.
  * @param msg The vrtql_msg instance.
  * @return A buffer containing the serialized message.
