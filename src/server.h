@@ -147,7 +147,7 @@ void address_pool_resize(address_pool* pool);
  * @param address The uintptr_t item to be added to the pool.
  * @return int The index at which the item was added, or -1 if resizing failed.
  */
-uint32_t address_pool_set(address_pool* pool, uintptr_t address);
+int64_t address_pool_set(address_pool* pool, uintptr_t address);
 
 /**
  * @brief Retrieves the item stored at the specified index in the address pool.
@@ -162,7 +162,7 @@ uint32_t address_pool_set(address_pool* pool, uintptr_t address);
  * @return uintptr_t The value at the specified index if it exists and is not
  *   empty; otherwise, 0.
  */
-uintptr_t address_pool_get(address_pool* pool, uint32_t index);
+uintptr_t address_pool_get(address_pool* pool, int64_t index);
 
 /**
  * @brief Removes an item from the address pool.
@@ -173,7 +173,7 @@ uintptr_t address_pool_get(address_pool* pool, uint32_t index);
  * @param pool A pointer to the address pool.
  * @param index The index of the slot to be freed.
  */
-void address_pool_remove(address_pool* pool, uint32_t index);
+void address_pool_remove(address_pool* pool, int64_t index);
 
 struct vws_svr_cnx;
 struct vws_svr;
@@ -195,12 +195,26 @@ typedef enum
  * connection's pointer is stored. */
 typedef struct vws_cid_t
 {
-    uint32_t key;
+    int64_t key;
     struct sockaddr_storage addr;
     uint64_t flags;
     uint16_t plane;
     void* data;
 } vws_cid_t;
+
+/**
+ * @brief Clears cid structure so that it is in an invalid state
+ *
+ * @param cid The connection ID
+ */
+void vws_cid_clear(vws_cid_t* cid);
+
+/**
+ * @brief Clears cid structure so that it is in an invalid state
+ *
+ * @param cid The connection ID
+ */
+bool vws_cid_valid(vws_cid_t* cid);
 
 /** This is used to associate connection info with uv_stream_t handles */
 typedef struct vws_cinfo
@@ -595,6 +609,13 @@ vws_tcp_svr* vws_tcp_svr_new(int pool_size, int backlog, int queue_size);
 void vws_tcp_svr_free(vws_tcp_svr* s);
 
 /**
+ * @brief Wakeup a VRTQL server network thread
+ *
+ * @param server The server to run.
+ */
+void vws_tcp_svr_wakeup(vws_tcp_svr* s);
+
+/**
  * @brief Starts a VRTQL server.
  *
  * @param server The server to run.
@@ -628,6 +649,14 @@ int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd);
  * @param server The server to stop.
  */
 void vws_tcp_svr_inetd_stop(vws_tcp_svr* server);
+
+/**
+ * @brief Check that peers are all online
+ *
+ * @param server The server to send the data.
+ * @return true if all peers are connected
+ */
+bool vws_tcp_svr_peers_online(vws_tcp_svr* server);
 
 /**
  * @brief Sends data from a VRTQL server.

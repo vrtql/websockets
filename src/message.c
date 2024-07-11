@@ -447,7 +447,7 @@ bool vrtql_msg_is_empty(vrtql_msg* msg)
     return true;
 }
 
-void vrtql_msg_dump(vrtql_msg* msg)
+vws_buffer* vrtql_msg_repr(vrtql_msg* msg)
 {
     // Buffer to hold data
     vws_buffer* buffer = vws_buffer_new();
@@ -497,13 +497,21 @@ void vrtql_msg_dump(vrtql_msg* msg)
     // Free the doc
     yyjson_mut_doc_free(doc);
 
-    printf("%.*s\n", buffer->size, buffer->data);
-
     if (msg->content->size > 0)
     {
-        printf("%.*s\n", (int)msg->content->size, msg->content->data);
+        vws_buffer_append(buffer, msg->content->data, msg->content->size);
     }
 
+    // Null terminate
+    vws_buffer_append(buffer, "\0", 1);
+
+    return buffer;
+}
+
+void vrtql_msg_dump(vrtql_msg* msg)
+{
+    vws_buffer* buffer = vrtql_msg_repr(msg);
+    printf("%.*s\n", buffer->size, buffer->data);
     vws_buffer_free(buffer);
 }
 

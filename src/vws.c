@@ -158,7 +158,7 @@ void vws_trace(vws_log_level_t level, const char* format, ...)
     }
 #endif
 
-    if (strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &time_info) == 0)
+    if (strftime(stamp, sizeof(stamp), "%H:%M:%S", &time_info) == 0)
     {
         vws_error_default_submit(VE_SYS, "strftime returned 0");
         return;
@@ -192,7 +192,7 @@ void vws_trace(vws_log_level_t level, const char* format, ...)
 
 #endif
 
-    fprintf(stderr, "%s[%s] [%lu] [%s]%s ",
+    fprintf(stderr, "%s%s.000 %#010x [%s]%s ",
             color_code,
             stamp,
 #if defined(__windows__)

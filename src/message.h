@@ -73,12 +73,22 @@ void vrtql_msg_free(vrtql_msg* msg);
 vrtql_msg* vrtql_msg_copy(vrtql_msg* original);
 
 /**
- * @brief Dumps/traces a message to JSON format
+ * @brief Dumps/traces a message to JSON format to stdout
  * @param msg The message
  *
  * @ingroup MessageFunctions
  */
 void vrtql_msg_dump(vrtql_msg* m);
+
+/**
+ * @brief Dumps/traces a message to buffer
+ * @param msg The message
+ * @return buffer containing text representation, caller must free with
+ *   vws_buffer_free()
+ *
+ * @ingroup MessageFunctions
+ */
+vws_buffer* vrtql_msg_repr(vrtql_msg* msg);
 
 /**
  * @brief Gets a header value by key.

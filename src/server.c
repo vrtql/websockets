@@ -14,6 +14,20 @@
 // Internal functions
 //------------------------------------------------------------------------------
 
+void vws_cid_clear(vws_cid_t* cid)
+{
+    cid->key   = -1;
+    cid->flags = 0;
+    cid->data  = NULL;
+    cid->plane = 0;
+    memset(&cid->addr, 0, sizeof(struct sockaddr_storage));
+}
+
+bool vws_cid_valid(vws_cid_t* cid)
+{
+    return cid->key >= 0;
+}
+
 /**
  * @defgroup AddressPool
  */
@@ -52,7 +66,7 @@ void address_pool_resize(address_pool *pool)
     pool->capacity = new_capacity;
 }
 
-uint32_t address_pool_set(address_pool* pool, uintptr_t address)
+int64_t address_pool_set(address_pool* pool, uintptr_t address)
 {
     if (pool->count == pool->capacity)
     {
@@ -71,11 +85,18 @@ uint32_t address_pool_set(address_pool* pool, uintptr_t address)
     uint32_t allocated_index = pool->last_used_index;
     pool->last_used_index    = (pool->last_used_index + 1) % pool->capacity;
 
-    return allocated_index;
+    return (int64_t)allocated_index;
 }
 
-uintptr_t address_pool_get(address_pool* pool, uint32_t index)
+uintptr_t address_pool_get(address_pool* pool, int64_t i)
 {
+    if (i < 0)
+    {
+        return 0;
+    }
+
+    uint32_t index = (uint32_t)i;
+
     if (index >= pool->capacity || pool->slots[index] == 0)
     {
         return 0;
@@ -84,8 +105,15 @@ uintptr_t address_pool_get(address_pool* pool, uint32_t index)
     return pool->slots[index];
 }
 
-void address_pool_remove(address_pool* pool, uint32_t index)
+void address_pool_remove(address_pool* pool, int64_t i)
 {
+    if (i < 0)
+    {
+        return;
+    }
+
+    uint32_t index = (uint32_t)i;
+
     if (pool->slots[index] != 0)
     {
         pool->slots[index] = 0;
@@ -769,6 +797,56 @@ static vws_svr_data* queue_pop(vws_svr_queue* queue);
 static bool queue_empty(vws_svr_queue* queue);
 
 //------------------------------------------------------------------------------
+// Peer timer
+//------------------------------------------------------------------------------
+
+void peer_timer_callback(uv_timer_t* handle)
+{
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "peer_timer_callback(%p)", handle);
+    }
+
+    // Stop timer
+    uv_timer_stop(handle);
+
+    // Wakeup server
+    vws_tcp_svr* s = (vws_tcp_svr*)handle->data;
+    uv_async_send(s->wakeup);
+}
+
+void vws_tcp_svr_peer_timer(vws_tcp_svr* s)
+{
+    float interval = 0.2;
+
+    // Get the current time
+    time_t current_time = time(NULL);
+
+    if (s->peer_timeout > current_time)
+    {
+        // If we have a timeout already set in the future
+        return;
+    }
+
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "vws_tcp_svr_peer_timer(%p)", s);
+    }
+
+    // Calculate the time 15 seconds in advance
+    time_t timeout_time = current_time + interval;
+
+    // Set data
+    s->peer_timer->data = s;
+
+    // Start the timer with a 15-second timeout
+    uv_timer_start(s->peer_timer, peer_timer_callback, interval * 1000, 0);
+
+    // Update peer_timeout to the timeout time
+    s->peer_timeout = timeout_time;
+}
+
+//------------------------------------------------------------------------------
 // Threads
 //------------------------------------------------------------------------------
 
@@ -842,6 +920,8 @@ void uv_thread(uv_async_t* handle)
     vws_cinfo* cinfo    = (vws_cinfo*)handle->data;
     vws_tcp_svr* server = cinfo->server;
 
+    vws.trace(VL_INFO, "uv_thread()");
+
     if (server->state == VS_HALTING)
     {
         if (vws.tracelevel >= VT_THREAD)
@@ -901,6 +981,7 @@ void uv_thread(uv_async_t* handle)
     }
 
     // Check for closed peer connections.
+    int pending_peers = 0;
     for (size_t i = 0; i < server->peers->used; i++)
     {
         vws_peer* peer = (vws_peer*)server->peers->array[i].value.data;
@@ -1018,6 +1099,13 @@ void uv_thread(uv_async_t* handle)
     {
         server->loop_cb(server);
     }
+
+    // If not all peers are connected
+    if (vws_tcp_svr_peers_online(server) == false)
+    {
+        // Set wakeup timer since we expect response from thread(s)
+        vws_tcp_svr_peer_timer(server);
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1094,6 +1182,32 @@ void vws_tcp_svr_free(vws_tcp_svr* server)
     vws.free(server);
 }
 
+bool vws_tcp_svr_peers_online(vws_tcp_svr* server)
+{
+    // Server is online if there are no peers in state VWS_PEER_PENDING
+    for (size_t i = 0; i < server->peers->used; i++)
+    {
+        vws_peer* peer = (vws_peer*)server->peers->array[i].value.data;
+
+        if (peer->state != VWS_PEER_CONNECTED)
+        {
+            if (vws.tracelevel >= VT_SERVICE)
+            {
+                vws.trace( VL_INFO,
+                           "vws_tcp_svr_peers_online(%p): "
+                           "peer offline %s state=%lu",
+                           server,
+                           peer->host,
+                           peer->state );
+            }
+
+            return false;
+        }
+    }
+
+    return true;
+}
+
 int vws_tcp_svr_send(vws_svr_data* data)
 {
     queue_push(&data->server->responses, data);
@@ -1102,6 +1216,11 @@ int vws_tcp_svr_send(vws_svr_data* data)
     uv_async_send(data->server->wakeup);
 
     return 0;
+}
+
+void vws_tcp_svr_wakeup(vws_tcp_svr* s)
+{
+    uv_async_send(s->wakeup);
 }
 
 int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
@@ -1485,52 +1604,6 @@ void vws_tcp_svr_peer_disconnect(vws_tcp_svr* s, vws_peer* peer)
     uv_close((uv_handle_t*)peer->info.cnx->handle, svr_on_close);
 }
 
-void peer_timer_callback(uv_timer_t* handle)
-{
-    if (vws.tracelevel >= VT_SERVICE)
-    {
-        vws.trace(VL_INFO, "peer_timer_callback(%p)", handle);
-    }
-
-    // Stop timer
-    uv_timer_stop(handle);
-
-    // Wakeup server
-    vws_tcp_svr* s = (vws_tcp_svr*)handle->data;
-    uv_async_send(s->wakeup);
-}
-
-void vws_tcp_svr_peer_timer(vws_tcp_svr* s)
-{
-    uint32_t interval = 1;
-
-    // Get the current time
-    time_t current_time = time(NULL);
-
-    if (s->peer_timeout > current_time)
-    {
-        // If we have a timeout already set in the future
-        return;
-    }
-
-    if (vws.tracelevel >= VT_SERVICE)
-    {
-        vws.trace(VL_INFO, "vws_tcp_svr_peer_timer(%p)", s);
-    }
-
-    // Calculate the time 15 seconds in advance
-    time_t timeout_time = current_time + interval;
-
-    // Set data
-    s->peer_timer->data = s;
-
-    // Start the timer with a 15-second timeout
-    uv_timer_start(s->peer_timer, peer_timer_callback, interval * 1000, 0);
-
-    // Update peer_timeout to the timeout time
-    s->peer_timeout = timeout_time;
-}
-
 vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
                                 cstr h,
                                 int p,
@@ -1823,14 +1896,14 @@ vws_svr_cnx* svr_cnx_new(vws_tcp_svr* s, uv_stream_t* handle)
     cnx->data        = NULL;
     cnx->format      = VM_MPACK_FORMAT;
 
+    vws_cid_clear(&cnx->cid);
+
     // Initialize HTTP state
     cnx->upgraded    = false;
     cnx->http        = vws_http_msg_new(HTTP_REQUEST);
 
     // Add to address pool
     cnx->cid.key     = address_pool_set(s->cpool, (uintptr_t)cnx);
-    cnx->cid.data    = NULL;
-    cnx->cid.plane   = 0;
 
     // Mark connection as unauthorized
     vws_set_flag(&cnx->cid.flags, VWS_SVR_STATE_UNAUTH);
@@ -2094,31 +2167,19 @@ void svr_on_close(uv_handle_t* handle)
         return;
     }
 
-    // Lookup connection
+    // Lookup connection. If it's not in pool then it's already been cleaned up.
     uintptr_t ptr = address_pool_get(server->cpool, cid.key);
 
     if (ptr != 0)
     {
-        if (vws.tracelevel >= VT_SERVICE)
-        {
-            vws.trace(VL_INFO, "svr_on_close(%p, %p) IN pool", server, handle);
-        }
+        vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
 
-        cnx = (vws_svr_cnx*)ptr;
+        // Call on_disconnect() handler
+        server->on_disconnect(cnx);
+
+        // Cleanup
+        svr_cnx_free(cnx);
     }
-    else
-    {
-        if (vws.tracelevel >= VT_SERVICE)
-        {
-            vws.trace(VL_INFO, "svr_on_close(%p, %p) NOT IN pool", server, handle);
-        }
-    }
-
-    // Call on_disconnect() handler
-    server->on_disconnect(cnx);
-
-    // Cleanup
-    svr_cnx_free(cnx);
 
     vws.free(handle->data);
     vws.free(handle);

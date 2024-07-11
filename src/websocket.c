@@ -625,8 +625,8 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 
     if (vws.tracelevel >= VT_PROTOCOL)
     {
+        vws.trace(VL_INFO, "Sending frame");
         vws_trace_lock();
-        printf("\n\n");
         printf("+----------------------------------------------------+\n");
         printf("| Frame Sent                                         |\n");
         printf("+----------------------------------------------------+\n");
@@ -1170,8 +1170,9 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
 
         if (vws.tracelevel >= VT_PROTOCOL)
         {
+            vws.trace(VL_INFO, "Receiving frame");
             vws_trace_lock();
-            printf("\n+----------------------------------------------------+\n");
+            printf("+----------------------------------------------------+\n");
             printf("| Frame Received                                     |\n");
             printf("+----------------------------------------------------+\n");
             vws_dump_websocket_frame(b->data, b->size);
