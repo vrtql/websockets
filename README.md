@@ -68,14 +68,14 @@ software systems support WebSocket, including Node.js, Apache, and Nginx.
 
 ### Background
 
-WebSockets emerged in the late 2000s in response to the growing need for
+WebSockets emerged in the late 2000’s in response to the growing need for
 real-time, bidirectional communication in web applications. The goal was to
 provide a standardized way for web servers to send content to browsers without
 being prompted by the user, and vice versa. In December 2011 they were
-standardized by the Internet Engineering Task Force (IETF) in RFC 6455. They now
-enjoy wide support and integration in modern browsers, smartphones, IoT devices
-and server software. They have become a fundamental technology in modern web
-applications.
+standardized by the Internet Engineering Task Force (IETF) in [RFC
+6455](https://www.rfc-editor.org/rfc/rfc6455.html). They now enjoy wide support
+and integration in modern browsers, smartphones, IoT devices and server
+software. They have become a fundamental technology in modern web applications.
 
 ### Concepts and Operation
 
