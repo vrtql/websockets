@@ -427,7 +427,7 @@ void process(vws_svr* s, vws_cid_t cid, vws_msg* m, void* ctx)
     vws_msg* reply = vws_msg_new();
 
     // Use same format
-    reply->opcode  = m->opcode;
+    reply->opcode = m->opcode;
 
     // Copy content
     vws_buffer_append(reply->data, m->data->data, m->data->size);
