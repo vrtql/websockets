@@ -52,6 +52,13 @@ vrtql_msg* vrtql_msg_new()
     return msg;
 }
 
+void vrtql_msg_clear(vrtql_msg* msg)
+{
+    vrtql_msg_clear_routings(msg);
+    vrtql_msg_clear_headers(msg);
+    vrtql_msg_clear_content(msg);
+}
+
 vrtql_msg* vrtql_msg_copy(vrtql_msg* original)
 {
     if (original == NULL)
@@ -511,7 +518,9 @@ vws_buffer* vrtql_msg_repr(vrtql_msg* msg)
 void vrtql_msg_dump(vrtql_msg* msg)
 {
     vws_buffer* buffer = vrtql_msg_repr(msg);
-    printf("%.*s\n", buffer->size, buffer->data);
+    //printf("%.*s\n", buffer->size, buffer->data);
+    fwrite(buffer->data, 1, buffer->size, stdout);
+    putchar('\n');
     vws_buffer_free(buffer);
 }
 
@@ -530,6 +539,11 @@ void vrtql_msg_clear_header(vrtql_msg* msg, cstr key)
     vws_kvs_remove(msg->headers, key);
 }
 
+void vrtql_msg_clear_headers(vrtql_msg* msg)
+{
+    vws_kvs_clear(msg->headers);
+}
+
 cstr vrtql_msg_get_routing(vrtql_msg* msg, cstr key)
 {
     return vws_kvs_get_cstring(msg->routing, key);
@@ -543,6 +557,11 @@ void vrtql_msg_set_routing(vrtql_msg* msg, cstr key, cstr value)
 void vrtql_msg_clear_routing(vrtql_msg* msg, cstr key)
 {
     vws_kvs_remove(msg->routing, key);
+}
+
+void vrtql_msg_clear_routings(vrtql_msg* msg)
+{
+    vws_kvs_clear(msg->routing);
 }
 
 void vrtql_msg_clear_content(vrtql_msg* msg)

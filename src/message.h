@@ -13,11 +13,12 @@ typedef enum
     VM_JSON_FORMAT
 } vrtql_msg_format_t;
 
+/** Values 1-10 are reserved. Apps can use 11-63 */
 typedef enum
 {
-    VM_MSG_VALID       = (1 << 1),
-    VM_MSG_PRIORITY    = (1 << 2),
-    VM_MSG_OUT_OF_BAND = (1 << 3)
+    VM_MSG_VALID    = (1 << 1),
+    VM_MSG_PRIORITY = (1 << 2),
+    VM_MSG_IRQ      = (1 << 3)
 } vrtql_msg_state_t;
 
 /**
@@ -120,6 +121,14 @@ void vrtql_msg_set_header(vrtql_msg* msg, cstr key, cstr value);
 void vrtql_msg_clear_header(vrtql_msg* msg, cstr key);
 
 /**
+ * @brief Removes all header key-value pairs.
+ * @param msg The vrtql_msg instance.
+ *
+ * @ingroup MessageFunctions
+ */
+void vrtql_msg_clear_headers(vrtql_msg* msg);
+
+/**
  * @brief Gets a routing value by key.
  * @param msg The vrtql_msg instance.
  * @param key The routing key.
@@ -147,6 +156,14 @@ void vrtql_msg_set_routing(vrtql_msg* msg, cstr key, cstr value);
  * @ingroup MessageFunctions
  */
 void vrtql_msg_clear_routing(vrtql_msg* msg, cstr key);
+
+/**
+ * @brief Removes all routing key-value pairs.
+ * @param msg The vrtql_msg instance.
+ *
+ * @ingroup MessageFunctions
+ */
+void vrtql_msg_clear_routings(vrtql_msg* msg);
 
 /**
  * @brief Gets the content of the message.
@@ -192,6 +209,14 @@ void vrtql_msg_set_content_binary(vrtql_msg* msg, cstr value, size_t size);
  * @ingroup MessageFunctions
  */
 void vrtql_msg_clear_content(vrtql_msg* msg);
+
+/**
+ * @brief Clears message: headers, routing, content
+ * @param msg The vrtql_msg instance.
+ *
+ * @ingroup MessageFunctions
+ */
+void vrtql_msg_clear(vrtql_msg* msg);
 
 /**
  * @brief Indicates emptry message: no content, no headers, no routing.
