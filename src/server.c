@@ -1521,7 +1521,7 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
     hints.ai_socktype = SOCK_STREAM;
 
     char port_str[50];
-    sprintf(port_str, "%lu", port);
+    sprintf(port_str, "%u", port);
 
     error = getaddrinfo(host, &port_str[0], &hints, &res0);
 
@@ -1630,7 +1630,7 @@ vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
     peer.data  = data;
 
     char key[514];
-    sprintf(key, "%s:%lu", h, p);
+    sprintf(key, "%s:%u", h, p);
     vws_kvs_set(s->peers, key, &peer, sizeof(vws_peer));
 
     // Set wakeup timer
@@ -1642,7 +1642,7 @@ vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
 void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p)
 {
     char key[514];
-    sprintf(key, "%s:%lu", h, p);
+    sprintf(key, "%s:%u", h, p);
 
     vws_peer* peer = vws_kvs_get(s->peers, key)->data;
 

@@ -192,7 +192,7 @@ void vws_trace(vws_log_level_t level, const char* format, ...)
 
 #endif
 
-    fprintf(stderr, "%s%s.000 %#010x [%s]%s ",
+    fprintf(stderr, "%s%s.000 %#010lx [%s]%s ",
             color_code,
             stamp,
 #if defined(__windows__)
