@@ -289,6 +289,12 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
 
             vws_ssl_ctx = SSL_CTX_new(TLS_method());
 
+            if (vws_ssl_ctx == NULL)
+            {
+                vws.error(VE_SYS, "Failed to create new SSL context");
+                return false;
+            }
+
             /* Require TLS 1.2+ */
             SSL_CTX_set_min_proto_version(vws_ssl_ctx, TLS1_2_VERSION);
 
@@ -301,14 +307,6 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
 
             /* Verify peer certs */
             SSL_CTX_set_verify(vws_ssl_ctx, SSL_VERIFY_PEER, NULL);
-
-            if (vws_ssl_ctx == NULL)
-            {
-                vws.error(VE_SYS, "Failed to create new SSL context");
-                return false;
-            }
-
-            SSL_CTX_set_options(vws_ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
         }
 
         c->ssl = SSL_new(vws_ssl_ctx);
