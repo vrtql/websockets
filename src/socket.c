@@ -289,6 +289,19 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
 
             vws_ssl_ctx = SSL_CTX_new(TLS_method());
 
+            /* Require TLS 1.2+ */
+            SSL_CTX_set_min_proto_version(vws_ssl_ctx, TLS1_2_VERSION);
+
+            /* Load system trust store */
+            if (SSL_CTX_set_default_verify_paths(vws_ssl_ctx) != 1)
+            {
+                vws.error(VE_SYS, "SSL_CTX_set_default_verify_paths failed");
+                return false;
+            }
+
+            /* Verify peer certs */
+            SSL_CTX_set_verify(vws_ssl_ctx, SSL_VERIFY_PEER, NULL);
+
             if (vws_ssl_ctx == NULL)
             {
                 vws.error(VE_SYS, "Failed to create new SSL context");
@@ -332,6 +345,16 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
     if (c->ssl != NULL)
     {
         SSL_set_fd(c->ssl, c->sockfd);
+
+        /* SNI */
+        SSL_set_tlsext_host_name(c->ssl, host);
+
+        /* Hostname verification (OpenSSL 1.1.0+) */
+        X509_VERIFY_PARAM *param = SSL_get0_param(c->ssl);
+        #ifdef X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS
+        X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+        #endif
+        X509_VERIFY_PARAM_set1_host(param, host, 0);
 
         if (SSL_connect(c->ssl) <= 0)
         {
