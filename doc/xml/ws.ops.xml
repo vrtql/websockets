@@ -17,27 +17,282 @@
 
 <title>Operations</title>
 
+<para>This chapter covers the operational aspects of running VRTQL WebSocket
+servers in production environments. It addresses daemonization, configuration,
+SSL termination with a reverse proxy, and service management using process
+supervisors.</para>
+
 <section id="ws.ops.config"><title>Daemons and Configuration</title>
 
-<para>
+<para>A VRTQL WebSocket server is a long-running process that listens for
+incoming connections on a configured host and port. In production, these servers
+typically run as daemons &mdash; background processes detached from any
+controlling terminal. There are two common approaches to daemonizing a VRTQL
+server: using the traditional <function>fork()</function>/<function>setsid()
+</function> pattern within the program itself, or delegating process management
+to an external supervisor (covered in <link linkend="ws.ops.perpd">Service
+Management</link>). The latter approach is generally preferred as it provides
+better control over the process lifecycle.</para>
+
+<para>When running a server as a daemon, the server's host, port, number of
+worker threads, and other parameters are typically read from a configuration
+file or environment variables at startup. While the VRTQL library itself does
+not mandate a particular configuration format, a common approach is to use a
+simple key-value configuration file or environment variables. The following
+illustrates a minimal configuration pattern:
+
+<programlisting>
+#include &lt;stdlib.h&gt;
+#include &lt;vws/server.h&gt;
+
+int main(int argc, const char* argv[])
+{
+    // Read configuration from environment or defaults
+    cstr host    = getenv("VWS_HOST") ? getenv("VWS_HOST") : "0.0.0.0";
+    int  port    = getenv("VWS_PORT") ? atoi(getenv("VWS_PORT")) : 8181;
+    int  threads = getenv("VWS_THREADS") ? atoi(getenv("VWS_THREADS")) : 10;
+
+    // Create and configure server
+    vrtql_msg_svr* server = vrtql_msg_svr_new(threads, 0, 0);
+    server->process       = my_process_handler;
+
+    // Run (blocks until server is stopped)
+    vrtql_msg_svr_run(server, host, port);
+
+    // Cleanup
+    vrtql_msg_svr_free(server);
+    vws_cleanup();
+
+    return 0;
+}
+</programlisting>
 
 </para>
+
+<para>The server binds to the specified host and port and begins accepting
+connections. Binding to <literal>0.0.0.0</literal> makes the server accessible
+on all network interfaces, whereas <literal>127.0.0.1</literal> restricts it to
+local connections only. In production deployments behind a reverse proxy, binding
+to <literal>127.0.0.1</literal> is recommended so that external traffic is
+directed through the proxy.</para>
+
+<para>The number of worker threads should be tuned based on the workload. For
+I/O-bound processing (such as database queries), more threads can be beneficial.
+For CPU-bound processing, the number of threads should generally match the
+number of available CPU cores. The connection backlog and queue size parameters
+can typically be left at their defaults unless the server is expected to handle a
+very high rate of incoming connections or messages.</para>
+
+<para>The server also supports an <firstterm>inetd mode</firstterm> via the
+<function><cr f="server.h">vws_tcp_svr_inetd_run</cr>()</function> function.
+In this mode, the server does not bind to a port itself. Instead, an external
+program such as <command>tcpserver</command> (from the
+<filename>ucspi-tcp</filename> package) accepts the connection and passes the
+open file descriptor to the server. This is useful for deployments that prefer
+to delegate connection acceptance to an external tool.</para>
 
 </section> <!-- ws.ops.config -->
 
 <section id="ws.ops.haproxy"><title>HAProxy and SSL Termination</title>
 
-<para>
+<para>In production, it is common practice to terminate SSL/TLS connections at a
+reverse proxy rather than in the application server itself. This approach
+offloads the computational overhead of encryption to dedicated infrastructure,
+simplifies certificate management, and allows the backend server to operate over
+plain (unencrypted) WebSocket connections. <link
+xlink:href="https://www.haproxy.org/">HAProxy</link> is a widely used, high-
+performance reverse proxy that supports WebSocket connections natively.</para>
+
+<para>A typical deployment places HAProxy in front of one or more VRTQL
+WebSocket servers. HAProxy accepts incoming <literal>wss://</literal>
+connections from clients, terminates the SSL/TLS session, and forwards the
+traffic to the backend server as plain <literal>ws://</literal> connections.
+The VRTQL server binds to <literal>127.0.0.1</literal> on a non-public port,
+and only HAProxy is exposed to the public network.</para>
+
+<para>The following is a minimal HAProxy configuration that demonstrates this
+setup:
+
+<programlisting>
+global
+    maxconn 4096
+
+defaults
+    mode    http
+    timeout connect  5s
+    timeout client  30s
+    timeout server  30s
+    timeout tunnel  3600s
+
+frontend wss_frontend
+    bind *:443 ssl crt /etc/ssl/private/server.pem
+    default_backend ws_backend
+
+backend ws_backend
+    server vrtql1 127.0.0.1:8181 check
+</programlisting>
 
 </para>
+
+<para>The key configuration directives are as follows:</para>
+
+<itemizedlist>
+
+<listitem><para>The <literal>bind *:443 ssl crt</literal> directive in the
+frontend section tells HAProxy to listen on port 443 and terminate SSL using the
+specified certificate file. The certificate file should contain both the
+certificate and private key in PEM format.</para></listitem>
+
+<listitem><para>The <literal>timeout tunnel</literal> directive is critical for
+WebSocket connections. Unlike standard HTTP requests which are short-lived,
+WebSocket connections are long-lived. This timeout governs how long HAProxy will
+keep an idle tunnel (upgraded connection) open. Set it to a value appropriate for
+your application &mdash; 3600 seconds (one hour) is a reasonable starting
+point.</para></listitem>
+
+<listitem><para>The backend <literal>server</literal> directive points to the
+VRTQL server's host and port. The <literal>check</literal> option enables health
+checks.</para></listitem>
+
+</itemizedlist>
+
+<para>For deployments with multiple backend servers, HAProxy can load-balance
+across them:
+
+<programlisting>
+backend ws_backend
+    balance roundrobin
+    server vrtql1 127.0.0.1:8181 check
+    server vrtql2 127.0.0.1:8182 check
+    server vrtql3 127.0.0.1:8183 check
+</programlisting>
+
+</para>
+
+<para>Note that WebSocket connections are stateful, so sticky sessions
+(session affinity) may be required depending on your application's design. You
+can enable this in HAProxy using cookies or source IP hashing via the
+<literal>balance source</literal> directive.</para>
 
 </section> <!-- ws.ops.haproxy -->
 
 <section id="ws.ops.perpd"><title>Service Management</title>
 
-<para>
+<para>In production environments, server processes should be managed by a
+process supervisor that can start, stop, and automatically restart the service
+if it exits unexpectedly. Several options are available on Unix-like systems,
+including <command>perpd</command>, <command>systemd</command>,
+<command>runit</command>, and <command>s6</command>. This section covers
+<command>perpd</command> and <command>systemd</command> as representative
+examples.</para>
+
+<section id="ws.ops.perpd.perpd"><title>Using perpd</title>
+
+<para><link xlink:href="http://b0llix.net/perp/">perpd</link> is a lightweight
+process supervisor that monitors a set of services defined as directories under
+a base path (typically <filename>/etc/perp</filename>). Each service directory
+contains a <filename>rc.main</filename> script that starts and stops the
+service. The supervisor will automatically restart the service if it
+terminates.</para>
+
+<para>To set up a VRTQL server as a <command>perpd</command> service, create
+a service directory and its control script:
+
+<screen>
+<prompt>#</prompt> mkdir -p /etc/perp/vrtql-ws
+</screen>
 
 </para>
+
+<para>Then create the <filename>/etc/perp/vrtql-ws/rc.main</filename> script:
+
+<programlisting>
+#!/bin/sh
+
+exec 2>&amp;1
+
+TARGET=${1}
+
+start()
+{
+    exec /usr/local/bin/vrtql-ws-server
+}
+
+reset()
+{
+    exit 0
+}
+
+eval ${TARGET} "$@"
+</programlisting>
+
+</para>
+
+<para>Make the script executable and activate the service:
+
+<screen>
+<prompt>#</prompt> chmod +x /etc/perp/vrtql-ws/rc.main
+<prompt>#</prompt> perpctl A vrtql-ws
+</screen>
+
+</para>
+
+<para>The service can be controlled using <command>perpctl</command>:
+
+<screen>
+<prompt>#</prompt> perpctl d vrtql-ws   # stop (down)
+<prompt>#</prompt> perpctl u vrtql-ws   # start (up)
+<prompt>#</prompt> perpstat vrtql-ws    # check status
+</screen>
+
+</para>
+
+</section> <!-- ws.ops.perpd.perpd -->
+
+<section id="ws.ops.perpd.systemd"><title>Using systemd</title>
+
+<para>On systems using <command>systemd</command>, you can create a unit file
+to manage the VRTQL server. Create
+<filename>/etc/systemd/system/vrtql-ws.service</filename>:
+
+<programlisting>
+[Unit]
+Description=VRTQL WebSocket Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/vrtql-ws-server
+Restart=always
+RestartSec=5
+Environment=VWS_HOST=127.0.0.1
+Environment=VWS_PORT=8181
+Environment=VWS_THREADS=10
+
+[Install]
+WantedBy=multi-user.target
+</programlisting>
+
+</para>
+
+<para>Enable and start the service:
+
+<screen>
+<prompt>#</prompt> systemctl daemon-reload
+<prompt>#</prompt> systemctl enable vrtql-ws
+<prompt>#</prompt> systemctl start vrtql-ws
+<prompt>#</prompt> systemctl status vrtql-ws
+</screen>
+
+</para>
+
+<para>The <literal>Restart=always</literal> directive ensures that
+<command>systemd</command> will automatically restart the server if it exits for
+any reason. The <literal>RestartSec=5</literal> directive adds a five-second
+delay before restarting, which prevents rapid restart loops in the event of a
+persistent failure.</para>
+
+</section> <!-- ws.ops.perpd.systemd -->
 
 </section> <!-- ws.ops.perpd -->
 

@@ -19,19 +19,508 @@
 
 <section id="ws.ex.daemons"><title>Daemons and Configuration</title>
 
-</section>
+<para>The following example demonstrates a complete VRTQL Message server daemon
+that reads its configuration from environment variables, sets up a worker thread
+context for per-thread state, and runs the server. This pattern forms the basis
+for production deployments as described in <link linkend="ws.ops">the
+Operations chapter</link>.
+
+<programlisting>
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;vws/server.h&gt;
+#include &lt;vws/message.h&gt;
+
+// Per-thread worker context
+typedef struct
+{
+    int request_count;
+} worker_ctx;
+
+// Worker thread constructor
+void* worker_ctor(void* data)
+{
+    worker_ctx* ctx = (worker_ctx*)malloc(sizeof(worker_ctx));
+    ctx->request_count = 0;
+    return ctx;
+}
+
+// Worker thread destructor
+void worker_dtor(void* data)
+{
+    worker_ctx* ctx = (worker_ctx*)data;
+    free(ctx);
+}
+
+// Message processing function
+void process(vws_svr* s, vws_cid_t cid, vrtql_msg* m, void* ctx)
+{
+    vrtql_msg_svr* server = (vrtql_msg_svr*)s;
+    worker_ctx* wctx = (worker_ctx*)ctx;
+    wctx->request_count++;
+
+    // Create reply: echo content back with a count header
+    vrtql_msg* reply = vrtql_msg_new();
+    reply->format    = m->format;
+
+    // Copy content
+    if (m->content->size > 0)
+    {
+        vws_buffer_append(reply->content, m->content->data, m->content->size);
+    }
+
+    // Add request count header
+    char count[32];
+    snprintf(count, sizeof(count), "%d", wctx->request_count);
+    vrtql_msg_set_header(reply, "request-count", count);
+
+    // Send reply
+    server->send(s, cid, reply, NULL);
+
+    // Clean up request
+    vrtql_msg_free(m);
+}
+
+int main(int argc, const char* argv[])
+{
+    // Read configuration from environment with defaults
+    cstr host    = getenv("VWS_HOST")    ? getenv("VWS_HOST")              : "127.0.0.1";
+    int  port    = getenv("VWS_PORT")    ? atoi(getenv("VWS_PORT"))        : 8181;
+    int  threads = getenv("VWS_THREADS") ? atoi(getenv("VWS_THREADS"))     : 10;
+    int  trace   = getenv("VWS_TRACE")   ? atoi(getenv("VWS_TRACE"))       : 0;
+
+    // Set trace level
+    vws.tracelevel = trace;
+
+    // Create server
+    vrtql_msg_svr* server = vrtql_msg_svr_new(threads, 0, 0);
+    server->process       = process;
+
+    // Set up worker thread context
+    vws_tcp_svr* base     = (vws_tcp_svr*)server;
+    base->worker_ctor     = worker_ctor;
+    base->worker_dtor     = worker_dtor;
+
+    // Run (blocks until server is stopped)
+    vrtql_msg_svr_run(server, host, port);
+
+    // Cleanup
+    vrtql_msg_svr_free(server);
+    vws_cleanup();
+
+    return 0;
+}
+</programlisting>
+
+</para>
+
+<para>This server can be launched directly from the command line:
+
+<screen>
+<prompt>$</prompt> VWS_HOST=0.0.0.0 VWS_PORT=9090 VWS_THREADS=4 ./my_server
+</screen>
+
+Or managed by a process supervisor as described in <link
+linkend="ws.ops.perpd">the Service Management section</link>.</para>
+
+</section> <!-- ws.ex.daemons -->
 
 <section id="ws.ex.server.rpc"><title>RPC Server</title>
 
-<para>
+<para>This example demonstrates a complete RPC server that uses the RPC module
+system to organize handlers into modules and dispatch incoming calls. It
+combines a <classname><cr f="server.h">vrtql_msg_svr</cr></classname> for
+networking with a <classname><cr f="rpc.h">vrtql_rpc_system</cr></classname> for
+request routing.
+
+<programlisting>
+#include &lt;string.h&gt;
+#include &lt;vws/server.h&gt;
+#include &lt;vws/rpc.h&gt;
+
+// Worker thread context holds the RPC system and environment
+typedef struct
+{
+    vrtql_rpc_system* system;
+    vrtql_rpc_env env;
+} rpc_ctx;
+
+//----------------------------------------------------------------------
+// RPC Handlers: "user" module
+//----------------------------------------------------------------------
+
+vrtql_msg* user_login(vrtql_rpc_env* e, vrtql_msg* req)
+{
+    vrtql_msg* reply = vrtql_rpc_reply(req);
+
+    cstr username = vrtql_msg_get_header(req, "username");
+    cstr password = vrtql_msg_get_header(req, "password");
+
+    if (username != NULL &amp;&amp; password != NULL)
+    {
+        // Perform authentication (simplified)
+        vrtql_msg_set_header(reply, "rc", "0");
+        vrtql_msg_set_header(reply, "msg", "Authenticated");
+        vrtql_msg_set_content(reply, "{\"token\":\"abc123\"}");
+    }
+    else
+    {
+        vrtql_msg_set_header(reply, "rc", "1");
+        vrtql_msg_set_header(reply, "msg", "Missing credentials");
+    }
+
+    return reply;
+}
+
+vrtql_msg* user_info(vrtql_rpc_env* e, vrtql_msg* req)
+{
+    vrtql_msg* reply = vrtql_rpc_reply(req);
+    vrtql_msg_set_header(reply, "rc", "0");
+    vrtql_msg_set_content(reply, "{\"name\":\"admin\",\"role\":\"superuser\"}");
+    return reply;
+}
+
+//----------------------------------------------------------------------
+// RPC Handlers: "system" module
+//----------------------------------------------------------------------
+
+vrtql_msg* system_status(vrtql_rpc_env* e, vrtql_msg* req)
+{
+    vrtql_msg* reply = vrtql_rpc_reply(req);
+    vrtql_msg_set_header(reply, "rc", "0");
+    vrtql_msg_set_content(reply, "{\"status\":\"running\"}");
+    return reply;
+}
+
+//----------------------------------------------------------------------
+// Server setup
+//----------------------------------------------------------------------
+
+// Build the RPC system with all modules
+vrtql_rpc_system* build_rpc_system()
+{
+    vrtql_rpc_system* system = vrtql_rpc_system_new();
+
+    // User module
+    vrtql_rpc_module* user = vrtql_rpc_module_new("user");
+    vrtql_rpc_module_set(user, "login", user_login);
+    vrtql_rpc_module_set(user, "info",  user_info);
+    vrtql_rpc_system_set(system, user);
+
+    // System module
+    vrtql_rpc_module* sys = vrtql_rpc_module_new("system");
+    vrtql_rpc_module_set(sys, "status", system_status);
+    vrtql_rpc_system_set(system, sys);
+
+    return system;
+}
+
+// Worker thread constructor: each thread gets its own RPC environment
+void* worker_ctor(void* data)
+{
+    rpc_ctx* ctx = (rpc_ctx*)malloc(sizeof(rpc_ctx));
+    ctx->system  = (vrtql_rpc_system*)data;
+    ctx->env.data   = NULL;
+    ctx->env.module = NULL;
+    return ctx;
+}
+
+// Worker thread destructor
+void worker_dtor(void* data)
+{
+    rpc_ctx* ctx = (rpc_ctx*)data;
+    free(ctx);
+}
+
+// Message processing: dispatch to RPC system
+void process(vws_svr* s, vws_cid_t cid, vrtql_msg* m, void* ctx)
+{
+    vrtql_msg_svr* server = (vrtql_msg_svr*)s;
+    rpc_ctx* rctx = (rpc_ctx*)ctx;
+
+    // Dispatch to RPC system
+    vrtql_msg* reply = vrtql_rpc_service(rctx->system, &amp;rctx->env, m);
+
+    if (reply != NULL)
+    {
+        server->send(s, cid, reply, NULL);
+    }
+
+    // Note: m has been freed by vrtql_rpc_service()
+}
+
+int main(int argc, const char* argv[])
+{
+    // Build the RPC system
+    vrtql_rpc_system* system = build_rpc_system();
+
+    // Create server
+    vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
+    server->process       = process;
+
+    // Worker threads share the RPC system (read-only) but get their
+    // own environment via worker_ctor
+    vws_tcp_svr* base        = (vws_tcp_svr*)server;
+    base->worker_ctor        = worker_ctor;
+    base->worker_ctor_data   = system;
+    base->worker_dtor        = worker_dtor;
+
+    // Run
+    vrtql_msg_svr_run(server, "127.0.0.1", 8181);
+
+    // Cleanup
+    vrtql_msg_svr_free(server);
+    vrtql_rpc_system_free(system);
+    vws_cleanup();
+
+    return 0;
+}
+</programlisting>
 
 </para>
+
+<para>Clients can call into this server using the client-side RPC API. For
+example, to call the <literal>user.login</literal> function, a client would
+create a message with the header <literal>"id"</literal> set to
+<literal>"user.login"</literal>, include the required credentials as headers,
+and use <function><cr f="rpc.h">vrtql_rpc_exec</cr>()</function> or
+<function><cr f="rpc.h">vrtql_rpc_invoke</cr>()</function> to make the
+call.</para>
 
 </section> <!-- ws.ex.server.rpc -->
 
 <section id="ws.ex.server.mq"><title>A Simple Message Broker</title>
 
-<para>
+<para>This example implements a simple publish-subscribe message broker using
+the VRTQL Message server. Clients can subscribe to topics, and when a message is
+published to a topic, all subscribers receive a copy. The broker uses the
+message routing map to convey the topic and action (subscribe, unsubscribe,
+publish).
+
+<programlisting>
+#include &lt;string.h&gt;
+#include &lt;vws/server.h&gt;
+#include &lt;vws/message.h&gt;
+
+//----------------------------------------------------------------------
+// Subscription storage
+//----------------------------------------------------------------------
+
+// Maximum topics and subscribers per topic
+#define MAX_TOPICS 64
+#define MAX_SUBS   256
+
+typedef struct
+{
+    char topic[128];
+    vws_cid_t subscribers[MAX_SUBS];
+    int count;
+} topic_entry;
+
+typedef struct
+{
+    topic_entry topics[MAX_TOPICS];
+    int count;
+    uv_mutex_t lock;
+} broker_state;
+
+static broker_state broker;
+
+void broker_init()
+{
+    memset(&amp;broker, 0, sizeof(broker));
+    uv_mutex_init(&amp;broker.lock);
+}
+
+void broker_destroy()
+{
+    uv_mutex_destroy(&amp;broker.lock);
+}
+
+// Find or create a topic entry
+topic_entry* broker_get_topic(cstr topic, bool create)
+{
+    for (int i = 0; i &lt; broker.count; i++)
+    {
+        if (strcmp(broker.topics[i].topic, topic) == 0)
+        {
+            return &amp;broker.topics[i];
+        }
+    }
+
+    if (create &amp;&amp; broker.count &lt; MAX_TOPICS)
+    {
+        topic_entry* e = &amp;broker.topics[broker.count++];
+        strncpy(e->topic, topic, sizeof(e->topic) - 1);
+        e->count = 0;
+        return e;
+    }
+
+    return NULL;
+}
+
+void broker_subscribe(cstr topic, vws_cid_t cid)
+{
+    uv_mutex_lock(&amp;broker.lock);
+
+    topic_entry* e = broker_get_topic(topic, true);
+
+    if (e != NULL &amp;&amp; e->count &lt; MAX_SUBS)
+    {
+        e->subscribers[e->count++] = cid;
+    }
+
+    uv_mutex_unlock(&amp;broker.lock);
+}
+
+void broker_unsubscribe(cstr topic, vws_cid_t cid)
+{
+    uv_mutex_lock(&amp;broker.lock);
+
+    topic_entry* e = broker_get_topic(topic, false);
+
+    if (e != NULL)
+    {
+        for (int i = 0; i &lt; e->count; i++)
+        {
+            if (e->subscribers[i].key == cid.key)
+            {
+                // Shift remaining subscribers down
+                for (int j = i; j &lt; e->count - 1; j++)
+                {
+                    e->subscribers[j] = e->subscribers[j + 1];
+                }
+
+                e->count--;
+                break;
+            }
+        }
+    }
+
+    uv_mutex_unlock(&amp;broker.lock);
+}
+
+//----------------------------------------------------------------------
+// Message processing
+//----------------------------------------------------------------------
+
+void process(vws_svr* s, vws_cid_t cid, vrtql_msg* m, void* ctx)
+{
+    vrtql_msg_svr* server = (vrtql_msg_svr*)s;
+
+    cstr action = vrtql_msg_get_routing(m, "action");
+    cstr topic  = vrtql_msg_get_routing(m, "topic");
+
+    if (action == NULL || topic == NULL)
+    {
+        vrtql_msg_free(m);
+        return;
+    }
+
+    if (strcmp(action, "subscribe") == 0)
+    {
+        broker_subscribe(topic, cid);
+
+        // Acknowledge
+        vrtql_msg* ack = vrtql_msg_new();
+        ack->format    = m->format;
+        vrtql_msg_set_routing(ack, "action", "subscribed");
+        vrtql_msg_set_routing(ack, "topic", topic);
+        server->send(s, cid, ack, NULL);
+    }
+    else if (strcmp(action, "unsubscribe") == 0)
+    {
+        broker_unsubscribe(topic, cid);
+
+        // Acknowledge
+        vrtql_msg* ack = vrtql_msg_new();
+        ack->format    = m->format;
+        vrtql_msg_set_routing(ack, "action", "unsubscribed");
+        vrtql_msg_set_routing(ack, "topic", topic);
+        server->send(s, cid, ack, NULL);
+    }
+    else if (strcmp(action, "publish") == 0)
+    {
+        uv_mutex_lock(&amp;broker.lock);
+
+        topic_entry* e = broker_get_topic(topic, false);
+
+        if (e != NULL)
+        {
+            for (int i = 0; i &lt; e->count; i++)
+            {
+                // Create a copy of the message for each subscriber
+                vrtql_msg* copy = vrtql_msg_new();
+                copy->format    = m->format;
+
+                vrtql_msg_set_routing(copy, "action", "message");
+                vrtql_msg_set_routing(copy, "topic", topic);
+
+                if (m->content->size > 0)
+                {
+                    vws_buffer_append( copy->content,
+                                       m->content->data,
+                                       m->content->size );
+                }
+
+                // Use dispatch() to send without freeing
+                server->dispatch(s, e->subscribers[i], copy, NULL);
+            }
+        }
+
+        uv_mutex_unlock(&amp;broker.lock);
+    }
+
+    vrtql_msg_free(m);
+}
+
+int main(int argc, const char* argv[])
+{
+    broker_init();
+
+    // Create server
+    vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
+    server->process       = process;
+
+    // Run
+    vrtql_msg_svr_run(server, "127.0.0.1", 8181);
+
+    // Cleanup
+    vrtql_msg_svr_free(server);
+    broker_destroy();
+    vws_cleanup();
+
+    return 0;
+}
+</programlisting>
+
+</para>
+
+<para>A client can interact with this broker using the Message API. To subscribe
+to a topic, the client sends a message with routing keys
+<literal>"action"</literal> set to <literal>"subscribe"</literal> and
+<literal>"topic"</literal> set to the desired topic name. To publish, the client
+sends a message with <literal>"action"</literal> set to
+<literal>"publish"</literal>, the <literal>"topic"</literal>, and the message
+content in the payload. The following illustrates a client subscribing and
+publishing:
+
+<programlisting>
+// Subscribe to "news" topic
+vrtql_msg* sub = vrtql_msg_new();
+vrtql_msg_set_routing(sub, "action", "subscribe");
+vrtql_msg_set_routing(sub, "topic", "news");
+vrtql_msg_send(cnx, sub);
+vrtql_msg_free(sub);
+
+// Publish a message to "news" topic
+vrtql_msg* pub = vrtql_msg_new();
+vrtql_msg_set_routing(pub, "action", "publish");
+vrtql_msg_set_routing(pub, "topic", "news");
+vrtql_msg_set_content(pub, "Breaking news: VRTQL 2.0 released!");
+vrtql_msg_send(cnx, pub);
+vrtql_msg_free(pub);
+</programlisting>
 
 </para>
 
