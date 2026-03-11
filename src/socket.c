@@ -136,7 +136,7 @@ bool vws_socket_set_timeout(vws_socket* s, int sec)
     }
 
     // Set socket attribute, this will apply to poll().
-    s->timeout = sec;
+    s->timeout = sec * 1000;
 
     return true;
 }
