@@ -83,8 +83,8 @@ bool vrtql_rpc_invoke(vrtql_rpc* rpc, vrtql_msg* req)
     }
 
     // Translate response code and message
-    cstr rc  = vrtql_msg_get_header(reply, "rc");
-    cstr msg = vrtql_msg_get_header(reply, "msg");
+    cstr rc  = vrtql_msg_get_header(reply, "c");
+    cstr msg = vrtql_msg_get_header(reply, "m");
 
     if ((rc != NULL) && (msg != NULL))
     {
@@ -428,11 +428,18 @@ vrtql_msg* vrtql_rpc_reply(vrtql_msg* req)
 {
     vrtql_msg* reply = vrtql_msg_new();
 
-    cstr tag = vrtql_msg_get_routing(req, "tag");
-
+    // If there is a tag, use it
+    cstr tag = vrtql_msg_get_routing(req, "t");
     if (tag != NULL)
     {
-        vrtql_msg_set_routing(req, "tag", tag);
+        vrtql_msg_set_routing(reply, "t", tag);
+    }
+
+    // If there is a from address, use that as reply to address
+    cstr from = vrtql_msg_get_routing(req, "from");
+    if (from != NULL)
+    {
+        vrtql_msg_set_routing(reply, "to", from);
     }
 
     // Use same format as request (JSON/MessagePack)

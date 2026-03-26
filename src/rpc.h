@@ -100,7 +100,7 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req);
 
 /**
  * @brief RPC call invocation. This takes a message as input, sends and waits
- * for a response. It translates the response's "rc" and "msg" attributes to the
+ * for a response. It translates the response's "c" and "m" attributes to the
  * vws.e.code and vws.e.text values respectively. The message content, if any,
  * is copied into the rpc->val member.
  *

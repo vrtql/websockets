@@ -6,7 +6,7 @@
 vrtql_msg* session_login(vws_rpc_env* e, vrtql_msg* m)
 {
     vrtql_msg* reply = vrtql_msg_new();
-    vrtql_msg_set_header(reply, "rc", "0");
+    vrtql_msg_set_header(reply, "c", "0");
 
     return reply;
 }
@@ -15,7 +15,7 @@ vrtql_msg* session_login(vws_rpc_env* e, vrtql_msg* m)
 vrtql_msg* session_logout(vws_rpc_env* e, vrtql_msg* m)
 {
     vrtql_msg* reply = vrtql_msg_new();
-    vrtql_msg_set_header(reply, "rc", "0");
+    vrtql_msg_set_header(reply, "c", "0");
 
     return reply;
 }
@@ -24,7 +24,7 @@ vrtql_msg* session_logout(vws_rpc_env* e, vrtql_msg* m)
 vrtql_msg* session_info(vws_rpc_env* e, vrtql_msg* m)
 {
     vrtql_msg* reply = vrtql_msg_new();
-    vrtql_msg_set_header(reply, "rc", "0");
+    vrtql_msg_set_header(reply, "c", "0");
 
     return reply;
 }
@@ -65,7 +65,7 @@ CTEST(test_rpc, call)
     ASSERT_TRUE(reply != NULL);
 
     // Verify reply
-    cstr rc = vrtql_msg_get_header(reply, "rc");
+    cstr rc = vrtql_msg_get_header(reply, "c");
     ASSERT_TRUE(strncmp(rc, "0", 1) == 0);
 
     // Cleanup

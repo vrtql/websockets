@@ -809,6 +809,18 @@ typedef bool (*vws_svr_process_http_req)( struct vws_svr* s,
                                   void* x );
 
 /**
+ * @brief Callback invoked after a connection upgrades from HTTP to WebSocket.
+ *
+ * Called from the network thread immediately after the 101 response has been
+ * sent and cnx->upgraded is set to true.  The application can use this to
+ * fork a dedicated process for the WebSocket session, adjust per-connection
+ * state, or perform any other post-upgrade action.
+ *
+ * @param cnx The connection that was upgraded.
+ */
+typedef void (*vws_svr_upgrade_cb)(vws_svr_cnx* cnx);
+
+/**
  * @brief Struct representing a WebSocket server. It speaks the WebSocket
  * protocol and processes both WebSocket frames and messages.
  */
@@ -840,6 +852,9 @@ typedef struct vws_svr
 
     /**< Derived: for sending messages to the client (calls on_msg_out()) */
     vws_svr_process_msg send;
+
+    /**< Optional callback invoked after HTTP-to-WebSocket upgrade */
+    vws_svr_upgrade_cb on_upgrade;
 
 } vws_svr;
 

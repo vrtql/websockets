@@ -407,9 +407,206 @@ messages.</para>
 
 <section id="ws.api.rpc"><title>RPC API</title>
 
-<para>
+<para>The RPC (Remote Procedure Call) API provides a mechanism for making
+structured function calls over WebSocket connections using the Message API. It
+builds on top of the messaging layer to provide a request-response pattern with
+automatic message tagging, retry logic, and a modular server-side dispatch
+system. The RPC API has both a client-side component for making calls and a
+server-side component for servicing them.</para>
+
+<section id="ws.api.rpc.client"><title>Client-Side RPC</title>
+
+<para>The client-side RPC API is encapsulated in the <classname><cr
+f="rpc.h">vrtql_rpc</cr></classname> structure. This structure wraps a WebSocket
+connection (<classname><cr f="websocket.h">vws_cnx</cr></classname>) and
+provides facilities for making RPC calls, handling timeouts with automatic
+retries, processing out-of-band messages, and reconnecting on connection
+failure.</para>
+
+<para>You create an RPC instance using <function><cr
+f="rpc.h">vrtql_rpc_new</cr>()</function>, passing in an established WebSocket
+connection. The RPC instance does not take ownership of the connection &mdash;
+you are responsible for freeing both the RPC instance and the connection
+independently. The instance is configured with sensible defaults: five retry
+attempts on timeout and a default out-of-band message handler that simply
+discards unrecognized messages.</para>
+
+<para>There are two ways to make RPC calls. The first is <function><cr
+f="rpc.h">vrtql_rpc_exec</cr>()</function>, which is the low-level call. It
+takes a <classname><cr f="message.h">vrtql_msg</cr></classname> request, sends
+it to the server, and returns the raw reply message. The caller takes ownership
+of the reply and must free it with <function>vrtql_msg_free()</function>. This
+function automatically generates a random tag and sets it in the message's
+routing map under the key <literal>"tag"</literal>. It uses this tag to correlate
+the response with the request. Any messages received that do not match the tag
+are passed to the <varname>out_of_band</varname> callback handler.</para>
+
+<para>The second method is <function><cr
+f="rpc.h">vrtql_rpc_invoke</cr>()</function>, which is a higher-level
+convenience function. It calls <function><cr
+f="rpc.h">vrtql_rpc_exec</cr>()</function> internally but additionally
+translates the response's <literal>"rc"</literal> (return code) and
+<literal>"msg"</literal> (message) headers into the thread-local error state
+(<varname>vws.e.code</varname> and <varname>vws.e.text</varname>). If the
+response contains content, it is copied into the <varname>rpc->val</varname>
+buffer. This function takes ownership of the request message &mdash; the caller
+should not use or free the request after calling it. It returns
+<literal>true</literal> if a response was received and <literal>false</literal>
+otherwise.</para>
+
+<para>Both functions handle connection failures gracefully. If the connection
+drops during a send, the RPC instance will attempt to reconnect using the
+<function><cr f="websocket.h">vws_reconnect</cr>()</function> function and, if a
+<varname>reconnect</varname> callback is defined, will invoke it to allow the
+caller to perform any post-reconnection setup (such as re-authentication). If
+reconnection succeeds, the send is retried. If reconnection fails or the
+connection drops during a receive, the error state is set with
+<constant>VE_SOCKET</constant> along with <constant>VE_SEND</constant> or
+<constant>VE_RECV</constant> to indicate where the failure occurred.</para>
+
+<para>You can also generate random tags independently using <function><cr
+f="rpc.h">vrtql_rpc_tag</cr>()</function>, which produces a random alphanumeric
+string of the specified length. The caller is responsible for freeing the
+returned string.</para>
+
+<para>The following example illustrates basic client-side RPC usage:
+
+<programlisting>
+// Create a WebSocket connection and connect
+vws_cnx* cnx = vws_cnx_new();
+vws_connect(cnx, "ws://localhost:8181/websocket");
+
+// Create an RPC instance using the connection
+vrtql_rpc* rpc = vrtql_rpc_new(cnx);
+
+// Create a request message
+vrtql_msg* req = vrtql_msg_new();
+vrtql_msg_set_header(req, "id", "session.login");
+vrtql_msg_set_header(req, "username", "admin");
+vrtql_msg_set_header(req, "password", "secret");
+
+// Make the RPC call (low-level)
+vrtql_msg* reply = vrtql_rpc_exec(rpc, req);
+
+if (reply != NULL)
+{
+    cstr rc = vrtql_msg_get_header(reply, "rc");
+    printf("Return code: %s\n", rc);
+    vrtql_msg_free(reply);
+}
+
+// Cleanup
+vrtql_msg_free(req);
+vrtql_rpc_free(rpc);
+vws_disconnect(cnx);
+vws_cnx_free(cnx);
+</programlisting>
 
 </para>
+
+</section> <!-- ws.api.rpc.client -->
+
+<section id="ws.api.rpc.server"><title>Server-Side RPC</title>
+
+<para>The server-side RPC API provides a modular dispatch system for organizing
+and servicing RPC calls. It is built around three key structures: modules, a
+system registry, and an execution environment.</para>
+
+<para>An RPC module (<classname><cr
+f="rpc.h">vrtql_rpc_module</cr></classname>) is a named collection of RPC
+functions. You create a module using <function><cr
+f="rpc.h">vrtql_rpc_module_new</cr>()</function>, passing in the module name.
+You then register individual RPC functions within the module using <function><cr
+f="rpc.h">vrtql_rpc_module_set</cr>()</function>. Each function is identified by
+a name and must conform to the <function><cr
+f="rpc.h">vrtql_rpc_call</cr></function> callback signature, which takes a
+<classname><cr f="rpc.h">vrtql_rpc_env</cr></classname> pointer and a
+<classname><cr f="message.h">vrtql_msg</cr></classname> pointer and returns a
+reply message. You can look up registered functions using <function><cr
+f="rpc.h">vrtql_rpc_module_get</cr>()</function>.</para>
+
+<para>The RPC system (<classname><cr
+f="rpc.h">vrtql_rpc_system</cr></classname>) is a registry that holds modules.
+You create a system using <function><cr
+f="rpc.h">vrtql_rpc_system_new</cr>()</function> and register modules in it
+using <function><cr f="rpc.h">vrtql_rpc_system_set</cr>()</function>. You can
+retrieve modules by name using <function><cr
+f="rpc.h">vrtql_rpc_system_get</cr>()</function>.</para>
+
+<para>The execution environment (<classname><cr
+f="rpc.h">vrtql_rpc_env</cr></classname>) provides context to RPC handlers
+during execution. It contains a <varname>data</varname> pointer for user-defined
+data and a <varname>module</varname> pointer that references the module
+containing the invoked function. This environment is set up by the dispatch
+system before calling the handler.</para>
+
+<para>To service an incoming RPC call, you use <function><cr
+f="rpc.h">vrtql_rpc_service</cr>()</function>. This function takes the RPC
+system, an environment, and the incoming request message. The request must
+contain an <literal>"id"</literal> header in the format
+<literal>"module.function"</literal> (for example,
+<literal>"session.login"</literal>). The service function parses this identifier,
+looks up the appropriate module and function, sets the environment, and invokes
+the handler. It takes ownership of the request message and frees it after the
+handler returns. The handler's reply message is returned to the caller.</para>
+
+<para>To assist in writing RPC handlers, the <function><cr
+f="rpc.h">vrtql_rpc_reply</cr>()</function> convenience function creates a new
+reply message, copies the request's tag into the reply for correlation, and sets
+the reply format to match the request.</para>
+
+<para>The following example illustrates setting up a server-side RPC system:
+
+<programlisting>
+// Define RPC handler functions
+vrtql_msg* session_login(vrtql_rpc_env* e, vrtql_msg* req)
+{
+    vrtql_msg* reply = vrtql_rpc_reply(req);
+    vrtql_msg_set_header(reply, "rc", "0");
+    vrtql_msg_set_header(reply, "msg", "Login successful");
+    return reply;
+}
+
+vrtql_msg* session_logout(vrtql_rpc_env* e, vrtql_msg* req)
+{
+    vrtql_msg* reply = vrtql_rpc_reply(req);
+    vrtql_msg_set_header(reply, "rc", "0");
+    return reply;
+}
+
+// Create and populate a module
+vrtql_rpc_module* module = vrtql_rpc_module_new("session");
+vrtql_rpc_module_set(module, "login",  session_login);
+vrtql_rpc_module_set(module, "logout", session_logout);
+
+// Create the system and register the module
+vrtql_rpc_system* system = vrtql_rpc_system_new();
+vrtql_rpc_system_set(system, module);
+
+// Service an incoming request (e.g. from a message server handler)
+vrtql_rpc_env env;
+env.data = NULL;
+
+vrtql_msg* req = vrtql_msg_new();
+vrtql_msg_set_header(req, "id", "session.login");
+
+vrtql_msg* reply = vrtql_rpc_service(system, &amp;env, req);
+
+// reply now contains the handler's response
+// req has been freed by vrtql_rpc_service()
+
+if (reply != NULL)
+{
+    vrtql_msg_free(reply);
+}
+
+// Cleanup
+vrtql_rpc_system_free(system);
+</programlisting>
+
+</para>
+
+</section> <!-- ws.api.rpc.server -->
 
 </section> <!-- ws.api.rpc -->
 

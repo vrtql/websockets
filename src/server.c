@@ -2600,6 +2600,12 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
             // Set the flag that we are in WebSocket mode
             cnx->upgraded = true;
 
+            // Notify application of the upgrade
+            if (server->on_upgrade != NULL)
+            {
+                server->on_upgrade(cnx);
+            }
+
             // Free HTTP request as we don't need it anymore
             vws_http_msg_free(cnx->http);
             cnx->http = NULL;
@@ -2803,6 +2809,9 @@ void ws_svr_ctor(vws_svr* server, int nt, int bl, int qs)
     // HTTP handlers
     server->on_http_read       = ws_svr_on_http_read;
     server->process_http       = NULL;
+
+    // Upgrade callback
+    server->on_upgrade         = NULL;
 
     // Application functions
     server->process_ws         = ws_svr_client_process;
