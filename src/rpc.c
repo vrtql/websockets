@@ -90,7 +90,7 @@ bool vrtql_rpc_invoke(vrtql_rpc* rpc, vrtql_msg* req)
     {
         vws.error(atoi(rc), msg);
     }
-    else
+    else if (rc != NULL)
     {
         vws.e.code = atoi(rc);
     }
@@ -108,7 +108,7 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
 
     // Assign a tag to verify response
     cstr tag = vrtql_rpc_tag(7);
-    vrtql_msg_set_routing(req, "tag", tag);
+    vrtql_msg_set_routing(req, "t", tag);
 
     if (vws.tracelevel >= VT_SERVICE)
     {
@@ -166,7 +166,7 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
         if (reply != NULL)
         {
             // Get message tag
-            cstr t = vrtql_msg_get_routing(reply, "tag");
+            cstr t = vrtql_msg_get_routing(reply, "t");
 
             // If tags do not match
             if (strncmp(tag, t, strlen(tag)) != 0)
