@@ -383,6 +383,58 @@ bool vws_reconnect(vws_cnx* c)
     return false;
 }
 
+bool vws_cnx_from_fd(vws_cnx* c, int fd)
+{
+    if (c == NULL || fd < 0)
+    {
+        vws.error(VE_RT, "Invalid connection or fd");
+        return false;
+    }
+
+    vws_buffer_clear(c->base.buffer);
+
+    // Adopt the fd. No SSL on injected fds; this is intended for in-process
+    // transports (socketpair, pipes) where there is no remote peer to
+    // authenticate.
+    c->base.sockfd = fd;
+    c->base.ssl    = NULL;
+
+    if (vws_socket_set_timeout((vws_socket*)c, c->base.timeout / 1000) == false)
+    {
+        vws_socket_close((vws_socket*)c);
+        return false;
+    }
+
+    // Mirror vws_socket_connect(): put the fd in O_NONBLOCK so the
+    // poll()-driven read/write loops work. Caller-facing API stays
+    // synchronous (blocking with timeout).
+    if (vws_socket_set_nonblocking(c->base.sockfd) == false)
+    {
+        vws_socket_close((vws_socket*)c);
+        return false;
+    }
+
+    // The handshake callback expects c->url to be populated for building the
+    // upgrade request. Provide a synthetic URL when one was not set.
+    if (c->url == NULL)
+    {
+        c->url = (vws_url_data*)url_parse("ws://inproc/");
+    }
+
+    if (c->base.hs != NULL)
+    {
+        if (c->base.hs((vws_socket*)c) == false)
+        {
+            vws.error(VE_SYS, "Handshake failed");
+            vws_socket_close((vws_socket*)c);
+            return false;
+        }
+    }
+
+    vws.success();
+    return true;
+}
+
 bool vws_cnx_is_connected(vws_cnx* c)
 {
     if (vws_socket_is_connected((vws_socket*)c) == false)
