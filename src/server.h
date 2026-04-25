@@ -720,6 +720,10 @@ int vws_tcp_svr_inject_fd(vws_tcp_svr* server, int fd);
  * already completed the WebSocket handshake. The server must be running in a
  * different thread; this call blocks the caller until the handshake completes.
  *
+ * The returned client has frame masking disabled (server mode) since the
+ * socketpair has no intermediate proxies that masking is meant to protect
+ * against. This skips per-frame XOR and mask-key generation.
+ *
  * @param server The running server to connect to.
  * @return A connected vws_cnx on success, NULL on failure.
  */

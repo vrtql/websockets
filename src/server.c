@@ -2525,6 +2525,12 @@ vws_cnx* vws_pipe_connect(vws_tcp_svr* server)
     // until the server-side has processed the upgrade and replied, which
     // requires the server's loop to be running on a different thread.
     vws_cnx* cnx = vws_cnx_new();
+
+    // Frame masking exists to defeat cache-poisoning attacks on
+    // intermediate proxies. There are no proxies on a socketpair, so
+    // skip the per-frame XOR and key generation.
+    vws_cnx_set_server_mode(cnx);
+
     if (vws_cnx_from_fd(cnx, (int)fds[1]) == false)
     {
         // Handshake failed. The fd is owned by the cnx at this point so
