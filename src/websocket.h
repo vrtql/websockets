@@ -301,10 +301,16 @@ bool vws_reconnect(vws_cnx* c);
 /**
  * @brief Initializes a WebSocket connection from an already-connected fd.
  *
- * Adopts the fd as the connection's socket, switches it to non-blocking, and
- * runs the standard client handshake callback. Intended for in-process
- * transports (socketpair, pipes) where TCP connect and DNS resolution should
- * be bypassed. SSL is not used on the injected fd.
+ * Adopts the fd as the connection's socket and runs the standard client
+ * handshake. Intended for in-process transports (socketpair, pipes) where
+ * TCP connect and DNS resolution should be bypassed. SSL is not used on the
+ * injected fd.
+ *
+ * The fd is placed in O_NONBLOCK mode internally so the existing poll()-based
+ * read/write loops can drive it -- this is the same setup vws_connect() does
+ * after a TCP connect. The client API itself remains synchronous: subsequent
+ * vws_msg_send/vws_msg_recv calls block (with the configured timeout) just
+ * like any other vws client.
  *
  * On success, the connection takes ownership of the fd and will close it on
  * vws_disconnect()/vws_cnx_free().

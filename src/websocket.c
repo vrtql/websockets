@@ -405,6 +405,9 @@ bool vws_cnx_from_fd(vws_cnx* c, int fd)
         return false;
     }
 
+    // Mirror vws_socket_connect(): put the fd in O_NONBLOCK so the
+    // poll()-driven read/write loops work. Caller-facing API stays
+    // synchronous (blocking with timeout).
     if (vws_socket_set_nonblocking(c->base.sockfd) == false)
     {
         vws_socket_close((vws_socket*)c);
