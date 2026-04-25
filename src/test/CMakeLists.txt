@@ -39,6 +39,7 @@ if(BUILD_SERVER)
     test_inetd_server
     test_msg_server
     test_peering
+    test_pipe_server
     test_server
     test_ws_server )
 endif()

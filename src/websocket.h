@@ -299,6 +299,25 @@ bool vws_connect(vws_cnx* c, cstr uri);
 bool vws_reconnect(vws_cnx* c);
 
 /**
+ * @brief Initializes a WebSocket connection from an already-connected fd.
+ *
+ * Adopts the fd as the connection's socket, switches it to non-blocking, and
+ * runs the standard client handshake callback. Intended for in-process
+ * transports (socketpair, pipes) where TCP connect and DNS resolution should
+ * be bypassed. SSL is not used on the injected fd.
+ *
+ * On success, the connection takes ownership of the fd and will close it on
+ * vws_disconnect()/vws_cnx_free().
+ *
+ * @param c  The websocket connection (allocated via vws_cnx_new()).
+ * @param fd A connected, stream-oriented file descriptor.
+ * @return true on successful handshake, false otherwise.
+ *
+ * @ingroup ConnectionFunctions
+ */
+bool vws_cnx_from_fd(vws_cnx* c, int fd);
+
+/**
  * @brief Closes the connection to the host.
  *
  * @param c The websocket connection.
