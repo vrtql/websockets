@@ -494,9 +494,16 @@ openssl_reread:
                 total += n;
                 vws_buffer_append(c->buffer, data, n);
 
-                if (n < size)
+                if (n < size && SSL_pending(c->ssl) == 0)
                 {
-                    // All available data has been read, break the loop.
+                    // A short read alone does NOT mean the socket is drained:
+                    // OpenSSL can still hold decrypted application data from an
+                    // already-received TLS record (SSL_pending() > 0), and that
+                    // data is invisible to poll() on the raw fd. Stopping here
+                    // would leave it unread until a subsequent clean close
+                    // (SSL_ERROR_ZERO_RETURN) surfaces as a read error and the
+                    // pending bytes are discarded — truncating a large response
+                    // body. Only break once OpenSSL has nothing buffered.
                     break;
                 }
             }

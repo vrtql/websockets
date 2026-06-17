@@ -320,6 +320,42 @@ typedef struct
 
 } vws_svr_queue;
 
+/**
+ * @struct vws_fd_node
+ * @brief Linked-list node holding a single file descriptor pending injection
+ *        into a running server's libuv loop.
+ */
+typedef struct vws_fd_node
+{
+    /**< File descriptor to be adopted by the loop */
+    int fd;
+
+    /**< Next node in the queue */
+    struct vws_fd_node* next;
+
+} vws_fd_node;
+
+/**
+ * @struct vws_fd_queue
+ * @brief Thread-safe FIFO of file descriptors awaiting injection.
+ *
+ * Producers (any thread) push fds via vws_tcp_svr_inject_fd(). The libuv
+ * network thread drains the queue in response to a uv_async_t signal and
+ * adopts each fd into the loop as a uv_pipe_t.
+ */
+typedef struct vws_fd_queue
+{
+    /**< Head of the queue (oldest entry) */
+    vws_fd_node* head;
+
+    /**< Tail of the queue (newest entry) */
+    vws_fd_node* tail;
+
+    /**< Mutex protecting head/tail */
+    uv_mutex_t mutex;
+
+} vws_fd_queue;
+
 struct vws_tcp_svr;
 
 /**
@@ -557,6 +593,13 @@ typedef struct vws_tcp_svr
 
     /**< The peer timer */
     uv_timer_t* peer_timer;
+
+    /**< Queue of file descriptors awaiting injection into the loop */
+    vws_fd_queue fd_queue;
+
+    /**< Async handle that wakes the loop to drain fd_queue */
+    uv_async_t* fd_inject_async;
+
 } vws_tcp_svr;
 
 /**
@@ -649,6 +692,42 @@ int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd);
  * @param server The server to stop.
  */
 void vws_tcp_svr_inetd_stop(vws_tcp_svr* server);
+
+/**
+ * @brief Injects an already-connected file descriptor into a running server.
+ *
+ * This pushes the fd onto the server's injection queue and signals the libuv
+ * loop. The network thread will drain the queue, adopt the fd into the loop
+ * as a uv_pipe_t, and run it through the normal connection setup so that it
+ * is treated like any other client. Suitable for any stream-oriented fd
+ * (sockets from uv_socketpair(), Unix domain sockets, anonymous pipes, etc.).
+ *
+ * Safe to call from any thread. The server must be in VS_RUNNING state with
+ * its loop running on a different thread than the caller.
+ *
+ * @param server The server.
+ * @param fd     A connected, stream-oriented file descriptor. The server takes
+ *               ownership on success.
+ * @return 0 on success, -1 on failure (server not running).
+ */
+int vws_tcp_svr_inject_fd(vws_tcp_svr* server, int fd);
+
+/**
+ * @brief Establishes an in-process WebSocket connection to a running server.
+ *
+ * Creates a connected socket pair via uv_socketpair(), injects one end into
+ * the server's loop, and wraps the other end as a vws_cnx client that has
+ * already completed the WebSocket handshake. The server must be running in a
+ * different thread; this call blocks the caller until the handshake completes.
+ *
+ * The returned client has frame masking disabled (server mode) since the
+ * socketpair has no intermediate proxies that masking is meant to protect
+ * against. This skips per-frame XOR and mask-key generation.
+ *
+ * @param server The running server to connect to.
+ * @return A connected vws_cnx on success, NULL on failure.
+ */
+vws_cnx* vws_pipe_connect(vws_tcp_svr* server);
 
 /**
  * @brief Check that peers are all online

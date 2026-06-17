@@ -299,6 +299,31 @@ bool vws_connect(vws_cnx* c, cstr uri);
 bool vws_reconnect(vws_cnx* c);
 
 /**
+ * @brief Initializes a WebSocket connection from an already-connected fd.
+ *
+ * Adopts the fd as the connection's socket and runs the standard client
+ * handshake. Intended for in-process transports (socketpair, pipes) where
+ * TCP connect and DNS resolution should be bypassed. SSL is not used on the
+ * injected fd.
+ *
+ * The fd is placed in O_NONBLOCK mode internally so the existing poll()-based
+ * read/write loops can drive it -- this is the same setup vws_connect() does
+ * after a TCP connect. The client API itself remains synchronous: subsequent
+ * vws_msg_send/vws_msg_recv calls block (with the configured timeout) just
+ * like any other vws client.
+ *
+ * On success, the connection takes ownership of the fd and will close it on
+ * vws_disconnect()/vws_cnx_free().
+ *
+ * @param c  The websocket connection (allocated via vws_cnx_new()).
+ * @param fd A connected, stream-oriented file descriptor.
+ * @return true on successful handshake, false otherwise.
+ *
+ * @ingroup ConnectionFunctions
+ */
+bool vws_cnx_from_fd(vws_cnx* c, int fd);
+
+/**
  * @brief Closes the connection to the host.
  *
  * @param c The websocket connection.

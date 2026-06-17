@@ -155,6 +155,27 @@ void address_pool_remove(address_pool* pool, int64_t i)
 static void uv_thread(uv_async_t* handle);
 
 /**
+ * @brief Initializes a fd injection queue.
+ */
+static void fd_queue_init(vws_fd_queue* q);
+
+/**
+ * @brief Destroys a fd injection queue, closing any pending fds.
+ */
+static void fd_queue_destroy(vws_fd_queue* q);
+
+/**
+ * @brief UV async callback that drains the server's fd injection queue.
+ *
+ * Runs on the network thread when vws_tcp_svr_inject_fd() signals the
+ * server->fd_inject_async handle. Pops every queued fd and adopts it into
+ * the loop as a uv_pipe_t.
+ *
+ * @param handle The async handle that triggered the callback.
+ */
+static void on_fd_inject(uv_async_t* handle);
+
+/**
  * @brief The entry point for a worker thread.
  *
  * This function implements the worker thread pool. It is what each worker
@@ -1710,6 +1731,20 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->peer_timer = vws.malloc(sizeof(uv_timer_t));
     uv_timer_init(svr->loop, svr->peer_timer);
 
+    // FD injection queue and async wakeup. The async->data carries a cinfo
+    // with an invalid cid so svr_on_close() can free it on shutdown without
+    // touching connection state.
+    fd_queue_init(&svr->fd_queue);
+
+    vws_cinfo* fd_ci = vws.malloc(sizeof(vws_cinfo));
+    fd_ci->cnx       = NULL;
+    fd_ci->server    = svr;
+    fd_ci->cid.key   = 0;
+
+    svr->fd_inject_async       = vws.malloc(sizeof(uv_async_t));
+    svr->fd_inject_async->data = fd_ci;
+    uv_async_init(svr->loop, svr->fd_inject_async, on_fd_inject);
+
     return svr;
 }
 
@@ -1748,6 +1783,14 @@ void tcp_svr_dtor(vws_tcp_svr* svr)
 
     // Close the server async handle
     uv_close((uv_handle_t*)svr->wakeup, svr_on_close);
+
+    // Close the fd injection async handle. svr_on_close() will free the
+    // attached cinfo and the handle itself.
+    uv_close((uv_handle_t*)svr->fd_inject_async, svr_on_close);
+
+    // Drain and destroy the fd injection queue. Any fds still pending have
+    // not been adopted by the loop and are closed here.
+    fd_queue_destroy(&svr->fd_queue);
 
     // Close peer timer
     svr->peer_timer->data = NULL;
@@ -2295,6 +2338,208 @@ bool queue_empty(vws_svr_queue* queue)
     uv_mutex_unlock(&queue->mutex);
 
     return empty;
+}
+
+//------------------------------------------------------------------------------
+// FD Injection Queue
+//------------------------------------------------------------------------------
+
+static void fd_queue_init(vws_fd_queue* q)
+{
+    q->head = NULL;
+    q->tail = NULL;
+    uv_mutex_init(&q->mutex);
+}
+
+static void fd_queue_destroy(vws_fd_queue* q)
+{
+    uv_mutex_lock(&q->mutex);
+
+    vws_fd_node* n = q->head;
+    while (n != NULL)
+    {
+        vws_fd_node* next = n->next;
+
+        // Close any fd that never got adopted into the loop.
+        if (n->fd >= 0)
+        {
+            close(n->fd);
+        }
+
+        vws.free(n);
+        n = next;
+    }
+    q->head = NULL;
+    q->tail = NULL;
+
+    uv_mutex_unlock(&q->mutex);
+    uv_mutex_destroy(&q->mutex);
+}
+
+static void fd_queue_push(vws_fd_queue* q, int fd)
+{
+    vws_fd_node* n = vws.malloc(sizeof(vws_fd_node));
+    n->fd   = fd;
+    n->next = NULL;
+
+    uv_mutex_lock(&q->mutex);
+
+    if (q->tail == NULL)
+    {
+        q->head = n;
+        q->tail = n;
+    }
+    else
+    {
+        q->tail->next = n;
+        q->tail       = n;
+    }
+
+    uv_mutex_unlock(&q->mutex);
+}
+
+// Detach the entire chain so the loop thread can drain it without holding
+// the mutex.
+static vws_fd_node* fd_queue_take_all(vws_fd_queue* q)
+{
+    uv_mutex_lock(&q->mutex);
+    vws_fd_node* head = q->head;
+    q->head = NULL;
+    q->tail = NULL;
+    uv_mutex_unlock(&q->mutex);
+
+    return head;
+}
+
+// Adopt an injected fd into the libuv loop as a uv_pipe_t and run it through
+// the standard connection setup. Must be called on the loop thread.
+static void adopt_injected_fd(vws_tcp_svr* server, int fd)
+{
+    uv_pipe_t* p = (uv_pipe_t*)vws.malloc(sizeof(uv_pipe_t));
+
+    if (uv_pipe_init(server->loop, p, 0) != 0)
+    {
+        vws.error(VE_RT, "uv_pipe_init failed");
+        vws.free(p);
+        close(fd);
+        return;
+    }
+
+    if (uv_pipe_open(p, fd) != 0)
+    {
+        vws.error(VE_RT, "uv_pipe_open failed");
+        vws.free(p);
+        close(fd);
+        return;
+    }
+
+    vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
+    ci->cnx       = NULL;
+    ci->server    = server;
+    p->data       = ci;
+
+    if (uv_read_start((uv_stream_t*)p, svr_on_realloc, svr_on_read) != 0)
+    {
+        vws.error(VE_RT, "uv_read_start failed on injected fd");
+        vws.free(ci);
+        uv_close((uv_handle_t*)p, NULL);
+        return;
+    }
+
+    vws_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)p);
+    ci->cnx          = cnx;
+    ci->cid          = cnx->cid;
+
+    server->on_connect(cnx);
+}
+
+static void on_fd_inject(uv_async_t* handle)
+{
+    vws_cinfo* ci       = (vws_cinfo*)handle->data;
+    vws_tcp_svr* server = ci->server;
+
+    if (server->state != VS_RUNNING)
+    {
+        return;
+    }
+
+    vws_fd_node* n = fd_queue_take_all(&server->fd_queue);
+    while (n != NULL)
+    {
+        vws_fd_node* next = n->next;
+        adopt_injected_fd(server, n->fd);
+        vws.free(n);
+        n = next;
+    }
+}
+
+int vws_tcp_svr_inject_fd(vws_tcp_svr* server, int fd)
+{
+    if (server == NULL || fd < 0)
+    {
+        return -1;
+    }
+
+    if (server->state != VS_RUNNING)
+    {
+        vws.error(VE_RT, "server not running");
+        return -1;
+    }
+
+    fd_queue_push(&server->fd_queue, fd);
+    uv_async_send(server->fd_inject_async);
+
+    return 0;
+}
+
+vws_cnx* vws_pipe_connect(vws_tcp_svr* server)
+{
+    if (server == NULL)
+    {
+        vws.error(VE_RT, "vws_pipe_connect: NULL server");
+        return NULL;
+    }
+
+    uv_os_sock_t fds[2];
+    int rc = uv_socketpair( SOCK_STREAM,
+                            0,
+                            fds,
+                            UV_NONBLOCK_PIPE,
+                            UV_NONBLOCK_PIPE );
+
+    if (rc < 0)
+    {
+        vws.error(VE_RT, "uv_socketpair() failed: %s", uv_strerror(rc));
+        return NULL;
+    }
+
+    // Hand fds[0] to the server. After this call the server owns it.
+    if (vws_tcp_svr_inject_fd(server, (int)fds[0]) != 0)
+    {
+        close((int)fds[0]);
+        close((int)fds[1]);
+        return NULL;
+    }
+
+    // Wrap fds[1] as a client and run the websocket handshake. This blocks
+    // until the server-side has processed the upgrade and replied, which
+    // requires the server's loop to be running on a different thread.
+    vws_cnx* cnx = vws_cnx_new();
+
+    // Frame masking exists to defeat cache-poisoning attacks on
+    // intermediate proxies. There are no proxies on a socketpair, so
+    // skip the per-frame XOR and key generation.
+    vws_cnx_set_server_mode(cnx);
+
+    if (vws_cnx_from_fd(cnx, (int)fds[1]) == false)
+    {
+        // Handshake failed. The fd is owned by the cnx at this point so
+        // vws_cnx_free will close it.
+        vws_cnx_free(cnx);
+        return NULL;
+    }
+
+    return cnx;
 }
 
 //------------------------------------------------------------------------------
