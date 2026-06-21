@@ -76,6 +76,28 @@ original intent was to provide client-side connections only. Thus if you want
 use the server-side API, you simple add a configuration switch at build time to
 include the code (covered in <xref linkend="ws.build"/>).</para>
 
+<note><title>Experimental Async Reactor</title>
+
+  <para>The library also contains an experimental, non-blocking,
+  single-connection asynchronous reactor (<filename>src/async.h</filename>) that
+  operates without <filename>libuv</filename>. It is presently low-level
+  foundation: its ergonomic public interface stabilizes with the forthcoming C++
+  <classname>Channel</classname> wrapper and will be documented once that wrapper
+  lands. It is not yet part of the supported public API.</para>
+
+</note>
+
+<note><title>Recent Changes</title>
+
+  <para>The current release is a hardening release. It adds wire-reachable
+  denial-of-service protections (a frame-size cap and additional parser guards),
+  fixes a number of send-path and concurrency defects, widens the HTTP
+  status-code accessor to a full <type>int</type>, and introduces the
+  experimental asynchronous reactor described above together with an expanded
+  test suite.</para>
+
+</note>
+
 </section> <!-- ws.intro.about -->
 
 <section id="ws.intro.ws"><title>WebSocket Overview</title>
@@ -120,6 +142,15 @@ size limit may be smaller due to network or system constraints). There are
 several types of frames, including text frames, binary frames, continuation
 frames, and control frames.</para>
 
+<para>While the protocol permits very large frames, this library enforces a
+maximum frame size to guard against malformed or hostile peers. A single frame
+whose payload length exceeds <constant>VWS_MAX_FRAME_SIZE</constant> &mdash; 64
+MiB by default &mdash; is rejected as a frame error
+(<constant>FRAME_ERROR</constant>) before any allocation is attempted. This
+limit is a compile-time tunable, defined as a <literal>#define</literal> in
+<filename>src/websocket.c</filename>; it may be raised and the library
+recompiled should your application require larger frames.</para>
+
 <para>Text frames contain Unicode text data, while binary frames carry binary
 data. Continuation frames allow for larger messages to be broken down into
 smaller chunks. Control frames handle protocol-level interactions and include
@@ -145,6 +176,34 @@ system. Build as follows:
 <prompt>$</prompt> make
 <prompt>$</prompt> sudo make install
 </screen>
+
+</para>
+
+<para>Several CMake options control what is built and how. Each is passed on the
+<command>cmake</command> command line in the usual way, for example
+<literal>cmake -DBUILD_SERVER=OFF .</literal>. The available options are:
+
+<itemizedlist>
+
+<listitem><para><varname>BUILD_SERVER</varname> (default <literal>ON</literal>)
+builds the optional server-side component. The server depends on
+<filename>libuv</filename>, which is located at configure time via
+<literal>find_package(LibUV REQUIRED)</literal>. When
+<varname>BUILD_SERVER</varname> is enabled, <filename>libuv</filename> and its
+development headers must be installed. The client-side library has no such
+dependency.</para></listitem>
+
+<listitem><para><varname>ASAN</varname> (default <literal>OFF</literal>) builds
+the library and tests with the AddressSanitizer instrumentation for detecting
+memory errors.</para></listitem>
+
+<listitem><para><varname>VWS_TSAN</varname> (default <literal>OFF</literal>)
+builds the library and tests with the ThreadSanitizer instrumentation for
+detecting data races. Like <varname>ASAN</varname>, it is intended for
+development and testing and should be left off for production builds.</para>
+</listitem>
+
+</itemizedlist>
 
 </para>
 
