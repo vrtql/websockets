@@ -219,6 +219,19 @@ struct sockaddr;
  */
 bool vws_socket_addr_info(const struct sockaddr* addr, cstr* host, int* port);
 
+//------------------------------------------------------------------------------
+// INTERNAL (vws-internal, not stable API): the shared SSL SIGPIPE guards. Every
+// SSL op on the SSL path -- sync (socket.c) AND reactor (async.c) -- routes
+// through these so a broken-pipe SSL op cannot raise SIGPIPE in the EMBEDDED
+// host. They block SIGPIPE on the calling thread for the op and drain a SIGPIPE
+// they generated, without touching the process-wide disposition. Defined in
+// socket.c. The ssl_sigpipe_guard regression gate asserts these hold the ONLY
+// raw SSL_read/SSL_write calls in socket.c + async.c.
+//------------------------------------------------------------------------------
+
+ssize_t ssl_read_nosigpipe(SSL* ssl, ucstr data, int len);
+ssize_t ssl_write_nosigpipe(SSL* ssl, const ucstr data, int len);
+
 #ifdef __cplusplus
 }
 #endif

@@ -2,6 +2,7 @@
 #define VRTQL_SVR_DECLARE
 
 #include <uv.h>
+#include <stdatomic.h>
 
 #include "vws.h"
 #include "message.h"
@@ -188,7 +189,8 @@ typedef enum
     VWS_SVR_STATE_PEER         = (1 << 13),
     VWS_SVR_STATE_HTTP         = (1 << 14),
     VWS_SVR_STATE_PEER_CONNECT = (1 << 15),
-    VWS_SVR_STATE_TRUSTED      = (1 << 16)
+    VWS_SVR_STATE_TRUSTED      = (1 << 16),
+    VWS_SVR_STATE_IRQ          = (1 << 17)
 } vws_svr_state_flags_t;
 
 /** Connection ID. This is the index within the address pool that the
@@ -239,10 +241,11 @@ struct vws_peer;
  * @brief Callback for establishing new peer connection.
  *
  * @param peer The peer struct (containing host and IP)
+ * @param x The user-defined context
  * @return Returns the established socket descriptor upon successful connection,
  *   -1 on failure.
 */
-typedef int (*vws_peer_connect)(struct vws_peer* p);
+typedef int (*vws_peer_connect)(struct vws_peer* p, void* x);
 
 /** This is used to associate connection info with uv_stream_t handles */
 typedef struct vws_peer
@@ -283,6 +286,14 @@ typedef struct
     /**< Reference to server this data belongs to */
     struct vws_tcp_svr* server;
 
+    /**< Atomic reference count guarding the object's lifetime across the
+     * worker/loop hand-off. Created at 1 (the creator's ref); the send path
+     * takes a second ref BEFORE handing the data to the loop so the loop's
+     * free (svr_on_write_complete) cannot race the worker's post-hand-off
+     * read. Every holder releases via vws_svr_data_free; the object is freed
+     * only when the count reaches 0. */
+    _Atomic int refs;
+
 } vws_svr_data;
 
 /**
@@ -313,48 +324,12 @@ typedef struct
     uv_cond_t cond;
 
     /**< Current state of the queue */
-    uint8_t state;
+    _Atomic uint8_t state;
 
     /**< Queue name */
     cstr name;
 
 } vws_svr_queue;
-
-/**
- * @struct vws_fd_node
- * @brief Linked-list node holding a single file descriptor pending injection
- *        into a running server's libuv loop.
- */
-typedef struct vws_fd_node
-{
-    /**< File descriptor to be adopted by the loop */
-    int fd;
-
-    /**< Next node in the queue */
-    struct vws_fd_node* next;
-
-} vws_fd_node;
-
-/**
- * @struct vws_fd_queue
- * @brief Thread-safe FIFO of file descriptors awaiting injection.
- *
- * Producers (any thread) push fds via vws_tcp_svr_inject_fd(). The libuv
- * network thread drains the queue in response to a uv_async_t signal and
- * adopts each fd into the loop as a uv_pipe_t.
- */
-typedef struct vws_fd_queue
-{
-    /**< Head of the queue (oldest entry) */
-    vws_fd_node* head;
-
-    /**< Tail of the queue (newest entry) */
-    vws_fd_node* tail;
-
-    /**< Mutex protecting head/tail */
-    uv_mutex_t mutex;
-
-} vws_fd_queue;
 
 struct vws_tcp_svr;
 
@@ -501,9 +476,6 @@ typedef enum
 
 } vws_tcp_svr_state_t;
 
-/** Abbreviation for the connection map */
-typedef struct sc_map_64v vws_svr_cnx_map;
-
 /**
  * @brief Struct representing a basic server. It does not do anything but
  * process raw data. It does not have any knowledge of WebSockets.
@@ -511,7 +483,7 @@ typedef struct sc_map_64v vws_svr_cnx_map;
 typedef struct vws_tcp_svr
 {
     /**< Current state of the server */
-    uint8_t state;
+    _Atomic uint8_t state;
 
     /**< Asynchronous handle for event-based programming */
     uv_async_t* wakeup;
@@ -539,6 +511,9 @@ typedef struct vws_tcp_svr
 
     /**< Callback function for connect */
     vws_tcp_svr_connect on_connect;
+
+    /**< Callback function for inetd connect */
+    vws_tcp_svr_connect on_inetd_connect;
 
     /**< Callback function for disconnect */
     vws_tcp_svr_disconnect on_disconnect;
@@ -593,13 +568,6 @@ typedef struct vws_tcp_svr
 
     /**< The peer timer */
     uv_timer_t* peer_timer;
-
-    /**< Queue of file descriptors awaiting injection into the loop */
-    vws_fd_queue fd_queue;
-
-    /**< Async handle that wakes the loop to drain fd_queue */
-    uv_async_t* fd_inject_async;
-
 } vws_tcp_svr;
 
 /**
@@ -677,6 +645,14 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port);
 bool vws_tcp_svr_is_running(vws_tcp_svr* server);
 
 /**
+ * @brief Checks if VRTQL server is halted
+ *
+ * @param server The server to run.
+ * @return true if halted, false otherwise
+ */
+bool vws_tcp_svr_is_halted(vws_tcp_svr* server);
+
+/**
  * @brief Starts a VRTQL server with a single open socket. This is designed to
  * be used with tcpserver.
  *
@@ -692,42 +668,6 @@ int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd);
  * @param server The server to stop.
  */
 void vws_tcp_svr_inetd_stop(vws_tcp_svr* server);
-
-/**
- * @brief Injects an already-connected file descriptor into a running server.
- *
- * This pushes the fd onto the server's injection queue and signals the libuv
- * loop. The network thread will drain the queue, adopt the fd into the loop
- * as a uv_pipe_t, and run it through the normal connection setup so that it
- * is treated like any other client. Suitable for any stream-oriented fd
- * (sockets from uv_socketpair(), Unix domain sockets, anonymous pipes, etc.).
- *
- * Safe to call from any thread. The server must be in VS_RUNNING state with
- * its loop running on a different thread than the caller.
- *
- * @param server The server.
- * @param fd     A connected, stream-oriented file descriptor. The server takes
- *               ownership on success.
- * @return 0 on success, -1 on failure (server not running).
- */
-int vws_tcp_svr_inject_fd(vws_tcp_svr* server, int fd);
-
-/**
- * @brief Establishes an in-process WebSocket connection to a running server.
- *
- * Creates a connected socket pair via uv_socketpair(), injects one end into
- * the server's loop, and wraps the other end as a vws_cnx client that has
- * already completed the WebSocket handshake. The server must be running in a
- * different thread; this call blocks the caller until the handshake completes.
- *
- * The returned client has frame masking disabled (server mode) since the
- * socketpair has no intermediate proxies that masking is meant to protect
- * against. This skips per-frame XOR and mask-key generation.
- *
- * @param server The running server to connect to.
- * @return A connected vws_cnx on success, NULL on failure.
- */
-vws_cnx* vws_pipe_connect(vws_tcp_svr* server);
 
 /**
  * @brief Check that peers are all online
@@ -810,10 +750,11 @@ void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p);
  *
  * @param s The server
  * @param p The peer to connect
+ * @param x The user-defined context
  *
  * @return Returns true if peer was connected, false otherwise.
  */
-bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer);
+bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer, void* x);
 
 /**
  * @brief Disconnect a peer
@@ -883,9 +824,23 @@ typedef int (*vws_svr_http_read)(vws_svr_cnx* c);
  *   returned, connection will be closed.
  */
 typedef bool (*vws_svr_process_http_req)( struct vws_svr* s,
-                                  vws_cid_t c,
-                                  vws_http_msg* msg,
-                                  void* x );
+                                          vws_cid_t c,
+                                          vws_http_msg* msg,
+                                          void* x );
+
+/**
+ * @brief Callback to process an internally queued request
+ * @param s The server
+ * @param c The connection ID
+ * @param d The user-defined data pointer
+ * @param l The user-defined data size in bytes
+ * @param x The user-defined context
+ */
+typedef void (*vws_svr_process_irq)( struct vws_svr* s,
+                                     vws_cid_t c,
+                                     void* d,
+                                     size_t l,
+                                     void* x );
 
 /**
  * @brief Callback invoked after a connection upgrades from HTTP to WebSocket.
@@ -920,6 +875,12 @@ typedef struct vws_svr
     /**< Callback function HTTP request (not websocket upgrade) */
     vws_svr_process_http_req process_http;
 
+    /**< Optional callback invoked after HTTP-to-WebSocket upgrade */
+    vws_svr_upgrade_cb on_upgrade;
+
+    /**< Callback function Internal request from network thread */
+    vws_svr_process_irq process_irq;
+
     /**< Function for processing an incoming message */
     vws_svr_process_msg on_msg_in;
 
@@ -931,9 +892,6 @@ typedef struct vws_svr
 
     /**< Derived: for sending messages to the client (calls on_msg_out()) */
     vws_svr_process_msg send;
-
-    /**< Optional callback invoked after HTTP-to-WebSocket upgrade */
-    vws_svr_upgrade_cb on_upgrade;
 
 } vws_svr;
 
@@ -955,6 +913,16 @@ vws_svr* vws_svr_new(int pool_size, int backlog, int queue_size);
  * @param s The server to free.
  */
 void vws_svr_free(vws_svr* s);
+
+/**
+ * @brief Queues data for internal processing by worker pool
+ * @param s The server
+ * @param c The connection ID
+ * @param d The user-defined data pointer
+ * @param l The user-defined data size in bytes
+ * @param x The user-defined context
+ */
+void vws_svr_send_irq(vws_svr* s, vws_cid_t cid, void* data, size_t size);
 
 /**
  * @brief Starts a WebSocket server.

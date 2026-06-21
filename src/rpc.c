@@ -38,7 +38,7 @@ char* vrtql_rpc_tag(uint16_t length)
 {
     char valid_chars[]  = "abcdefghijklmnopqrstuvwxyz0123456789";
     unsigned char* data = (unsigned char*)malloc(length);
-    unsigned char* tag  = (unsigned char*)malloc(length);
+    unsigned char* tag  = (unsigned char*)malloc(length + 1);  // C-RPC-6: +NUL
 
     if (RAND_bytes(data, length) != 1)
     {
@@ -54,6 +54,8 @@ char* vrtql_rpc_tag(uint16_t length)
         uint16_t c = data[cnt] % vc_len;
         tag[cnt]   = valid_chars[c];
     }
+
+    tag[length] = '\0';   // C-RPC-6: terminate so strlen(tag) (exec:174) is safe
 
     free(data);
 
@@ -76,7 +78,7 @@ bool vrtql_rpc_invoke(vrtql_rpc* rpc, vrtql_msg* req)
     }
 
     // If we received content
-    if (req->content->size > 0)
+    if (reply->content->size > 0)   // C-RPC-3: gate on the REPLY size, not req
     {
         // Copy it
         vws_buffer_append(rpc->val, reply->content->data, reply->content->size);
@@ -92,7 +94,9 @@ bool vrtql_rpc_invoke(vrtql_rpc* rpc, vrtql_msg* req)
     }
     else
     {
-        vws.e.code = atoi(rc);
+        // C-RPC-1: rc is NULL when a peer reply has no "c" header; atoi(NULL)
+        // would dereference NULL. Guard it.
+        vws.e.code = (rc != NULL) ? atoi(rc) : 0;
     }
 
     // Cleanup
@@ -252,7 +256,7 @@ void vrtql_rpc_free(vrtql_rpc* rpc)
 {
     if (rpc != NULL)
     {
-        vws_buffer_new(rpc->val);
+        vws_buffer_free(rpc->val);   // C-RPC-2: was vws_buffer_new (leaked val)
         vws.free(rpc);
     }
 }
@@ -303,7 +307,10 @@ vrtql_rpc_module* vrtql_rpc_module_new(cstr name)
 {
     if (name == NULL)
     {
+        // C-RPC-5: was setting the error but FALLING THROUGH to strdup(NULL)
+        // (strlen(NULL) crash). Return after the error.
         vws.error(VE_RT, "module name cannot be NULL");
+        return NULL;
     }
 
     vrtql_rpc_module* m;
@@ -404,6 +411,13 @@ bool parse_rpc_string(const char* input, char** module, char** function)
         // Calculate the lengths of the module and function substrings
         size_t m_len = delimiter - input;
         size_t f_len = strlen(input) - m_len - 1;
+
+        // Reject empty segments (".fn", "mod.", "."): a malformed id with no
+        // module or no function is invalid, not a valid-but-missing lookup.
+        if (m_len == 0 || f_len == 0)
+        {
+            return false;
+        }
 
         // Allocate memory for the module and function strings
         *module   = (char*)vws.malloc((m_len + 1) * sizeof(char));
@@ -561,16 +575,28 @@ void* sys_map_get(vrtql_rpc_map* map, cstr key)
 
 void sys_map_set(vrtql_rpc_map* map, cstr key, void* value)
 {
-    // See if we have an existing entry
-    sc_map_get_sv(map, key);
-
-    if (sc_map_found(map) == false)
+    // C-RPC-4: sc_map_put (via sc_map_assign) ALWAYS stores the key pointer it
+    // is handed. So we must always hand it a heap copy -- the old code only
+    // strdup'd on a NEW key, so an UPDATE of an existing key stored the caller's
+    // (possibly non-heap) pointer, which vrtql_rpc_module_free later vws.free()s
+    // -> invalid-pointer abort, while leaking the original strdup. Find the
+    // existing heap key (if any), store a fresh strdup, then free the old one.
+    cstr old = NULL;
+    cstr k;
+    sc_map_foreach_key(map, k)
     {
-        // We don't. Therefore we need to allocate new key.
-        key = strdup(key);
+        if (k != NULL && strcmp(k, key) == 0)
+        {
+            old = k;
+        }
     }
 
-    sc_map_put_sv(map, key, value);
+    sc_map_put_sv(map, strdup(key), value);
+
+    if (old != NULL)
+    {
+        vws.free(old);
+    }
 }
 
 void sys_map_clear(vrtql_rpc_map* map, cstr key, vrtql_rpc_map_free cb)

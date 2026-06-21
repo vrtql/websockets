@@ -3,6 +3,8 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <poll.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #endif
@@ -14,6 +16,7 @@
 #endif
 
 #include <assert.h>
+#include <errno.h>
 #include <string.h>
 
 #include <openssl/rand.h>
@@ -31,6 +34,49 @@ typedef enum
     CNX_SSL_INIT = (1 << 3),
 
 } socket_flags_t;
+
+#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+/* pthread_once guards the one-time SSL_library_init / SSL_CTX_new path
+ * in vws_socket_connect. Without this, concurrent first-time connects
+ * race on the global vws_ssl_ctx pointer (multiple SSL_CTX_new calls
+ * each overwriting the global; concurrent SSL_new readers may see a
+ * half-constructed or freed context -> segfault).
+ *
+ * Note: the existing vws_is_flag(&vws.state, CNX_SSL_INIT) check is
+ * useless for this purpose because `vws` is __thread (thread-local) —
+ * every thread observes the flag as unset on its first call. The flag
+ * is left in place for any code that reads it, but the actual init
+ * gate is pthread_once on a process-global state. */
+static pthread_once_t vws_ssl_init_once = PTHREAD_ONCE_INIT;
+
+static void vws_ssl_init_do(void)
+{
+    SSL_library_init();
+    RAND_poll();
+    SSL_load_error_strings();
+
+    vws_ssl_ctx = SSL_CTX_new(TLS_method());
+
+    if (vws_ssl_ctx == NULL)
+    {
+        return;
+    }
+
+    /* Require TLS 1.2+ */
+    SSL_CTX_set_min_proto_version(vws_ssl_ctx, TLS1_2_VERSION);
+
+    /* Load system trust store */
+    if (SSL_CTX_set_default_verify_paths(vws_ssl_ctx) != 1)
+    {
+        SSL_CTX_free(vws_ssl_ctx);
+        vws_ssl_ctx = NULL;
+        return;
+    }
+
+    /* Verify peer certs */
+    SSL_CTX_set_verify(vws_ssl_ctx, SSL_VERIFY_PEER, NULL);
+}
+#endif
 
 /**
  * @brief Connects to a host at a specific port and returns the connection
@@ -281,6 +327,20 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
 
     if (ssl == true)
     {
+#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+        /* pthread_once: exactly one thread runs vws_ssl_init_do across
+         * the entire process; all other concurrent first callers block
+         * until it completes; subsequent calls return immediately. */
+        pthread_once(&vws_ssl_init_once, vws_ssl_init_do);
+
+        if (vws_ssl_ctx == NULL)
+        {
+            vws.error(VE_SYS, "SSL init failed (vws_ssl_ctx is NULL)");
+            return false;
+        }
+#else
+        /* Non-POSIX path: keep the original (racy under threads) init.
+         * Windows/etc. callers should not concurrently first-init. */
         if (vws_is_flag(&vws.state, CNX_SSL_INIT) == false)
         {
             SSL_library_init();
@@ -295,19 +355,17 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
                 return false;
             }
 
-            /* Require TLS 1.2+ */
             SSL_CTX_set_min_proto_version(vws_ssl_ctx, TLS1_2_VERSION);
 
-            /* Load system trust store */
             if (SSL_CTX_set_default_verify_paths(vws_ssl_ctx) != 1)
             {
                 vws.error(VE_SYS, "SSL_CTX_set_default_verify_paths failed");
                 return false;
             }
 
-            /* Verify peer certs */
             SSL_CTX_set_verify(vws_ssl_ctx, SSL_VERIFY_PEER, NULL);
         }
+#endif
 
         c->ssl = SSL_new(vws_ssl_ctx);
 
@@ -354,9 +412,20 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
         #endif
         X509_VERIFY_PARAM_set1_host(param, host, 0);
 
-        if (SSL_connect(c->ssl) <= 0)
+        int ret = SSL_connect(c->ssl);
+
+        if (ret <= 0)
         {
-            vws.error(VE_SYS, "SSL connection failed");
+            char err_msg[128];
+            int ssl_err = SSL_get_error(c->ssl, ret);
+            snprintf( err_msg,
+                      sizeof(err_msg),
+                      "SSL_connect failed: %s (error %d)",
+                      ssl_err == SSL_ERROR_SYSCALL ? "System call" :
+                      ssl_err == SSL_ERROR_SSL ? "SSL protocol" : "Other",
+                      ssl_err );
+            vws.error(VE_SYS, err_msg);
+
             vws_socket_close(c);
             return false;
         }
@@ -412,16 +481,18 @@ ssize_t vws_socket_read(vws_socket* c)
     // Default success unless error
     vws.success();
 
-    if (vws_socket_is_connected(c) == false)
-    {
-        vws.error(VE_SOCKET, "vws_socket_read()");
-        return -1;
-    }
-
-    // Validate input parameters
+    // Validate input parameters (F-S1: the NULL guard MUST precede the
+    // is_connected() check, which dereferences nothing but returns false for
+    // NULL — leaving this block unreachable if it came second).
     if (c == NULL)
     {
         vws.error(VE_WARN, "Invalid parameters");
+        return -1;
+    }
+
+    if (vws_socket_is_connected(c) == false)
+    {
+        vws.error(VE_SOCKET, "vws_socket_read()");
         return -1;
     }
 
@@ -488,7 +559,7 @@ openssl_reread:
             int total = 0;
 
             // Drain all data from SSL buffer
-            while ((n = SSL_read(c->ssl, data, size)) > 0)
+            while ((n = ssl_read_nosigpipe(c->ssl, data, (int)size)) > 0)
             {
                 // Process received data stored in buf
                 total += n;
@@ -633,21 +704,141 @@ openssl_reread:
     return n;
 }
 
+// F-S2 / ga-fix (A) UNIFY: SSL_read and SSL_write both go via OpenSSL's socket
+// BIO, which calls write() WITHOUT MSG_NOSIGNAL (SSL_read writes during a
+// renegotiation), so a broken-pipe op raises SIGPIPE and -- under the default
+// disposition -- terminates the process. libvai is EMBEDDED, so we must NOT
+// change the process-wide signal disposition. Instead block SIGPIPE on THIS
+// thread for the duration of the op and drain a SIGPIPE we generated before
+// restoring the mask. Windows has no SIGPIPE, so the guards compile to a bare
+// SSL op. These are the SHARED guards: the sync Client (vws_socket_read/write)
+// AND the async reactor (async_read/async_write) route every SSL op through
+// them, so there are NO raw SSL_read/SSL_write on the SSL path (enforced by the
+// ssl_sigpipe_guard regression gate).
+
+ssize_t ssl_read_nosigpipe(SSL* ssl, ucstr data, int len)
+{
+#if !defined(__windows__)
+
+    sigset_t block, oldmask, pending;
+    sigemptyset(&block);
+    sigaddset(&block, SIGPIPE);
+
+    // Was a SIGPIPE already pending before our op? If the query fails, assume
+    // pending (conservative: never drain a signal we may not have generated).
+    int was_pending = 1;
+    if (sigpending(&pending) == 0)
+    {
+        was_pending = sigismember(&pending, SIGPIPE);
+    }
+
+    // Block SIGPIPE on THIS thread. If the mask call fails we did not block,
+    // so we must neither drain nor restore below.
+    int blocked = (pthread_sigmask(SIG_BLOCK, &block, &oldmask) == 0);
+
+#endif
+
+    ssize_t n = SSL_read(ssl, data, len);
+
+#if !defined(__windows__)
+
+    // Preserve the SSL op's errno across the sigmask/drain calls so the
+    // caller's SSL_get_error + errno (SYSCALL arm) classification holds.
+    int saved_errno = errno;
+
+    if (blocked)
+    {
+        if (n <= 0 && was_pending == 0)
+        {
+            if (sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE))
+            {
+                // Drain the SIGPIPE our op generated so it does not fire on
+                // restore (non-blocking: it is already pending).
+                struct timespec zero = { 0, 0 };
+                sigtimedwait(&block, NULL, &zero);
+            }
+        }
+
+        pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+    }
+
+    errno = saved_errno;
+
+#endif
+
+    return n;
+}
+
+ssize_t ssl_write_nosigpipe(SSL* ssl, const ucstr data, int len)
+{
+#if !defined(__windows__)
+
+    sigset_t block, oldmask, pending;
+    sigemptyset(&block);
+    sigaddset(&block, SIGPIPE);
+
+    // Was a SIGPIPE already pending before our op? If the query fails, assume
+    // pending (conservative: never drain a signal we may not have generated).
+    int was_pending = 1;
+    if (sigpending(&pending) == 0)
+    {
+        was_pending = sigismember(&pending, SIGPIPE);
+    }
+
+    // Block SIGPIPE on THIS thread. If the mask call fails we did not block,
+    // so we must neither drain nor restore below.
+    int blocked = (pthread_sigmask(SIG_BLOCK, &block, &oldmask) == 0);
+
+#endif
+
+    ssize_t n = SSL_write(ssl, data, len);
+
+#if !defined(__windows__)
+
+    // Preserve the SSL op's errno across the sigmask/drain calls so the
+    // caller's SSL_get_error + errno (SYSCALL arm) classification holds.
+    int saved_errno = errno;
+
+    if (blocked)
+    {
+        if (n <= 0 && was_pending == 0)
+        {
+            if (sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE))
+            {
+                // Drain the SIGPIPE our op generated so it does not fire on
+                // restore (non-blocking: it is already pending).
+                struct timespec zero = { 0, 0 };
+                sigtimedwait(&block, NULL, &zero);
+            }
+        }
+
+        pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+    }
+
+    errno = saved_errno;
+
+#endif
+
+    return n;
+}
+
 ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
 {
     // Default success unless error
     vws.success();
 
-    if (vws_socket_is_connected(c) == false)
-    {
-        vws.error(VE_SOCKET, "vws_socket_write()");
-        return -1;
-    }
-
-    // Validate input parameters
+    // Validate input parameters (F-S1: the NULL guard MUST precede the
+    // is_connected() check, which returns false for NULL — leaving this block
+    // unreachable if it came second).
     if (c == NULL || data == NULL || size == 0)
     {
         vws.error(VE_WARN, "Invalid parameters");
+        return -1;
+    }
+
+    if (vws_socket_is_connected(c) == false)
+    {
+        vws.error(VE_SOCKET, "vws_socket_write()");
         return -1;
     }
 
@@ -724,7 +915,9 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
             if (c->ssl != NULL)
             {
                 // SSL socket is writable, perform SSL_write() operation
-                n = SSL_write(c->ssl, data + sent, size - sent);
+                // (F-S2: SIGPIPE-guarded; see ssl_write_nosigpipe).
+                n = ssl_write_nosigpipe(c->ssl, data + sent,
+                                        (int)(size - sent));
 
                 if (n <= 0)
                 {
