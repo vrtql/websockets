@@ -10,6 +10,7 @@
 #endif
 
 #if defined(__windows__)
+#define WIN32_LEAN_AND_MEAN
 #define _WIN32_WINNT 0x0601  // Windows 7 or later
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -151,7 +152,11 @@ void vws_socket_dtor(vws_socket* s)
 
     if (s->sockfd >= 0)
     {
+        #if defined(__windows__)
+        closesocket(s->sockfd);
+        #else
         close(s->sockfd);
+        #endif
     }
 
     // Free connection
@@ -224,7 +229,7 @@ bool socket_set_timeout(int fd, int sec)
 
     #elif defined(__windows__)
 
-    if (fd == INVALID_SOCKET)
+    if (fd < 0)
     {
         vws.error(VE_RT, "Invalid socket descriptor");
         return false;
@@ -496,7 +501,11 @@ ssize_t vws_socket_read(vws_socket* c)
         return -1;
     }
 
+    #if defined(__windows__)
+    WSAPOLLFD fds;
+    #else
     struct pollfd fds;
+    #endif
     int poll_events = POLLIN;
 
 openssl_reread:
@@ -517,7 +526,6 @@ openssl_reread:
 
     #elif defined(__windows__)
 
-    WSAPOLLFD fds;
     fds.fd     = c->sockfd;
     fds.events = POLLIN;
 
@@ -1056,7 +1064,11 @@ void vws_socket_close(vws_socket* c)
         #endif
         {
             char buf[256];
+            #if defined(__windows__)
+            strerror_s(buf, sizeof(buf), errno);
+            #else
             strerror_r(errno, buf, sizeof(buf));
+            #endif
             vws.error(VE_WARN, "Socket close failed: %s", buf);
         }
         #if defined(__windows__)
@@ -1132,7 +1144,7 @@ int connect_to_host(const char* host, const char* port)
 
     WSADATA wsaData;
     struct addrinfo *result = NULL, *ptr = NULL, hints;
-    sockfd = INVALID_SOCKET;
+    sockfd = -1;
 
     // Initialize Winsock
     if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0)
@@ -1159,7 +1171,7 @@ int connect_to_host(const char* host, const char* port)
         // Create a SOCKET for connecting to server
         sockfd = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
 
-        if (sockfd == INVALID_SOCKET)
+        if (sockfd < 0)
         {
             char buf[256];
             int e = WSAGetLastError();
@@ -1174,7 +1186,7 @@ int connect_to_host(const char* host, const char* port)
         if (connect(sockfd, ptr->ai_addr, (int)ptr->ai_addrlen) == SOCKET_ERROR)
         {
             closesocket(sockfd);
-            sockfd = INVALID_SOCKET;
+            sockfd = -1;
             continue;
         }
 
@@ -1183,7 +1195,7 @@ int connect_to_host(const char* host, const char* port)
 
     freeaddrinfo(result);
 
-    if (sockfd == INVALID_SOCKET)
+    if (sockfd < 0)
     {
         vws.error(VE_SYS, "Unable to connect to host");
         WSACleanup();
