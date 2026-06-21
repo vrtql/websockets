@@ -8,6 +8,7 @@
 #endif
 
 #if defined(__windows__)
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
 
@@ -77,10 +78,12 @@ const log_level_info log_level_infos[VL_LEVEL_COUNT] =
     { ANSI_COLOR_RED,     "CRIT" }
 };
 
+#if !defined(__windows__)
 static void unlock_mutex(void* arg)
 {
     pthread_mutex_unlock((pthread_mutex_t*)arg);
 }
+#endif
 
 void vws_trace_lock()
 {

@@ -19,6 +19,7 @@ if (CMAKE_C_COMPILER_ID MATCHES "Clang")
 endif()
 
 include_directories(
+  ${CMAKE_CURRENT_BINARY_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/llhttp
   ${CMAKE_CURRENT_SOURCE_DIR}/mpack
