@@ -20,7 +20,7 @@ bool process(vws_svr* s, vws_cid_t cid, vws_http_msg* msg, void* ctx)
 
     cstr response = "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/plain\r\n"
-        "Content-Length: 12\r\n"
+        "Content-Length: 11\r\n"
         "\r\n"
         "Hello world";
 
