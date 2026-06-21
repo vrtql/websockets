@@ -18,6 +18,17 @@
 #    make
 #    make DESTDIR=/opt/mingw install
 #
+# 2b. Build libuv (only needed for BUILD_SERVER=1)
+#
+#    git clone --depth 1 --branch v1.40.0 \
+#        https://github.com/libuv/libuv.git
+#    cd libuv
+#    cmake -B build-mingw -G "Unix Makefiles" \
+#          -DCMAKE_TOOLCHAIN_FILE=<vws>/config/windows-toolchain.cmake \
+#          -DCMAKE_INSTALL_PREFIX=/opt/mingw/libuv \
+#          -DBUILD_TESTING=OFF -DLIBUV_BUILD_TESTS=OFF
+#    make -C build-mingw install
+#
 # 3. Invoke CMake
 #
 #   cmake -DCMAKE_TOOLCHAIN_FILE=config/windows-toolchain.cmake
@@ -31,8 +42,9 @@ set(CMAKE_CXX_COMPILER ${TOOLCHAIN_PREFIX}-g++)
 set(CMAKE_Fortran_COMPILER ${TOOLCHAIN_PREFIX}-gfortran)
 set(CMAKE_RC_COMPILER ${TOOLCHAIN_PREFIX}-windres)
 
-# Set to where you have it installed
-set(CMAKE_FIND_ROOT_PATH "/opt/mingw/openssl")
+# Set to where you have it installed. libuv is only required for
+# BUILD_SERVER=1; the openssl prefix alone suffices for the client core.
+set(CMAKE_FIND_ROOT_PATH "/opt/mingw/openssl" "/opt/mingw/libuv")
 
 # modify default behavior of FIND_XXX() commands
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

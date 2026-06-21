@@ -1395,13 +1395,15 @@ void vws_tcp_svr_stop(vws_tcp_svr* server)
 
     while (server->state != VS_HALTED)
     {
-        sleep(1);
+        // uv_sleep() is portable (POSIX sleep() is unavailable on Windows);
+        // 1000 ms matches the original sleep(1). This is a libuv TU already.
+        uv_sleep(1000);
     }
 }
 
-int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd)
+int vws_tcp_svr_inetd_run(vws_tcp_svr* server, vws_sockfd_t sockfd)
 {
-    if (sockfd < 0)
+    if (sockfd == VWS_INVALID_SOCKET)
     {
         vws.error(VE_RT, "Invalid server or socket descriptor provided");
         return 1;
@@ -1536,7 +1538,7 @@ void vws_tcp_svr_inetd_stop(vws_tcp_svr* server)
 
 bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
 {
-    int sockfd = -1;
+    vws_sockfd_t sockfd = VWS_INVALID_SOCKET;
 
     // Resolve the host
     struct addrinfo hints, *res, *res0;
@@ -1568,7 +1570,7 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
     {
         sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 
-        if (sockfd == -1)
+        if (sockfd == VWS_INVALID_SOCKET)
         {
             vws.error(VE_SYS, "Failed to create socket");
             continue;
@@ -1591,8 +1593,12 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
 
         if (connect(sockfd, res->ai_addr, res->ai_addrlen) == -1)
         {
+#if defined(__windows__)
+            closesocket(sockfd);
+#else
             close(sockfd);
-            sockfd = -1;
+#endif
+            sockfd = VWS_INVALID_SOCKET;
 
             vws.error(VE_SYS, "Failed to connect");
             continue;
@@ -1604,13 +1610,17 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
     // Free the addrinfo structure for this host
     freeaddrinfo(res0);
 
-    if (sockfd == -1)
+    if (sockfd == VWS_INVALID_SOCKET)
     {
         vws.error(VE_SYS, "Unable to resolve host %s:%lu", host, port);
         return false;
     }
 
+#if defined(__windows__)
+    closesocket(sockfd);
+#else
     close(sockfd);
+#endif
 
     return true;
 }
@@ -1620,8 +1630,8 @@ bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer, void* x)
     // Attempt reconnection
     peer->sockfd = peer->connect(peer, x);
 
-    // Successful it sockfd not -1
-    return (peer->sockfd != -1);
+    // Successful if sockfd is valid
+    return (peer->sockfd != VWS_INVALID_SOCKET);
 }
 
 void vws_tcp_svr_peer_disconnect(vws_tcp_svr* s, vws_peer* peer)
