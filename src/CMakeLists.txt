@@ -136,6 +136,12 @@ install( TARGETS shared_lib
   GROUP_READ GROUP_EXECUTE
   WORLD_READ WORLD_EXECUTE )
 
+# common.h is generated (configure_file) into the build dir, so it is NOT in the
+# ${HEADERS} source list above and would be missing from the install -- yet the
+# public vws.h #includes it. Install the generated copy so <vws/vws.h> compiles
+# against a clean install.
+install( FILES "${CMAKE_CURRENT_BINARY_DIR}/common.h" DESTINATION include/vws )
+
 install( DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/llhttp"
          DESTINATION "include/vws"
          FILES_MATCHING
