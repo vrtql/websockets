@@ -89,7 +89,7 @@ static void vws_ssl_init_do(void)
  *
  * @ingroup ConnectionFunctions
  */
-static int connect_to_host(const char* host, const char* port);
+static vws_sockfd_t connect_to_host(const char* host, const char* port);
 
 /**
  * @brief  Sets a timeout on a socket read/write operations.
@@ -100,7 +100,7 @@ static int connect_to_host(const char* host, const char* port);
  *
  * @ingroup SocketFunctions
  */
-static bool socket_set_timeout(int fd, int sec);
+static bool socket_set_timeout(vws_sockfd_t fd, int sec);
 
 /**
  * @brief Calls handler for unexpected socket closure.
@@ -121,7 +121,7 @@ vws_socket* vws_socket_new()
 
 vws_socket* vws_socket_ctor(vws_socket* s)
 {
-    s->sockfd     = -1;
+    s->sockfd     = VWS_INVALID_SOCKET;
     s->buffer     = vws_buffer_new();
     s->ssl        = NULL;
     s->timeout    = 10000;
@@ -150,7 +150,7 @@ void vws_socket_dtor(vws_socket* s)
     // Free receive buffer
     vws_buffer_free(s->buffer);
 
-    if (s->sockfd >= 0)
+    if (s->sockfd != VWS_INVALID_SOCKET)
     {
         #if defined(__windows__)
         closesocket(s->sockfd);
@@ -192,11 +192,11 @@ bool vws_socket_set_timeout(vws_socket* s, int sec)
     return true;
 }
 
-bool socket_set_timeout(int fd, int sec)
+bool socket_set_timeout(vws_sockfd_t fd, int sec)
 {
     #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
-    if (fd < 0)
+    if (fd == VWS_INVALID_SOCKET)
     {
         vws.error(VE_RT, "Invalid socket descriptor");
         return false;
@@ -229,7 +229,7 @@ bool socket_set_timeout(int fd, int sec)
 
     #elif defined(__windows__)
 
-    if (fd < 0)
+    if (fd == VWS_INVALID_SOCKET)
     {
         vws.error(VE_RT, "Invalid socket descriptor");
         return false;
@@ -269,7 +269,7 @@ bool socket_set_timeout(int fd, int sec)
     return true;
 }
 
-bool vws_socket_set_nonblocking(int sockfd)
+bool vws_socket_set_nonblocking(vws_sockfd_t sockfd)
 {
     #if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
@@ -315,7 +315,7 @@ bool vws_socket_is_connected(vws_socket* c)
         return false;
     }
 
-    return c->sockfd > -1;
+    return c->sockfd != VWS_INVALID_SOCKET;
 }
 
 bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
@@ -388,7 +388,7 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
     sprintf(port_str, "%d", port);
     c->sockfd = connect_to_host(host, port_str);
 
-    if (c->sockfd < 0)
+    if (c->sockfd == VWS_INVALID_SOCKET)
     {
         vws.error(VE_SYS, "Connection failed");
         vws_socket_close(c);
@@ -1055,7 +1055,7 @@ void vws_socket_close(vws_socket* c)
         c->ssl = NULL;
     }
 
-    if (c->sockfd >= 0)
+    if (c->sockfd != VWS_INVALID_SOCKET)
     {
         #if defined(__windows__)
         if (closesocket(c->sockfd) == SOCKET_ERROR)
@@ -1075,13 +1075,13 @@ void vws_socket_close(vws_socket* c)
         WSACleanup();
         #endif
 
-        c->sockfd = -1;
+        c->sockfd = VWS_INVALID_SOCKET;
     }
 }
 
-int connect_to_host(const char* host, const char* port)
+vws_sockfd_t connect_to_host(const char* host, const char* port)
 {
-    int sockfd = -1;
+    vws_sockfd_t sockfd = VWS_INVALID_SOCKET;
 
     if (vws.tracelevel >= VT_SERVICE)
     {
@@ -1110,14 +1110,14 @@ int connect_to_host(const char* host, const char* port)
 
         vws.error(VE_SYS, "getaddrinfo() failed");
 
-        return -1;
+        return VWS_INVALID_SOCKET;
     }
 
     for (res = res0; res; res = res->ai_next)
     {
         sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 
-        if (sockfd == -1)
+        if (sockfd == VWS_INVALID_SOCKET)
         {
             vws.error(VE_SYS, "Failed to create socket");
             continue;
@@ -1126,7 +1126,7 @@ int connect_to_host(const char* host, const char* port)
         if (connect(sockfd, res->ai_addr, res->ai_addrlen) == -1)
         {
             close(sockfd);
-            sockfd = -1;
+            sockfd = VWS_INVALID_SOCKET;
 
             vws.error(VE_SYS, "Failed to connect");
             continue;
@@ -1144,13 +1144,13 @@ int connect_to_host(const char* host, const char* port)
 
     WSADATA wsaData;
     struct addrinfo *result = NULL, *ptr = NULL, hints;
-    sockfd = -1;
+    sockfd = VWS_INVALID_SOCKET;
 
     // Initialize Winsock
     if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0)
     {
         vws.error(VE_SYS, "WSAStartup failed");
-        return -1;
+        return VWS_INVALID_SOCKET;
     }
 
     ZeroMemory(&hints, sizeof(hints));
@@ -1162,7 +1162,7 @@ int connect_to_host(const char* host, const char* port)
     if (getaddrinfo(host, port, &hints, &result) != 0)
     {
         vws.error(VE_SYS, "getaddrinfo failed\n");
-        return -1;
+        return VWS_INVALID_SOCKET;
     }
 
     // Attempt to connect to an address until one succeeds
@@ -1171,7 +1171,7 @@ int connect_to_host(const char* host, const char* port)
         // Create a SOCKET for connecting to server
         sockfd = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
 
-        if (sockfd < 0)
+        if (sockfd == VWS_INVALID_SOCKET)
         {
             char buf[256];
             int e = WSAGetLastError();
@@ -1179,14 +1179,14 @@ int connect_to_host(const char* host, const char* port)
             vws.error(VE_RT, buf);
 
             WSACleanup();
-            return -1;
+            return VWS_INVALID_SOCKET;
         }
 
         // Connect to server.
         if (connect(sockfd, ptr->ai_addr, (int)ptr->ai_addrlen) == SOCKET_ERROR)
         {
             closesocket(sockfd);
-            sockfd = -1;
+            sockfd = VWS_INVALID_SOCKET;
             continue;
         }
 
@@ -1195,11 +1195,11 @@ int connect_to_host(const char* host, const char* port)
 
     freeaddrinfo(result);
 
-    if (sockfd < 0)
+    if (sockfd == VWS_INVALID_SOCKET)
     {
         vws.error(VE_SYS, "Unable to connect to host");
         WSACleanup();
-        return -1;
+        return VWS_INVALID_SOCKET;
     }
 
     #else
