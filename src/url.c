@@ -60,8 +60,13 @@ get_part (const char* url, const char *format, int l) {
   char *fmt_url = strdup(url);
   char *ret = NULL;
 
-  if (!tmp || !tmp_url || !fmt_url)
+  if (!tmp || !tmp_url || !fmt_url) {
+    // C-URL-9: free the strdups that DID succeed before the early return.
+    free(tmp);
+    free(tmp_url);
+    free(fmt_url);
     return NULL;
+  }
 
   strcpy(tmp, "");
   strcpy(fmt_url, "");
@@ -70,7 +75,13 @@ get_part (const char* url, const char *format, int l) {
   // of characters in the `prototcol` char
   // plus 3 characters that represent the `://`
   // part of the url
-  char* fmt_url_new = strff(fmt_url, l);
+  // Bound the advance by the original length. fmt_url is strdup(url) with a NUL
+  // forced at [0] (the rest still holds the url bytes), so strff intentionally
+  // reads past that internal NUL -- but advancing MORE than strlen(url) walks
+  // off the end of the buffer (a 1-byte over-read). Valid offsets are always
+  // < strlen(url), so clamping changes nothing for them.
+  int adv = ((size_t)l > strlen(url)) ? (int)strlen(url) : l;
+  char* fmt_url_new = strff(fmt_url, adv);
   free(fmt_url);
   fmt_url = fmt_url_new;
 
@@ -129,13 +140,18 @@ url_parse (char* url) {
   data->hostname = hostname;
 
   char *host = (char *) malloc((strlen(tmp_hostname)+1));
-  sscanf(tmp_hostname, "%[^:]", host);
-  free(tmp_hostname);
   if (!host) {
+    // C-URL-8: check the malloc BEFORE sscanf writes through host (was a
+    // use-before-check: on OOM the sscanf at the old :132 dereferenced NULL,
+    // which made this !host cleanup dead-because-of-the-bug). Reordered; free
+    // tmp_hostname on this path too.
+    free(tmp_hostname);
     free(tmp_url);
     url_free(data);
     return NULL;
   }
+  sscanf(tmp_hostname, "%[^:]", host);
+  free(tmp_hostname);
   data->host = host;
 
   const size_t host_len = strlen(host);
@@ -151,6 +167,9 @@ url_parse (char* url) {
 
   char *path = (char *) malloc((strlen(tmp_path) + 2));
   if (!path) {
+    // C-URL-10: the !path cleanup leaked tmp_path (the get_part result). Free
+    // it here, matching the symmetric cleanups elsewhere in url_parse.
+    free(tmp_path);
     free(tmp_url);
     url_free(data);
     return NULL;
@@ -245,10 +264,10 @@ char *
 url_get_hostname (const char* url) {
   size_t l = 3;
   char *protocol = url_get_protocol(url);
+  if (!protocol) return NULL;
   char *tmp_protocol = strdup(protocol);
   char *auth = url_get_auth(url);
 
-  if (!protocol) return NULL;
   if (auth) {
     l += strlen(auth) + 1; // add one @ symbol
     free(auth);
@@ -367,7 +386,10 @@ url_get_hash (const char* url) {
   char *search = url_get_search(url);
 
   const size_t pathname_len = strlen(pathname);
-  const size_t search_len   = strlen(search);
+  // C-URL-1: url_get_search returns NULL when there is no search component
+  // (e.g. "ws://host/path"); strlen(NULL) crashed. Guard it (free(search)
+  // below is already NULL-safe).
+  const size_t search_len   = search ? strlen(search) : 0;
   char *tmp_path = strff(path, pathname_len + search_len);
 
   char* hash = NULL;
@@ -386,7 +408,13 @@ url_get_port (const char* url) {
   char *port = NULL;
   char *hostname = url_get_hostname(url);
   char *host = url_get_host(url);
-  if (!hostname) return NULL;
+  // The old `if (!hostname) return NULL;` leaked host, and strlen(host) below
+  // dereferenced NULL when url_get_host returned NULL. Guard both + free both.
+  if (!hostname || !host) {
+    free(hostname);
+    free(host);
+    return NULL;
+  }
 
   sscanf(hostname + strlen(host) + 1, "%ms", &port);
   free(hostname);
@@ -396,7 +424,12 @@ url_get_port (const char* url) {
 
 void
 url_inspect (char* url) {
-  url_data_inspect(url_parse(url));
+  // url_inspect leaked the parsed struct by construction (url_data_inspect
+  // only prints). Keep the public helper (defer any delete to the canonical
+  // upstream merge) but free what we parse.
+  url_data_t* data = url_parse(url);
+  url_data_inspect(data);
+  url_free(data);
 }
 
 
