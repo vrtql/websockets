@@ -2,7 +2,21 @@
 #define VRTQL_SVR_DECLARE
 
 #include <uv.h>
+
+/*
+ * C11 atomics in the public struct layout. server.c (C) sees `_Atomic T`; this
+ * header is also included by C++ TUs (e.g. a broker's mq.cpp), where `_Atomic`
+ * is not a keyword and <stdatomic.h> does not compile -- so present std::atomic<T>
+ * there. The two are layout-compatible for these integral T on the supported
+ * toolchains, so the C/C++ views of these structs agree within one binary.
+ */
+#if defined(__cplusplus)
+#include <atomic>
+#define VWS_ATOMIC(T) ::std::atomic<T>
+#else
 #include <stdatomic.h>
+#define VWS_ATOMIC(T) _Atomic T
+#endif
 
 #include "vws.h"
 #include "message.h"
@@ -292,7 +306,7 @@ typedef struct
      * free (svr_on_write_complete) cannot race the worker's post-hand-off
      * read. Every holder releases via vws_svr_data_free; the object is freed
      * only when the count reaches 0. */
-    _Atomic int refs;
+    VWS_ATOMIC(int) refs;
 
 } vws_svr_data;
 
@@ -324,7 +338,7 @@ typedef struct
     uv_cond_t cond;
 
     /**< Current state of the queue */
-    _Atomic uint8_t state;
+    VWS_ATOMIC(uint8_t) state;
 
     /**< Queue name */
     cstr name;
@@ -483,7 +497,7 @@ typedef enum
 typedef struct vws_tcp_svr
 {
     /**< Current state of the server */
-    _Atomic uint8_t state;
+    VWS_ATOMIC(uint8_t) state;
 
     /**< Asynchronous handle for event-based programming */
     uv_async_t* wakeup;

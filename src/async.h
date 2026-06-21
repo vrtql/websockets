@@ -1,7 +1,19 @@
 #ifndef VWS_ASYNC_DECLARE
 #define VWS_ASYNC_DECLARE
 
+/*
+ * C11 atomics in a struct that a C++ TU may include (the parked Channel wrapper
+ * over the reactor). `_Atomic`/atomic_bool/<stdatomic.h> are C-only; present
+ * std::atomic<T> to C++. Layout-compatible for these integral T on the supported
+ * toolchains. See server.h for the same shim.
+ */
+#if defined(__cplusplus)
+#include <atomic>
+#define VWS_ATOMIC(T) ::std::atomic<T>
+#else
 #include <stdatomic.h>
+#define VWS_ATOMIC(T) _Atomic T
+#endif
 
 #include "socket.h"
 #include "websocket.h"
@@ -101,11 +113,11 @@ typedef struct vws_async
     /**< Reactor wants inbound (POLLIN); cleared by vws_socket_pause_read for
          read-backpressure, re-armed by vws_socket_want_read. Atomic: written
          cross-thread by vws_socket_want_read (relaxed; the wake orders it). */
-    atomic_bool read_armed;
+    VWS_ATOMIC(bool) read_armed;
 
     /**< User out-buffer has data (POLLOUT interest); set cross-thread by
          vws_socket_want_write. Atomic (relaxed; the wake orders it). */
-    atomic_bool write_armed;
+    VWS_ATOMIC(bool) write_armed;
 
     /**< Attached + live (cleared on disconnect; stops re-arming/handlers). */
     bool live;
