@@ -62,6 +62,30 @@ foreach(x ${test_targets})
   add_dependencies(${x} static_lib)
 endforeach(x)
 
+# rpc.c coverage. test_rpc_cov.c #includes rpc.c (statics + isolated coverage);
+# the #included symbols shadow static_lib's rpc.o. The network is removed by
+# --wrap on the message layer (vrtql_msg_send/recv + vws_reconnect) so
+# exec/invoke/dispatch run deterministically.
+add_executable(test_rpc_cov test_rpc_cov.c)
+target_include_directories(test_rpc_cov PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_link_options(test_rpc_cov PRIVATE
+  -Wl,--wrap=RAND_bytes -Wl,--wrap=vrtql_msg_send
+  -Wl,--wrap=vrtql_msg_recv -Wl,--wrap=vws_reconnect)
+target_link_libraries(test_rpc_cov PRIVATE
+  static_test_lib static_lib ${OS_LIBS} -lm)
+
+if(WIN32)
+  target_link_libraries(test_rpc_cov PRIVATE ws2_32)
+endif()
+
+add_test(NAME test_rpc_cov COMMAND test_rpc_cov)
+
+add_custom_target(test_rpc_cov_leakcheck
+  COMMAND valgrind --leak-check=full --show-reachable=yes
+          --suppressions=valgrind.suppress ./test_rpc_cov )
+add_dependencies(test_rpc_cov static_test_lib static_lib)
+
 # client/server test programs
 set(test_utils client server)
 
