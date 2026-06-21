@@ -4,6 +4,19 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#if defined(__windows__)
+// winsock2.h must be included before any windows.h (which OpenSSL pulls in
+// transitively on Windows). If the legacy winsock.h were to win that race the
+// SOCKET / INVALID_SOCKET definitions used below would clash. Including it
+// here, at the top of the struct's defining header, makes every translation
+// unit that sees vws_socket see the native handle type regardless of its own
+// include order.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#endif
+
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/crypto.h>
@@ -14,6 +27,25 @@
 
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+/**
+ * @brief Portable socket-handle type.
+ *
+ * On Win64 a socket handle is a SOCKET (UINT_PTR, 64-bit unsigned). Storing it
+ * in an int truncates the upper 32 bits, and the INVALID_SOCKET sentinel (all
+ * ones) only compares as < 0 by accident of that truncation -- once the handle
+ * is carried as a real SOCKET, < 0 is always false and every socket error is
+ * silently missed. Carrying the native handle type and testing against
+ * VWS_INVALID_SOCKET keeps the validity check correct on Win64 while remaining
+ * a plain int file descriptor on POSIX (behavior-identical there).
+ */
+#if defined(__windows__)
+typedef SOCKET vws_sockfd_t;
+#define VWS_INVALID_SOCKET INVALID_SOCKET
+#else
+typedef int vws_sockfd_t;
+#define VWS_INVALID_SOCKET (-1)
 #endif
 
 struct vws_socket;
@@ -47,8 +79,8 @@ typedef void (*vws_socket_dh)(struct vws_socket* s);
  */
 typedef struct vws_socket
 {
-    /**< The socket file descriptor. */
-    int sockfd;
+    /**< The socket handle. SOCKET on Win64, int fd on POSIX. */
+    vws_sockfd_t sockfd;
 
     /**< The SSL connection instance. */
     SSL* ssl;
@@ -148,12 +180,12 @@ bool vws_socket_set_timeout(vws_socket* s, int sec);
 /**
  * @brief Sets a socket to non-blocking mode.
  *
- * @param sockfd The socket file descriptor.
+ * @param sockfd The socket handle.
  * @return True if successful, false otherwise.
  *
  * @ingroup SocketFunctions
  */
-bool vws_socket_set_nonblocking(int sockfd);
+bool vws_socket_set_nonblocking(vws_sockfd_t sockfd);
 
 /**
  * @brief Closes the connection to the host.
