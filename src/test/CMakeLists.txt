@@ -62,6 +62,29 @@ foreach(x ${test_targets})
   add_dependencies(${x} static_lib)
 endforeach(x)
 
+# http_message.c coverage. test_http_message.c #includes http_message.c (reaches
+# the static callbacks + process_header/lcase + isolates coverage); the #included
+# symbols shadow static_lib's http_message.o (never pulled). One-shot
+# --wrap=llhttp_execute forces the abnormal-pause arm (a real WS upgrade does not
+# reliably produce it).
+add_executable(test_http_message test_http_message.c)
+target_include_directories(test_http_message PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_link_options(test_http_message PRIVATE -Wl,--wrap=llhttp_execute)
+target_link_libraries(test_http_message PRIVATE
+  static_test_lib static_lib ${OS_LIBS} -lm)
+
+if(WIN32)
+  target_link_libraries(test_http_message PRIVATE ws2_32)
+endif()
+
+add_test(NAME test_http_message COMMAND test_http_message)
+
+add_custom_target(test_http_message_leakcheck
+  COMMAND valgrind --leak-check=full --show-reachable=yes
+          --suppressions=valgrind.suppress ./test_http_message )
+add_dependencies(test_http_message static_test_lib static_lib)
+
 # client/server test programs
 set(test_utils client server)
 
