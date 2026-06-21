@@ -62,6 +62,26 @@ foreach(x ${test_targets})
   add_dependencies(${x} static_lib)
 endforeach(x)
 
+# url.c coverage. test_url.c #includes url.c directly (reaches the static helpers
+# + isolates coverage to url.c), so it must NOT link static_lib -- that would
+# duplicate url's symbols. url.c is self-contained (pure libc). One-shot ld
+# --wrap on malloc/calloc drives the allocation-failure arms.
+add_executable(test_url test_url.c)
+target_include_directories(test_url PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_link_options(test_url PRIVATE -Wl,--wrap=malloc -Wl,--wrap=calloc)
+target_link_libraries(test_url PRIVATE ${OS_LIBS} -lm)
+
+if(WIN32)
+  target_link_libraries(test_url PRIVATE ws2_32)
+endif()
+
+add_test(NAME test_url COMMAND test_url)
+
+add_custom_target(test_url_leakcheck
+  COMMAND valgrind --leak-check=full --show-reachable=yes
+          --suppressions=valgrind.suppress ./test_url )
+
 # client/server test programs
 set(test_utils client server)
 
