@@ -299,31 +299,6 @@ bool vws_connect(vws_cnx* c, cstr uri);
 bool vws_reconnect(vws_cnx* c);
 
 /**
- * @brief Initializes a WebSocket connection from an already-connected fd.
- *
- * Adopts the fd as the connection's socket and runs the standard client
- * handshake. Intended for in-process transports (socketpair, pipes) where
- * TCP connect and DNS resolution should be bypassed. SSL is not used on the
- * injected fd.
- *
- * The fd is placed in O_NONBLOCK mode internally so the existing poll()-based
- * read/write loops can drive it -- this is the same setup vws_connect() does
- * after a TCP connect. The client API itself remains synchronous: subsequent
- * vws_msg_send/vws_msg_recv calls block (with the configured timeout) just
- * like any other vws client.
- *
- * On success, the connection takes ownership of the fd and will close it on
- * vws_disconnect()/vws_cnx_free().
- *
- * @param c  The websocket connection (allocated via vws_cnx_new()).
- * @param fd A connected, stream-oriented file descriptor.
- * @return true on successful handshake, false otherwise.
- *
- * @ingroup ConnectionFunctions
- */
-bool vws_cnx_from_fd(vws_cnx* c, int fd);
-
-/**
  * @brief Closes the connection to the host.
  *
  * @param c The websocket connection.
@@ -342,6 +317,19 @@ void vws_disconnect(vws_cnx* c);
 vws_cnx* vws_cnx_new();
 
 /**
+ * @brief Constructs a websocket connection IN PLACE (no allocation), mirroring
+ *        vws_socket_ctor. Lets an embedding type (e.g. async vws_acnx, which
+ *        embeds vws_cnx as its first member) init the connection without a
+ *        separate heap object. vws_cnx_new is alloc + this.
+ *
+ * @param c The connection storage to construct.
+ * @return The same pointer, constructed.
+ *
+ * @ingroup ConnectionFunctions
+ */
+vws_cnx* vws_cnx_ctor(vws_cnx* c);
+
+/**
  * @brief Deallocates a websocket connection.
  *
  * @param c The websocket connection.
@@ -349,6 +337,17 @@ vws_cnx* vws_cnx_new();
  * @ingroup ConnectionFunctions
  */
 void vws_cnx_free(vws_cnx* c);
+
+/**
+ * @brief Destructs a websocket connection IN PLACE (frees its internals but NOT
+ *        the connection object itself), mirroring the ctor for embedding. The
+ *        symmetric teardown for vws_cnx_ctor; vws_cnx_free is this + the free.
+ *
+ * @param c The websocket connection.
+ *
+ * @ingroup ConnectionFunctions
+ */
+void vws_cnx_dtor(vws_cnx* c);
 
 /**
  * @brief Checks connection state

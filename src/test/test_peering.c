@@ -66,7 +66,7 @@ void peer_thread(void* arg)
     vws_cleanup();
 }
 
-int peer_connect(vws_peer* p)
+int peer_connect(vws_peer* p, void* x)
 {
     vws.trace(VL_INFO, "peer_connect()");
 

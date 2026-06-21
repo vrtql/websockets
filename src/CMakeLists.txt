@@ -35,14 +35,6 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
   list(APPEND OS_LIBS socket)
 endif()
 
-if(BDB_VERSION_MAJOR)
-  if(BDB_VERSION_MAJOR GREATER_EQUAL 6)
-    set(BDB_DEFINITIONS "-DBDB_VERSION=6")
-  elseif(BDB_VERSION_MAJOR GREATER_EQUAL 5)
-    set(BDB_DEFINITIONS "-DBDB_VERSION=5")
-  endif()
-endif()
-
 #-------------------------------------------------------------------------------
 # Source Targets
 #-------------------------------------------------------------------------------
@@ -52,6 +44,7 @@ file(GLOB mpack_files mpack/*.c)
 file(GLOB util_files util/*.c)
 
 set(core_sources
+  async.c
   http_message.c
   message.c
   rpc.c
@@ -81,6 +74,21 @@ endif()
 if(ASAN)
   add_definitions(-fsanitize=address -g -O1)
   list(APPEND OS_LIBS asan)
+endif()
+
+# Thread Sanitizer (repeatable TSan gate). Mirrors the ASAN option above: a
+# top-of-subdir toggle so the flag PROPAGATES to every target defined below in
+# this directory AND the test/ subdirectory (added after this point). Using
+# add_compile_options + add_link_options (not add_definitions) so both the
+# compile and link carry -fsanitize=thread, and so toggling VWS_TSAN=OFF on a
+# reconfigure removes the flag cleanly with NO residual in this (single, shared)
+# cache -- the subdir has no separate cache of its own.
+option(VWS_TSAN "Build vws + tests with ThreadSanitizer" OFF)
+
+if(VWS_TSAN)
+  message(STATUS "VWS_TSAN=ON -- instrumenting vws + tests with -fsanitize=thread")
+  add_compile_options(-fsanitize=thread -g)
+  add_link_options(-fsanitize=thread)
 endif()
 
 #-------------------------------------------------------------------------------

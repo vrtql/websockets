@@ -113,7 +113,7 @@ uint64_t vws_http_msg_errno(vws_http_msg* m);
  * @param m Pointer to the HTTP message.
  * @return The status code as an 8-bit unsigned integer.
  */
-uint8_t vws_http_msg_status_code(vws_http_msg* m);
+int vws_http_msg_status_code(vws_http_msg* m);
 
 /**
  * @brief Get the status string of the HTTP message.

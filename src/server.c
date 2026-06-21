@@ -155,27 +155,6 @@ void address_pool_remove(address_pool* pool, int64_t i)
 static void uv_thread(uv_async_t* handle);
 
 /**
- * @brief Initializes a fd injection queue.
- */
-static void fd_queue_init(vws_fd_queue* q);
-
-/**
- * @brief Destroys a fd injection queue, closing any pending fds.
- */
-static void fd_queue_destroy(vws_fd_queue* q);
-
-/**
- * @brief UV async callback that drains the server's fd injection queue.
- *
- * Runs on the network thread when vws_tcp_svr_inject_fd() signals the
- * server->fd_inject_async handle. Pops every queued fd and adopts it into
- * the loop as a uv_pipe_t.
- *
- * @param handle The async handle that triggered the callback.
- */
-static void on_fd_inject(uv_async_t* handle);
-
-/**
  * @brief The entry point for a worker thread.
  *
  * This function implements the worker thread pool. It is what each worker
@@ -392,6 +371,19 @@ static void svr_cnx_close(vws_tcp_svr* server, vws_cid_t c);
  * @ingroup ServerFunctions
  */
 static void svr_client_connect(vws_svr_cnx* c);
+
+/**
+ * @brief Callback for inetd initial connection.
+ *
+ * This function is triggered when the first client connection is
+ * established. This callback is so that the main client socket can be collected
+ * and identified for use in the application.
+ *
+ * @param c The connection structure representing the client that has connected.
+ *
+ * @ingroup ServerFunctions
+ */
+static void svr_client_inetd_connect(vws_svr_cnx* c);
 
 /**
  * @brief Callback for client disconnection.
@@ -679,62 +671,6 @@ static void msg_svr_client_process(vws_svr* s, vws_cid_t c, vrtql_msg* m, void* 
 
 
 /**
- * @defgroup ConnectionMap
- *
- * @brief Functions that provide access to the connection map
- *
- * The connection map tracks all active connections. These functions simplify
- * the map API and include memory management and other server-specific
- * functionality where appropriate.
- *
- * @ingroup ConnectionMap
- */
-
-/**
- * @brief Get the connection corresponding to a client from the connection map.
- *
- * @param map The connection map.
- * @param key The client (used as key in the map).
- * @return The corresponding server connection.
- *
- * @ingroup ConnectionMap
- */
-static vws_svr_cnx* svr_cnx_map_get(vws_svr_cnx_map* map, uv_stream_t* key);
-
-/**
- * @brief Set a connection for a client in the connection map.
- *
- * @param map The connection map.
- * @param key The client (used as key in the map).
- * @param value The server connection.
- * @return Success or failure status.
- *
- * @ingroup ConnectionMap
- */
-static int8_t svr_cnx_map_set( vws_svr_cnx_map* map,
-                               uv_stream_t* key,
-                               vws_svr_cnx* value );
-
-/**
- * @brief Remove a client's connection from the connection map.
- *
- * @param map The connection map.
- * @param key The client (used as key in the map).
- *
- * @ingroup ConnectionMap
- */
-static void svr_cnx_map_remove(vws_svr_cnx_map* map, uv_stream_t* key);
-
-/**
- * @brief Clear all connections from the connection map.
- *
- * @param map The connection map.
- *
- * @ingroup ConnectionMap
- */
-static void svr_cnx_map_clear(vws_svr_cnx_map* map);
-
-/**
  * @defgroup QueueGroup
  *
  * @brief Queue functions which bridge the network thread and workers
@@ -929,6 +865,12 @@ void worker_thread(void* arg)
     {
         ctx.dtor(ctx.data);
     }
+
+    // C-SVR-6: release this worker thread's thread-local error state before it
+    // exits. vws.e.text is __thread storage; left set, its last strdup'd message
+    // is definitely lost when the thread is joined. Touches only thread-local
+    // state (not the global SSL ctx), so siblings are unaffected.
+    vws_cleanup();
 }
 
 void vws_tcp_svr_uv_close(vws_tcp_svr* server, uv_handle_t* handle)
@@ -941,7 +883,10 @@ void uv_thread(uv_async_t* handle)
     vws_cinfo* cinfo    = (vws_cinfo*)handle->data;
     vws_tcp_svr* server = cinfo->server;
 
-    vws.trace(VL_INFO, "uv_thread()");
+    if (vws.tracelevel >= VT_THREAD)
+    {
+        vws.trace(VL_INFO, "uv_thread()");
+    }
 
     if (server->state == VS_HALTING)
     {
@@ -1002,7 +947,6 @@ void uv_thread(uv_async_t* handle)
     }
 
     // Check for closed peer connections.
-    int pending_peers = 0;
     for (size_t i = 0; i < server->peers->used; i++)
     {
         vws_peer* peer = (vws_peer*)server->peers->array[i].value.data;
@@ -1156,16 +1100,30 @@ vws_svr_data* vws_svr_data_own(vws_tcp_svr* s, vws_cid_t cid, ucstr data, size_t
     item->data   = data;
     item->flags  = 0;
 
+    // Born with the creator's single reference. Every vws_svr_data is created
+    // through this function, so this is the one place the count is initialized.
+    atomic_init(&item->refs, 1);
+
     return item;
 }
 
 void vws_svr_data_free(vws_svr_data* t)
 {
-    if (t != NULL)
+    if (t == NULL)
     {
-        vws.free(t->data);
-        vws.free(t);
+        return;
     }
+
+    // Release this holder's reference; only the holder that drops the count to
+    // zero performs the actual free. atomic_fetch_sub returns the PRE-decrement
+    // value, so a return of 1 means we were the last reference.
+    if (atomic_fetch_sub(&t->refs, 1) != 1)
+    {
+        return;
+    }
+
+    vws.free(t->data);
+    vws.free(t);
 }
 
 vws_tcp_svr* vws_tcp_svr_new(int num_threads, int backlog, int queue_size)
@@ -1231,10 +1189,26 @@ bool vws_tcp_svr_peers_online(vws_tcp_svr* server)
 
 int vws_tcp_svr_send(vws_svr_data* data)
 {
+    // Take the loop's reference BEFORE the data becomes visible to the loop.
+    // This point DOMINATES the race window: the instant queue_push hands the
+    // data to the responses queue, the loop can pop it, write it, and free it
+    // (svr_on_write_complete) concurrently. Acquiring the ref here -- while the
+    // worker still exclusively holds the data -- guarantees the count is >= 1
+    // through our own uv_async_send read below, so the loop's free cannot pull
+    // the object out from under us. (Acquiring it AFTER the push, e.g. inside
+    // uv_async_send, would itself race the free -- the same UAF, just moved.)
+    atomic_fetch_add(&data->refs, 1);
+
     queue_push(&data->server->responses, data);
 
-    // Notify event loop about the new response
+    // Notify event loop about the new response. This is the worker's LAST read
+    // of data; it is safe because the ref taken above keeps the object alive.
     uv_async_send(data->server->wakeup);
+
+    // Drop the worker's reference now that its last read is done. If the loop
+    // already consumed and released its ref, this drops the count to 0 and
+    // frees; otherwise the loop's svr_on_write_complete will free at 0.
+    vws_svr_data_free(data);
 
     return 0;
 }
@@ -1364,12 +1338,29 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     // Set state to halted
     server->state = VS_HALTED;
 
+    // C-SVR-6: release the network thread's thread-local error state. svr_on_connect
+    // and other reactor callbacks run on this thread and may set vws.e.text; left
+    // set, the last strdup is definitely lost when this thread exits (this is the
+    // gate-blocking accept-path leak the SP5 accept cells surface). Thread-local
+    // only -- no effect on workers or the global SSL ctx.
+    vws_cleanup();
+
     return 0;
 }
 
 bool vws_tcp_svr_is_running(vws_tcp_svr* server)
 {
     if (server->state == VS_RUNNING)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+bool vws_tcp_svr_is_halted(vws_tcp_svr* server)
+{
+    if (server->state == VS_HALTED)
     {
         return true;
     }
@@ -1483,9 +1474,23 @@ int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd)
     // Call svr_on_connect() handler to complete initialization
     server->on_connect(cnx);
 
+    // Call for callback to collect the client cid
+    server->on_inetd_connect(cnx);
+
+    // C-SVR-3: mark the server RUNNING (mirror vws_tcp_svr_run) so the
+    // close -> svr_on_close -> inetd_stop auto-stop (its is_running check) fires
+    // when the single client disconnects -- otherwise the inetd process hangs
+    // forever (resource-exhaustion DoS under the deployed perpd/inetd model).
+    server->state = VS_RUNNING;
+
     // Now, the handle is associated with the socket and is ready to be used.
     // Start the libuv loop.
     uv_run(server->loop, UV_RUN_DEFAULT);
+
+    // C-SVR-6: release this thread's thread-local error state (same pattern as
+    // vws_tcp_svr_run). Thread-local only -- safe whether inetd_run was invoked
+    // on the main thread or a dedicated one.
+    vws_cleanup();
 
     return 0;
 }
@@ -1542,7 +1547,7 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
     hints.ai_socktype = SOCK_STREAM;
 
     char port_str[50];
-    sprintf(port_str, "%u", port);
+    sprintf(port_str, "%lu", port);
 
     error = getaddrinfo(host, &port_str[0], &hints, &res0);
 
@@ -1610,10 +1615,10 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
     return true;
 }
 
-bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer)
+bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer, void* x)
 {
     // Attempt reconnection
-    peer->sockfd = peer->connect(peer);
+    peer->sockfd = peer->connect(peer, x);
 
     // Successful it sockfd not -1
     return (peer->sockfd != -1);
@@ -1651,7 +1656,7 @@ vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
     peer.data  = data;
 
     char key[514];
-    sprintf(key, "%s:%u", h, p);
+    sprintf(key, "%s:%lu", h, p);
     vws_kvs_set(s->peers, key, &peer, sizeof(vws_peer));
 
     // Set wakeup timer
@@ -1663,7 +1668,7 @@ vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
 void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p)
 {
     char key[514];
-    sprintf(key, "%s:%u", h, p);
+    sprintf(key, "%s:%lu", h, p);
 
     vws_peer* peer = vws_kvs_get(s->peers, key)->data;
 
@@ -1694,6 +1699,7 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->threads          = vws.malloc(sizeof(uv_thread_t) * nt);
     svr->pool_size        = nt;
     svr->on_connect       = svr_client_connect;
+    svr->on_inetd_connect = svr_client_inetd_connect;
     svr->on_disconnect    = svr_client_disconnect;
     svr->on_read          = svr_client_read;
     svr->on_data_in       = svr_client_data_in;
@@ -1730,20 +1736,6 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
 
     svr->peer_timer = vws.malloc(sizeof(uv_timer_t));
     uv_timer_init(svr->loop, svr->peer_timer);
-
-    // FD injection queue and async wakeup. The async->data carries a cinfo
-    // with an invalid cid so svr_on_close() can free it on shutdown without
-    // touching connection state.
-    fd_queue_init(&svr->fd_queue);
-
-    vws_cinfo* fd_ci = vws.malloc(sizeof(vws_cinfo));
-    fd_ci->cnx       = NULL;
-    fd_ci->server    = svr;
-    fd_ci->cid.key   = 0;
-
-    svr->fd_inject_async       = vws.malloc(sizeof(uv_async_t));
-    svr->fd_inject_async->data = fd_ci;
-    uv_async_init(svr->loop, svr->fd_inject_async, on_fd_inject);
 
     return svr;
 }
@@ -1784,14 +1776,6 @@ void tcp_svr_dtor(vws_tcp_svr* svr)
     // Close the server async handle
     uv_close((uv_handle_t*)svr->wakeup, svr_on_close);
 
-    // Close the fd injection async handle. svr_on_close() will free the
-    // attached cinfo and the handle itself.
-    uv_close((uv_handle_t*)svr->fd_inject_async, svr_on_close);
-
-    // Drain and destroy the fd injection queue. Any fds still pending have
-    // not been adopted by the loop and are closed here.
-    fd_queue_destroy(&svr->fd_queue);
-
     // Close peer timer
     svr->peer_timer->data = NULL;
     uv_close((uv_handle_t*)svr->peer_timer, svr_on_timer_close);
@@ -1822,6 +1806,14 @@ void tcp_svr_dtor(vws_tcp_svr* svr)
     // Free address pool
     address_pool_free(&svr->cpool);
 
+    // C-SVR-4: free the request/response queues allocated in tcp_svr_ctor. On
+    // the run path svr_shutdown already destroyed them; queue_destroy is
+    // idempotent (it no-ops once queue->buffer is NULL), so this does real work
+    // only for a server that was created but never run -- which otherwise leaks
+    // the ctor-allocated queue buffers, names, mutex and cond (~16 KB).
+    queue_destroy(&svr->requests);
+    queue_destroy(&svr->responses);
+
     // Free peers
 
     for (size_t i = 0; i < svr->peers->used; i++)
@@ -1842,6 +1834,14 @@ void svr_client_connect(vws_svr_cnx* c)
     if (vws.tracelevel >= VT_SERVICE)
     {
         vws.trace(VL_INFO, "svr_client_connect(%p)", c->handle);
+    }
+}
+
+void svr_client_inetd_connect(vws_svr_cnx* c)
+{
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace(VL_INFO, "svr_client_inetd_connect(%p)", c->handle);
     }
 }
 
@@ -2006,65 +2006,6 @@ void svr_cnx_close(vws_tcp_svr* server, vws_cid_t cid)
 // Server Utilities
 //------------------------------------------------------------------------------
 
-vws_svr_cnx* svr_cnx_map_get(vws_svr_cnx_map* map, uv_stream_t* key)
-{
-    vws_svr_cnx* cnx = sc_map_get_64v(map, (uint64_t)key);
-
-    // If entry exists
-    if (sc_map_found(map) == true)
-    {
-        return cnx;
-    }
-
-    return NULL;
-}
-
-void svr_cnx_map_remove(vws_svr_cnx_map* map, uv_stream_t* key)
-{
-    vws_svr_cnx* cnx = sc_map_get_64v(map, (uint64_t)key);
-
-    // If entry exists
-    if (sc_map_found(map) == true)
-    {
-        sc_map_del_64v(map, (uint64_t)key);
-
-        // Call on_disconnect() handler
-        cnx->server->on_disconnect(cnx);
-
-        // Cleanup
-        vws.free(cnx);
-    }
-}
-
-int8_t svr_cnx_map_set(vws_svr_cnx_map* map, uv_stream_t* key, vws_svr_cnx* value)
-{
-    // See if we have an existing entry
-    sc_map_get_64v(map, (uint64_t)key);
-
-    if (sc_map_found(map) == true)
-    {
-        // Exsiting entry. Return false.
-        return 0;
-    }
-
-    sc_map_put_64v(map, (uint64_t)key, value);
-
-    // True
-    return 1;
-}
-
-void svr_cnx_map_clear(vws_svr_cnx_map* map)
-{
-    uint64_t key; vws_svr_cnx* cnx;
-    sc_map_foreach(map, key, cnx)
-    {
-        cnx->server->on_disconnect(cnx);
-        vws.free(cnx);
-    }
-
-    sc_map_clear_64v(map);
-}
-
 void svr_shutdown(vws_tcp_svr* server)
 {
     if (server->state == VS_HALTED)
@@ -2122,11 +2063,17 @@ void svr_on_connect(uv_stream_t* socket, int status)
     vws_cinfo* cinfo = vws.malloc(sizeof(vws_cinfo));
     cinfo->cnx       = NULL;
     cinfo->server    = server;
+    cinfo->cid.key   = -1;   // invalid until a cnx is registered (safe close path)
     c->data          = cinfo;
 
     if (uv_tcp_init(server->loop, c) != 0)
     {
+        // C-SVR-2: the handle never entered the loop (init failed), so free the
+        // just-allocated client handle + its cinfo directly instead of leaking
+        // them on the early return (peer-drivable accept-path leak).
         vws.error(VE_RT, "Failed to initialize client");
+        vws.free(cinfo);
+        vws.free(c);
         return;
     }
 
@@ -2134,7 +2081,12 @@ void svr_on_connect(uv_stream_t* socket, int status)
     {
         if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
         {
+            // C-SVR-2: the handle is already registered + the fd adopted, so it
+            // cannot be bare-freed -- close it through svr_on_close (which frees
+            // the handle + cinfo; cid is invalid so no cnx cleanup runs) rather
+            // than leaking it on the early return.
             vws.error(VE_RT, "Failed to start reading from client");
+            uv_close((uv_handle_t*)c, svr_on_close);
             return;
         }
     }
@@ -2152,6 +2104,12 @@ void svr_on_connect(uv_stream_t* socket, int status)
     //> Call svr_on_connect() handler
 
     server->on_connect(cnx);
+
+    if (server->inetd_mode == 1)
+    {
+        // Call for callback to collect the client cid
+        server->on_inetd_connect(cnx);
+    }
 }
 
 void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
@@ -2278,7 +2236,11 @@ void queue_push(vws_svr_queue* queue, vws_svr_data* data)
 {
     if (queue->state != VS_RUNNING)
     {
-        vws.free(data);
+        // Drop this hand-off's reference rather than free outright: vws_svr_data
+        // is reference-counted, and on the response path the sender holds a
+        // second ref it will release after its post-push read. A raw free here
+        // would pull the object out from under that read (UAF) and double-free.
+        vws_svr_data_free(data);
         return;
     }
 
@@ -2293,6 +2255,14 @@ void queue_push(vws_svr_queue* queue, vws_svr_data* data)
     {
         uv_cond_signal(&queue->cond);
         uv_mutex_unlock(&queue->mutex);
+
+        // drain-leak: a pusher that blocked on a full queue and woke to find the
+        // queue no longer RUNNING still owns this hand-off's reference. Drop it
+        // here -- mirroring the pre-lock not-running path above -- rather than
+        // returning without freeing (an ownership leak inconsistent with that
+        // path). vws_svr_data_free, not a raw free, honors the response path's
+        // second ref (refcount).
+        vws_svr_data_free(data);
         return;
     }
 
@@ -2338,208 +2308,6 @@ bool queue_empty(vws_svr_queue* queue)
     uv_mutex_unlock(&queue->mutex);
 
     return empty;
-}
-
-//------------------------------------------------------------------------------
-// FD Injection Queue
-//------------------------------------------------------------------------------
-
-static void fd_queue_init(vws_fd_queue* q)
-{
-    q->head = NULL;
-    q->tail = NULL;
-    uv_mutex_init(&q->mutex);
-}
-
-static void fd_queue_destroy(vws_fd_queue* q)
-{
-    uv_mutex_lock(&q->mutex);
-
-    vws_fd_node* n = q->head;
-    while (n != NULL)
-    {
-        vws_fd_node* next = n->next;
-
-        // Close any fd that never got adopted into the loop.
-        if (n->fd >= 0)
-        {
-            close(n->fd);
-        }
-
-        vws.free(n);
-        n = next;
-    }
-    q->head = NULL;
-    q->tail = NULL;
-
-    uv_mutex_unlock(&q->mutex);
-    uv_mutex_destroy(&q->mutex);
-}
-
-static void fd_queue_push(vws_fd_queue* q, int fd)
-{
-    vws_fd_node* n = vws.malloc(sizeof(vws_fd_node));
-    n->fd   = fd;
-    n->next = NULL;
-
-    uv_mutex_lock(&q->mutex);
-
-    if (q->tail == NULL)
-    {
-        q->head = n;
-        q->tail = n;
-    }
-    else
-    {
-        q->tail->next = n;
-        q->tail       = n;
-    }
-
-    uv_mutex_unlock(&q->mutex);
-}
-
-// Detach the entire chain so the loop thread can drain it without holding
-// the mutex.
-static vws_fd_node* fd_queue_take_all(vws_fd_queue* q)
-{
-    uv_mutex_lock(&q->mutex);
-    vws_fd_node* head = q->head;
-    q->head = NULL;
-    q->tail = NULL;
-    uv_mutex_unlock(&q->mutex);
-
-    return head;
-}
-
-// Adopt an injected fd into the libuv loop as a uv_pipe_t and run it through
-// the standard connection setup. Must be called on the loop thread.
-static void adopt_injected_fd(vws_tcp_svr* server, int fd)
-{
-    uv_pipe_t* p = (uv_pipe_t*)vws.malloc(sizeof(uv_pipe_t));
-
-    if (uv_pipe_init(server->loop, p, 0) != 0)
-    {
-        vws.error(VE_RT, "uv_pipe_init failed");
-        vws.free(p);
-        close(fd);
-        return;
-    }
-
-    if (uv_pipe_open(p, fd) != 0)
-    {
-        vws.error(VE_RT, "uv_pipe_open failed");
-        vws.free(p);
-        close(fd);
-        return;
-    }
-
-    vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
-    ci->cnx       = NULL;
-    ci->server    = server;
-    p->data       = ci;
-
-    if (uv_read_start((uv_stream_t*)p, svr_on_realloc, svr_on_read) != 0)
-    {
-        vws.error(VE_RT, "uv_read_start failed on injected fd");
-        vws.free(ci);
-        uv_close((uv_handle_t*)p, NULL);
-        return;
-    }
-
-    vws_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)p);
-    ci->cnx          = cnx;
-    ci->cid          = cnx->cid;
-
-    server->on_connect(cnx);
-}
-
-static void on_fd_inject(uv_async_t* handle)
-{
-    vws_cinfo* ci       = (vws_cinfo*)handle->data;
-    vws_tcp_svr* server = ci->server;
-
-    if (server->state != VS_RUNNING)
-    {
-        return;
-    }
-
-    vws_fd_node* n = fd_queue_take_all(&server->fd_queue);
-    while (n != NULL)
-    {
-        vws_fd_node* next = n->next;
-        adopt_injected_fd(server, n->fd);
-        vws.free(n);
-        n = next;
-    }
-}
-
-int vws_tcp_svr_inject_fd(vws_tcp_svr* server, int fd)
-{
-    if (server == NULL || fd < 0)
-    {
-        return -1;
-    }
-
-    if (server->state != VS_RUNNING)
-    {
-        vws.error(VE_RT, "server not running");
-        return -1;
-    }
-
-    fd_queue_push(&server->fd_queue, fd);
-    uv_async_send(server->fd_inject_async);
-
-    return 0;
-}
-
-vws_cnx* vws_pipe_connect(vws_tcp_svr* server)
-{
-    if (server == NULL)
-    {
-        vws.error(VE_RT, "vws_pipe_connect: NULL server");
-        return NULL;
-    }
-
-    uv_os_sock_t fds[2];
-    int rc = uv_socketpair( SOCK_STREAM,
-                            0,
-                            fds,
-                            UV_NONBLOCK_PIPE,
-                            UV_NONBLOCK_PIPE );
-
-    if (rc < 0)
-    {
-        vws.error(VE_RT, "uv_socketpair() failed: %s", uv_strerror(rc));
-        return NULL;
-    }
-
-    // Hand fds[0] to the server. After this call the server owns it.
-    if (vws_tcp_svr_inject_fd(server, (int)fds[0]) != 0)
-    {
-        close((int)fds[0]);
-        close((int)fds[1]);
-        return NULL;
-    }
-
-    // Wrap fds[1] as a client and run the websocket handshake. This blocks
-    // until the server-side has processed the upgrade and replied, which
-    // requires the server's loop to be running on a different thread.
-    vws_cnx* cnx = vws_cnx_new();
-
-    // Frame masking exists to defeat cache-poisoning attacks on
-    // intermediate proxies. There are no proxies on a socketpair, so
-    // skip the per-frame XOR and key generation.
-    vws_cnx_set_server_mode(cnx);
-
-    if (vws_cnx_from_fd(cnx, (int)fds[1]) == false)
-    {
-        // Handshake failed. The fd is owned by the cnx at this point so
-        // vws_cnx_free will close it.
-        vws_cnx_free(cnx);
-        return NULL;
-    }
-
-    return cnx;
 }
 
 //------------------------------------------------------------------------------
@@ -2905,6 +2673,24 @@ void ws_svr_client_data_in(vws_svr_data* block, void* x)
     vws_cid_t cid   = block->cid;
     vws_svr* server = (vws_svr*)block->server;
 
+    // If this is an internal request
+    if (vws_is_flag(&block->flags, VWS_SVR_STATE_IRQ))
+    {
+        // If handler defined
+        if (server->process_irq != NULL)
+        {
+            // Process request
+            server->process_irq(server, cid, block->data, block->size, x);
+        }
+
+        // Free incoming data
+        block->data = NULL;
+        block->size = 0;
+        vws_svr_data_free(block);
+
+        return;
+    }
+
     // If this is a HTTP request
     if (vws_is_flag(&block->flags, VWS_SVR_STATE_HTTP))
     {
@@ -2956,7 +2742,7 @@ void ws_svr_client_data_in(vws_svr_data* block, void* x)
         }
 
         // Connect
-        if (vws_tcp_svr_peer_connect((vws_tcp_svr*)server, peer) == false)
+        if (vws_tcp_svr_peer_connect((vws_tcp_svr*)server, peer, x) == false)
         {
             // Set state back to closed
             peer->state = VWS_PEER_CLOSED;
@@ -3058,6 +2844,9 @@ void ws_svr_ctor(vws_svr* server, int nt, int bl, int qs)
     // Upgrade callback
     server->on_upgrade         = NULL;
 
+    // Internal request handler
+    server->process_irq        = NULL;
+
     // Application functions
     server->process_ws         = ws_svr_client_process;
     server->send               = ws_svr_client_msg_out;
@@ -3089,6 +2878,23 @@ void vws_svr_free(vws_svr* server)
 
     ws_svr_dtor(server);
     vws.free(server);
+}
+
+void vws_svr_send_irq(vws_svr* s, vws_cid_t cid, void* data, size_t size)
+{
+    vws_tcp_svr* svr = (vws_tcp_svr*)s;
+
+    // Queue data to worker pool for processing
+    vws_svr_data* block = vws_svr_data_own(svr, cid, data, size);
+
+    // Set IRQ flag
+    vws_set_flag(&block->flags, VWS_SVR_STATE_IRQ);
+
+    // Store reference to server
+    block->server = svr;
+
+    // Put on queue
+    queue_push(&svr->requests, block);
 }
 
 //------------------------------------------------------------------------------
@@ -3205,7 +3011,7 @@ vrtql_msg_svr_ctor(vrtql_msg_svr* server, int threads, int backlog, int qsize)
     server->dispatch       = msg_svr_client_msg_dispatch;
 
     // User-defined data
-    server->data         = NULL;
+    server->data           = NULL;
 
     return server;
 }

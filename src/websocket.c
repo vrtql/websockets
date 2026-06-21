@@ -293,6 +293,12 @@ bool cnx_connect(vws_cnx* c)
 vws_cnx* vws_cnx_new()
 {
     vws_cnx* c = (vws_cnx*)vws.malloc(sizeof(vws_cnx));
+
+    return vws_cnx_ctor(c);
+}
+
+vws_cnx* vws_cnx_ctor(vws_cnx* c)
+{
     memset(c, 0, sizeof(vws_cnx));
 
     // Call base constructor
@@ -312,6 +318,19 @@ vws_cnx* vws_cnx_new()
 }
 
 void vws_cnx_free(vws_cnx* c)
+{
+    if (c == NULL)
+    {
+        return;
+    }
+
+    // In-place teardown, then release the object (the alloc symmetric to new).
+    vws_cnx_dtor(c);
+
+    vws.free(c);
+}
+
+void vws_cnx_dtor(vws_cnx* c)
 {
     if (c == NULL)
     {
@@ -340,8 +359,11 @@ void vws_cnx_free(vws_cnx* c)
     // Free websocket key
     vws.free(c->key);
 
-    // Call base constructor
-    vws_socket_dtor((vws_socket*)c);
+    // Base teardown WITHOUT freeing the object (mirrors vws_socket_dtor minus
+    // the final vws.free): disconnect closes ssl + fd, then free the buffer.
+    vws_socket_disconnect((vws_socket*)c);
+    vws_buffer_free(c->base.buffer);
+    c->base.buffer = NULL;
 }
 
 void vws_cnx_set_server_mode(vws_cnx* c)
@@ -381,58 +403,6 @@ bool vws_reconnect(vws_cnx* c)
     }
 
     return false;
-}
-
-bool vws_cnx_from_fd(vws_cnx* c, int fd)
-{
-    if (c == NULL || fd < 0)
-    {
-        vws.error(VE_RT, "Invalid connection or fd");
-        return false;
-    }
-
-    vws_buffer_clear(c->base.buffer);
-
-    // Adopt the fd. No SSL on injected fds; this is intended for in-process
-    // transports (socketpair, pipes) where there is no remote peer to
-    // authenticate.
-    c->base.sockfd = fd;
-    c->base.ssl    = NULL;
-
-    if (vws_socket_set_timeout((vws_socket*)c, c->base.timeout / 1000) == false)
-    {
-        vws_socket_close((vws_socket*)c);
-        return false;
-    }
-
-    // Mirror vws_socket_connect(): put the fd in O_NONBLOCK so the
-    // poll()-driven read/write loops work. Caller-facing API stays
-    // synchronous (blocking with timeout).
-    if (vws_socket_set_nonblocking(c->base.sockfd) == false)
-    {
-        vws_socket_close((vws_socket*)c);
-        return false;
-    }
-
-    // The handshake callback expects c->url to be populated for building the
-    // upgrade request. Provide a synthetic URL when one was not set.
-    if (c->url == NULL)
-    {
-        c->url = (vws_url_data*)url_parse("ws://inproc/");
-    }
-
-    if (c->base.hs != NULL)
-    {
-        if (c->base.hs((vws_socket*)c) == false)
-        {
-            vws.error(VE_SYS, "Handshake failed");
-            vws_socket_close((vws_socket*)c);
-            return false;
-        }
-    }
-
-    vws.success();
-    return true;
 }
 
 bool vws_cnx_is_connected(vws_cnx* c)
@@ -663,6 +633,9 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
 {
     if (vws_cnx_is_connected(c) == false)
     {
+        // C-WS-1: this function owns `frame` (the connected path frees it via
+        // vws_serialize). The not-connected early-return leaked it.
+        vws_frame_free(frame);
         return -1;
     }
 
@@ -946,6 +919,13 @@ vws_buffer* vws_serialize(vws_frame* f)
     return buffer;
 }
 
+// C-WS-2: maximum accepted single-frame payload. A peer-supplied 8-byte length
+// beyond this is rejected as malformed (FRAME_ERROR) -- this caps the allocation
+// AND guarantees the required-bytes arithmetic below cannot overflow size_t.
+// TUNABLE protocol-limit (Mike keeps 64 MiB) -- revisit against the
+// broker message-size profile if larger frames are required.
+#define VWS_MAX_FRAME_SIZE (64u * 1024u * 1024u)   // 64 MiB
+
 fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
 {
     // Check if the data contains the minimum required frame header bytes
@@ -994,6 +974,13 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
     // Check if the frame has masking key and payload data
     if (f->mask)
     {
+        // C-WS-2: reject an over-cap (or overflow-inducing) peer length as
+        // malformed BEFORE any size math or malloc.
+        if (f->size > VWS_MAX_FRAME_SIZE)
+        {
+            return FRAME_ERROR;
+        }
+
         // Check if the data contains the masking key and payload data
         required_bytes += 4 + f->size;
 
@@ -1020,6 +1007,12 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
     }
     else
     {
+        // C-WS-2: same overflow-safe cap on the unmasked path.
+        if (f->size > VWS_MAX_FRAME_SIZE)
+        {
+            return FRAME_ERROR;
+        }
+
         // Check if the data contains the payload data
 
         required_bytes += f->size;

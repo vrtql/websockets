@@ -491,6 +491,12 @@ void vws_cleanup()
     if (vws.e.text != NULL)
     {
         free(vws.e.text);
+
+        // Null after free: vws_set_error frees vws.e.text before each strdup, so
+        // a non-null dangling pointer here would be a double-free if the thread
+        // sets another error after cleanup. Nulling makes vws_cleanup safe to
+        // call from a thread that continues running (e.g. the main thread).
+        vws.e.text = NULL;
     }
 }
 
@@ -705,7 +711,7 @@ void vws_kvs_clear(vws_kvs* m)
     for (size_t i = 0; i < m->used; i++)
     {
         free((void*)m->array[i].key); // Free copied key
-        free(m->array[i].value.data);  // Free copied data
+        free(m->array[i].value.data); // Free copied data
     }
 
     m->used = 0;

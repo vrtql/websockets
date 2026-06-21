@@ -276,14 +276,14 @@ uint64_t vws_http_msg_errno(vws_http_msg* m)
     return llhttp_get_errno(m->parser);
 }
 
-uint8_t vws_http_msg_status_code(vws_http_msg* m)
+int vws_http_msg_status_code(vws_http_msg* m)
 {
     return llhttp_get_status_code(m->parser);
 }
 
 cstr vws_http_msg_status_string(vws_http_msg* m)
 {
-    uint8_t code = vws_http_msg_status_code(m);
+    int code = vws_http_msg_status_code(m);
 
     return (cstr)llhttp_status_name(code);
 }
