@@ -111,7 +111,7 @@ uint64_t vws_http_msg_errno(vws_http_msg* m);
  * This function retrieves the status code of the HTTP message.
  *
  * @param m Pointer to the HTTP message.
- * @return The status code as an 8-bit unsigned integer.
+ * @return The status code as an int (full HTTP status range).
  */
 int vws_http_msg_status_code(vws_http_msg* m);
 
