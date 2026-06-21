@@ -76,6 +76,17 @@ the frame type (<literal>TEXT</literal> or
 the message will have the <literal>FIN</literal> bit set, signifying the end of
 the message. This covers the structural part of the API.</para>
 
+<note><title>Maximum Frame Size</title>
+
+  <para>The library caps the payload length of a single frame at
+  <constant>VWS_MAX_FRAME_SIZE</constant> (64 MiB by default). A frame whose
+  payload exceeds this limit is rejected as a frame error
+  (<constant>FRAME_ERROR</constant>) before any memory is allocated for it. The
+  cap is a compile-time tunable defined in <filename>src/websocket.c</filename>;
+  see <xref linkend="ws.overview.concepts"/> for further detail.</para>
+
+</note>
+
 </section> <!-- ws.api.client.structures -->
 
 <section id="ws.api.client.functions"><title>Functions</title>

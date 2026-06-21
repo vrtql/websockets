@@ -1,3 +1,9 @@
+;; Put ELPA packages (htmlize, used by code2html.el) on load-path. In
+;; `emacs -batch` the package system is not auto-initialized, so without this
+;; `(load "htmlize.el")` fails with "Cannot open load file".
+(require 'package)
+(package-initialize)
+
 (if (fboundp 'scroll-bar-mode) (scroll-bar-mode -1))
 (if (fboundp 'tool-bar-mode) (tool-bar-mode -1))
 (if (fboundp 'menu-bar-mode) (menu-bar-mode -1))
