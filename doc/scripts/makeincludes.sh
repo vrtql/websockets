@@ -2,6 +2,11 @@
 
 dir=${1:-"include"}
 
+# Ensure the generated output directories exist. These are build artifacts (not
+# tracked), so on a clean checkout they are absent and the redirect below would
+# fail with "No such file or directory".
+mkdir -p xml/include xml/include/latex
+
 # For each file in $dir except those in .svn dir
 for doc in $(find $dir -type f -prune -print)
 do
