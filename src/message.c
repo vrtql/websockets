@@ -119,7 +119,7 @@ vws_buffer* vrtql_msg_serialize(vrtql_msg* msg)
 {
     if (msg == NULL)
     {
-        return false;
+        return NULL;
     }
 
     if (msg->format == VM_MPACK_FORMAT)
@@ -216,10 +216,10 @@ vws_buffer* vrtql_msg_serialize(vrtql_msg* msg)
         // Generate headers
         yyjson_mut_val* headers = yyjson_mut_arr_add_obj(doc, root);
 
-        for (size_t i = 0; i < msg->routing->used; i++)
+        for (size_t i = 0; i < msg->headers->used; i++)
         {
             yyjson_mut_obj_add_str( doc,
-                                    routing,
+                                    headers,
                                     msg->headers->array[i].key,
                                     msg->headers->array[i].value.data );
         }
@@ -432,11 +432,6 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
 bool vrtql_msg_is_empty(vrtql_msg* msg)
 {
     if (msg->routing->used > 0)
-    {
-        return false;
-    }
-
-    if (msg->headers->used > 0)
     {
         return false;
     }
@@ -669,6 +664,13 @@ bool msg_parse_map(mpack_reader_t* reader, vws_kvs* map)
 
         length = mpack_tag_str_length(&tag);
         data   = mpack_read_bytes_inplace(reader, length);
+
+        // C-MSG-4: read_bytes_inplace returns NULL on a truncated str.
+        if (data == NULL)
+        {
+            return false;
+        }
+
         key    = vws.malloc(length + 1);
 
         memcpy(key, data, length);
@@ -682,11 +684,20 @@ bool msg_parse_map(mpack_reader_t* reader, vws_kvs* map)
         if (mpack_tag_type(&tag) != mpack_type_str)
         {
             printf("ERROR: value must be string\n");
+            vws.free(key);
             return false;
         }
 
         length = mpack_tag_str_length(&tag);
         data   = mpack_read_bytes_inplace(reader, length);
+
+        // C-MSG-4: read_bytes_inplace returns NULL on a truncated str.
+        if (data == NULL)
+        {
+            vws.free(key);
+            return false;
+        }
+
         value  = vws.malloc(length + 1);
 
         memcpy(value, data, length);
@@ -733,6 +744,12 @@ int32_t msg_parse_content(mpack_reader_t* reader, vws_buffer* buffer)
     }
 
     cstr data = mpack_read_bytes_inplace(reader, length);
+
+    // C-MSG-4: read_bytes_inplace returns NULL on truncated content.
+    if (data == NULL)
+    {
+        return -1;
+    }
 
     vws_buffer_clear(buffer);
     vws_buffer_append(buffer, (ucstr)data, length);
