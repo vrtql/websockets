@@ -1,6 +1,19 @@
 #ifndef VRTQL_SVR_DECLARE
 #define VRTQL_SVR_DECLARE
 
+#if defined(__windows__)
+// uv.h pulls <winsock2.h> and <windows.h> on Windows. Without
+// WIN32_LEAN_AND_MEAN, <windows.h> includes the RPC header chain, whose
+// <rpc.h> resolves to vws's own src/rpc.h (src/ is on the include path),
+// dragging the vws header chain into the middle of <windows.h> before SOCKET
+// is defined. WIN32_LEAN_AND_MEAN excludes the RPC chain entirely. Mirrors the
+// guard in socket.c. Must precede <uv.h>.
+#define WIN32_LEAN_AND_MEAN
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0601  // Windows 7 or later
+#endif
+#endif
+
 #include <uv.h>
 
 /*
@@ -257,9 +270,9 @@ struct vws_peer;
  * @param peer The peer struct (containing host and IP)
  * @param x The user-defined context
  * @return Returns the established socket descriptor upon successful connection,
- *   -1 on failure.
+ *   VWS_INVALID_SOCKET on failure.
 */
-typedef int (*vws_peer_connect)(struct vws_peer* p, void* x);
+typedef vws_sockfd_t (*vws_peer_connect)(struct vws_peer* p, void* x);
 
 /** This is used to associate connection info with uv_stream_t handles */
 typedef struct vws_peer
@@ -268,7 +281,7 @@ typedef struct vws_peer
     int port;
     struct vws_cinfo info;
     vws_peer_state_t state;
-    int sockfd;
+    vws_sockfd_t sockfd;
     vws_peer_connect connect;
     void* data;
 } vws_peer;
@@ -674,7 +687,7 @@ bool vws_tcp_svr_is_halted(vws_tcp_svr* server);
  * @param sockfd The incoming socket
  * @return 0 if successful, an error code otherwise.
  */
-int vws_tcp_svr_inetd_run(vws_tcp_svr* server, int sockfd);
+int vws_tcp_svr_inetd_run(vws_tcp_svr* server, vws_sockfd_t sockfd);
 
 /**
  * @brief Stops a VRTQL server running in inetd_mode.
