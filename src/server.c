@@ -2890,6 +2890,14 @@ void vws_svr_free(vws_svr* server)
     vws.free(server);
 }
 
+int vws_svr_run(vws_svr* server, cstr host, int port)
+{
+    // The WebSocket server has no run loop of its own; it is driven through its
+    // base. vws_svr embeds vws_tcp_svr as its first member, so the cast is
+    // layout-sound.
+    return vws_tcp_svr_run((vws_tcp_svr*)server, host, port);
+}
+
 void vws_svr_send_irq(vws_svr* s, vws_cid_t cid, void* data, size_t size)
 {
     vws_tcp_svr* svr = (vws_tcp_svr*)s;
@@ -3001,6 +3009,14 @@ vrtql_msg_svr* vrtql_msg_svr_new(int num_threads, int backlog, int queue_size)
 void vrtql_msg_svr_free(vrtql_msg_svr* server)
 {
     vrtql_msg_svr_dtor(server);
+}
+
+int vrtql_msg_svr_run(vrtql_msg_svr* server, cstr host, int port)
+{
+    // The message server has no run loop of its own; it is driven through its
+    // base. vrtql_msg_svr embeds vws_svr (which embeds vws_tcp_svr) as its first
+    // member, so the cast to the base tcp server is layout-sound.
+    return vws_tcp_svr_run((vws_tcp_svr*)server, host, port);
 }
 
 vrtql_msg_svr*
