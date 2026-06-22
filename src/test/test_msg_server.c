@@ -38,11 +38,12 @@ void process(vws_svr* s, vws_cid_t cid, vrtql_msg* m, void* ctx)
 
 void server_thread(void* arg)
 {
-    vws_tcp_svr* server = (vws_tcp_svr*)arg;
-    vws.tracelevel      = VT_THREAD;
-    server->trace       = vws.tracelevel;
+    vrtql_msg_svr* server = (vrtql_msg_svr*)arg;
+    vws.tracelevel        = VT_THREAD;
+    ((vws_tcp_svr*)server)->trace = vws.tracelevel;
 
-    vws_tcp_svr_run(server, server_host, server_port);
+    // Exercise the vrtql_msg_svr run wrapper (forwards to the base run).
+    vrtql_msg_svr_run(server, server_host, server_port);
 
     vws_cleanup();
 }
