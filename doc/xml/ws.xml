@@ -19,13 +19,13 @@
 
   <title>VRTQL WebSocket Library</title>
 
-  <productnumber>1.0.0</productnumber>
-  <edition>1</edition>
+  <productnumber>1.0.1</productnumber>
+  <edition>2</edition>
   <pubsnumber>0</pubsnumber>
-  <releaseinfo>Version 1.0.0</releaseinfo>
+  <releaseinfo>Version 1.0.1</releaseinfo>
 
   <copyright>
-    <year>2023</year>
+    <year>2026</year>
     <holder>VRTQL</holder>
   </copyright>
 
