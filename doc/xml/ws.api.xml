@@ -354,27 +354,27 @@ API.</para>
 <section id="ws.api.server.core"><title>Core Server</title>
 
 <para>The core server API is the foundation on which all the other servers
-work. Once you understand how it works everything else is intuitive. The API
-simple and is designed to make it very easy for you to focus on processing
+work. Once you understand how it works, everything else is intuitive. The API is
+simple and designed to make it very easy for you to focus on processing
 messages. There are only a few steps required to create a server. You create a
-server instance, define a processing function to handle incoming data and send
+server instance, define a processing function to handle incoming data, and send
 data back to the remote peer. We will take each of these in turn.</para>
 
 <para>You create a server instance using the <function><cr
 f="server.h">vrtql_svr_new</cr>()</function> function. This takes three
-arguments: The number of worker threads, the connection backlog, and the maximum
-message queue size. If you set the latter two arguments to zero it will use the
-default values. Next you create a processing funciton. The signature of this
-function varies according to server. For the core server, which deals with
+arguments: the number of worker threads, the connection backlog, and the maximum
+message queue size. If you set the latter two arguments to zero, it will use the
+default values. Next, you create a processing function. The signature of this
+function varies according to the server. For the core server, which deals with
 unstructured data, this signature is given by the <function><cr
 f="server.h">vrtql_svr_process_data</cr></function> callback. It takes a single
-argument: a <classname><cr f="server.h">vrtql_svr_data</cr></classname>
-instances created on the heap. This structure simply holds a blob of data. It is
-up to your processing function makes sense of that data and respond
-accordingly. If you need to send data back to the peer you do so using
-<function><cr f="server.h">vrtql_svr_send</cr>()</function>.With all these
-things in place you call <function><cr
-f="server.h">vrtql_svr_run</cr>()</function> to start the server.</para>
+argument: a <classname><cr f="server.h">vrtql_svr_data</cr></classname> instance
+created on the heap. This structure simply holds a blob of data. It is up to
+your processing function to make sense of that data and respond accordingly. If
+you need to send data back to the peer, you do so using <function><cr
+f="server.h">vrtql_svr_send</cr>()</function>. With all these things in place,
+you call <function><cr f="server.h">vrtql_svr_run</cr>()</function> to start the
+server.</para>
 
 <para>The following illustrates writing a basic echo server:
 
@@ -390,9 +390,9 @@ f="server.h">vrtql_svr_run</cr>()</function> to start the server.</para>
 but uses <function><cr f="server.h">vws_svr_new</cr>()</function> to create the
 server. The processing function signature is given by the <function><cr
 f="server.h">vws_svr_process_msg</cr></function> callback. Rather than using
-unstructured data, it operates on websocket messages.</para>
+unstructured data, it operates on WebSocket messages.</para>
 
-<para>The following illustates writing a WebSocket server:
+<para>The following illustrates writing a WebSocket server:
 
 <sourcecode href="ws.api.server.vws.ex-1.cpp"/>
 
@@ -403,7 +403,7 @@ unstructured data, it operates on websocket messages.</para>
 <section id="ws.api.server.msg"><title>Message Server</title>
 
 <para>The Message API server works in exactly the same way. The only difference
-is that is operates on <classname><cr f="message.h">vrtql_msg</cr></classname>
+is that it operates on <classname><cr f="message.h">vrtql_msg</cr></classname>
 messages.</para>
 
 <para>The following illustrates creating a Message server:
@@ -620,72 +620,5 @@ vrtql_rpc_system_free(system);
 </section> <!-- ws.api.rpc.server -->
 
 </section> <!-- ws.api.rpc -->
-
-<section id="ws.api.server"> <title>The Server API</title>
-
-<section id="ws.api.server.core"><title>Core Server</title>
-
-<para>The core server API is the foundation on which all the other servers
-work. Once you understand how it works, everything else is intuitive. The API is
-simple and designed to make it very easy for you to focus on processing
-messages. There are only a few steps required to create a server. You create a
-server instance, define a processing function to handle incoming data, and send
-data back to the remote peer. We will take each of these in turn.</para>
-
-<para>You create a server instance using the <function><cr
-f="server.h">vrtql_svr_new</cr>()</function> function. This takes three
-arguments: the number of worker threads, the connection backlog, and the maximum
-message queue size. If you set the latter two arguments to zero, it will use the
-default values. Next, you create a processing function. The signature of this
-function varies according to the server. For the core server, which deals with
-unstructured data, this signature is given by the <function><cr
-f="server.h">vrtql_svr_process_data</cr></function> callback. It takes a single
-argument: a <classname><cr f="server.h">vrtql_svr_data</cr></classname> instance
-created on the heap. This structure simply holds a blob of data. It is up to
-your processing function to make sense of that data and respond accordingly. If
-you need to send data back to the peer, you do so using <function><cr
-f="server.h">vrtql_svr_send</cr>()</function>. With all these things in place,
-you call <function><cr f="server.h">vrtql_svr_run</cr>()</function> to start the
-server.</para>
-
-<para>The following illustrates writing a basic echo server:
-
-<sourcecode href="ws.api.server.core.ex-1.cpp"/>
-
-</para>
-
-</section>
-
-<section id="ws.api.server.vws"> <title>WebSocket Server</title>
-
-<para>Writing a WebSocket server is even simpler. It follows the same pattern
-but uses <function><cr f="server.h">vws_svr_new</cr>()</function> to create the
-server. The processing function signature is given by the <function><cr
-f="server.h">vws_svr_process_msg</cr></function> callback. Rather than using
-unstructured data, it operates on WebSocket messages.</para>
-
-<para>The following illustrates writing a WebSocket server:
-
-<sourcecode href="ws.api.server.vws.ex-1.cpp"/>
-
-</para>
-
-</section>
-
-<section id="ws.api.server.msg"><title>Message Server</title>
-
-<para>The Message API server works in exactly the same way. The only difference
-is that it operates on <classname><cr f="message.h">vrtql_msg</cr></classname>
-messages.</para>
-
-<para>The following illustrates creating a Message server:
-
-<sourcecode href="ws.api.server.msg.ex-1.cpp"/>
-
-</para>
-
-</section>
-
-</section>
 
 </chapter> <!-- ws.api -->
