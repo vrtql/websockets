@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<chapter version="5.0"
+    xml:id="ws.ex.server-http"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>An HTTP Server</title>
+
+<section xml:id="ws.ex.server-http.overview">
+
+  <title>Overview</title>
+
+  <para>The <filename>server-http</filename> program shows that the framework can
+  also serve plain HTTP. A <classname><cr f="server.h">vws_svr</cr></classname>
+  with a <varname>process_http</varname> handler answers ordinary HTTP requests —
+  those that are not WebSocket upgrades. This one replies with a fixed body and a
+  <literal>Content-Length</literal> derived from that body, so the header can never
+  disagree with the bytes actually sent.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-http.program">
+
+  <title>The Program</title>
+
+  <para>The complete program follows. It is generated from
+  <filename>server-http.c</filename> in the companion examples repository.</para>
+
+  <sourcecode href="server-http.c"/>
+
+</section>
+
+<section xml:id="ws.ex.server-http.walkthrough">
+
+  <title>Walk-through</title>
+
+  <para>The server and support headers are included:</para>
+
+  <programlisting>#include &lt;vws/server.h&gt;
+
+#include "vwsx.h"</programlisting>
+
+  <para>The handler answers every request with the same body. It receives the
+  server, the connection id, the parsed
+  <classname><cr f="http_message.h">vws_http_msg</cr></classname> (unused here),
+  and the worker context, and returns a <type>bool</type>:</para>
+
+  <programlisting>static bool process(vws_svr* s, vws_cid_t cid, vws_http_msg* msg, void* ctx)
+{
+    (void)msg;
+    (void)ctx;
+
+    const char* body     = "Hello world";
+    size_t      body_len = strlen(body);
+
+    char response[256];
+    int  n = snprintf(response, sizeof(response),
+                      "HTTP/1.1 200 OK\r\n"
+                      "Content-Type: text/plain\r\n"
+                      "Content-Length: %zu\r\n"
+                      "\r\n"
+                      "%s",
+                      body_len, body);</programlisting>
+
+  <para>The full HTTP response — status line, headers, and body — is formatted into
+  a local buffer. The <literal>Content-Length</literal> is computed from
+  <varname>body_len</varname> rather than hardcoded, so the header always matches
+  the payload. The formatted bytes are then copied onto the heap and handed to a
+  response object, which is sent:</para>
+
+  <programlisting>char* data = (char*)vws.malloc((size_t)n);
+memcpy(data, response, (size_t)n);
+
+vws_svr_data* reply = vws_svr_data_own((vws_tcp_svr*)s, cid,
+                                       (ucstr)data, (size_t)n);
+vws_tcp_svr_send(reply);
+
+return true;</programlisting>
+
+  <para><function><cr f="server.h">vws_svr_data_own</cr>()</function> takes
+  ownership of the heap copy and binds the reply to the request's connection id;
+  <function><cr f="server.h">vws_tcp_svr_send</cr>()</function> queues it for the
+  networking thread. The handler casts the server to <type>(vws_tcp_svr*)</type> to
+  use these base-layer calls, and returns <literal>true</literal> to tell the
+  framework the request was handled.</para>
+
+  <para>Setup mirrors the WebSocket server but installs the HTTP handler:</para>
+
+  <programlisting>vws_svr* server = vws_svr_new(10, 0, 0);
+
+if (server == NULL)
+{
+    vwsx_die("vws_svr_new() failed");
+}
+
+server-&gt;process_http = process;</programlisting>
+
+  <para>Because the HTTP and WebSocket handlers live on the same
+  <classname><cr f="server.h">vws_svr</cr></classname>, one server can serve both:
+  setting <varname>process_http</varname> as well as a
+  <varname>process_ws</varname> lets the framework route each request to the right
+  handler. The run and stop go through the base type, exactly as in the WebSocket
+  server:</para>
+
+  <programlisting>vwsx_serve_stop_on_signal((vws_tcp_svr*)server);
+
+vws_tcp_svr_run((vws_tcp_svr*)server, HOST, PORT);
+
+vws_svr_free(server);</programlisting>
+
+</section>
+
+<section xml:id="ws.ex.server-http.build">
+
+  <title>Building and Running</title>
+
+  <para>The HTTP server needs libvws built with <filename>libuv</filename> support.
+  Start it and request its root with any HTTP client, such as
+  <command>curl</command>:</para>
+
+  <screen><prompt>$</prompt> ./server-http
+server-http: HTTP server on http://127.0.0.1:8182/ (Ctrl-C to stop)</screen>
+
+  <screen><prompt>$</prompt> curl http://127.0.0.1:8182/
+Hello world</screen>
+
+  <para>The server returns the fixed <literal>Hello world</literal> body, with a
+  <literal>Content-Length</literal> that always matches it. Press
+  <literal>Ctrl-C</literal> to stop the server.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-http.seealso">
+
+  <title>See Also</title>
+
+  <para>The server model is documented in the Server API section of the API
+  chapter. This handler can share its server with the WebSocket handler of
+  <xref linkend="ws.ex.server-ws"/>, and both are built on the core server of
+  <xref linkend="ws.ex.server-core"/>.</para>
+
+</section>
+
+</chapter>

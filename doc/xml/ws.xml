@@ -34,9 +34,10 @@
   <xi:include href="ws.preface.xml" xmlns:xi="http://www.w3.org/2001/XInclude"/>
   <xi:include href="ws.intro.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
   <xi:include href="ws.api.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
-  <xi:include href="ws.ops.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
 
-  <xi:include href="ws.ex.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <xi:include href="ws.examples.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+
+  <xi:include href="ws.ops.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
 
   <index id="ws.index"/>
 

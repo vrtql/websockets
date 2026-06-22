@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<chapter version="5.0"
+    xml:id="ws.ex.advanced"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>Advanced Examples</title>
+
+<section id="ws.ex.daemons"><title>Daemons and Configuration</title>
+
+<para>The following example demonstrates a complete VRTQL Message server daemon
+that reads its configuration from environment variables, sets up a worker thread
+context for per-thread state, and runs the server. This pattern forms the basis
+for production deployments as described in <link linkend="ws.ops">the
+Operations chapter</link>.
+
+<sourcecode href="ws.ex.daemons.ex-1.cpp"/>
+
+</para>
+
+<para>This server can be launched directly from the command line:
+
+<screen>
+<prompt>$</prompt> VWS_HOST=0.0.0.0 VWS_PORT=9090 VWS_THREADS=4 ./my_server
+</screen>
+
+Or managed by a process supervisor as described in <link
+linkend="ws.ops.perpd">the Service Management section</link>.</para>
+
+</section> <!-- ws.ex.daemons -->
+
+<section id="ws.ex.server.rpc"><title>RPC Server</title>
+
+<para>This example demonstrates a complete RPC server that uses the RPC module
+system to organize handlers into modules and dispatch incoming calls. It
+combines a <classname><cr f="server.h">vrtql_msg_svr</cr></classname> for
+networking with a <classname><cr f="rpc.h">vrtql_rpc_system</cr></classname> for
+request routing.
+
+<sourcecode href="ws.ex.server.rpc.ex-1.cpp"/>
+
+</para>
+
+<para>Clients can call into this server using the client-side RPC API. For
+example, to call the <literal>user.login</literal> function, a client would
+create a message with the header <literal>"id"</literal> set to
+<literal>"user.login"</literal>, include the required credentials as headers,
+and use <function><cr f="rpc.h">vrtql_rpc_exec</cr>()</function> or
+<function><cr f="rpc.h">vrtql_rpc_invoke</cr>()</function> to make the
+call.</para>
+
+</section> <!-- ws.ex.server.rpc -->
+
+<section id="ws.ex.server.mq"><title>A Simple Message Broker</title>
+
+<para>This example implements a simple publish-subscribe message broker using
+the VRTQL Message server. Clients can subscribe to topics, and when a message is
+published to a topic, all subscribers receive a copy. The broker uses the
+message routing map to convey the topic and action (subscribe, unsubscribe,
+publish).
+
+<sourcecode href="ws.ex.server.mq.ex-1.cpp"/>
+
+</para>
+
+<para>A client can interact with this broker using the Message API. To subscribe
+to a topic, the client sends a message with routing keys
+<literal>"action"</literal> set to <literal>"subscribe"</literal> and
+<literal>"topic"</literal> set to the desired topic name. To publish, the client
+sends a message with <literal>"action"</literal> set to
+<literal>"publish"</literal>, the <literal>"topic"</literal>, and the message
+content in the payload. The following illustrates a client subscribing and
+publishing:
+
+<sourcecode href="ws.ex.server.mq.ex-2.cpp"/>
+
+</para>
+
+</section> <!-- ws.ex.server.mq -->
+
+</chapter>

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<part version="5.0"
+    xml:id="ws.examples"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>Examples</title>
+
+<partintro>
+
+  <para>This part walks through the example programs in the companion
+  <link xlink:href="https://github.com/vrtql/websockets-examples">websockets-examples</link>
+  repository. Each chapter takes one complete, compilable program and explains it
+  from top to bottom. The source shown in each chapter is generated directly from
+  that repository, so the listings always match real, building code.</para>
+
+  <para>The programs progress from the synchronous client, through the optional
+  messaging layer, to the asynchronous server in its several forms, and conclude
+  with a set of more advanced, production-oriented examples.</para>
+
+  <para>The programs share a small support header,
+  <filename>vwsx.h</filename> (its bodies in <filename>libvwsx</filename>) — the
+  examples' analog of APUE's <filename>apue.h</filename>. It is a thin
+  convenience layer that keeps each program uncluttered
+  <emphasis>without</emphasis> hiding the real libvws API: every example still
+  makes the actual <function>vws_*</function> calls. It provides just three
+  helpers. <function>vwsx_die</function> prints a message and exits on an
+  unrecoverable setup failure. <function>vwsx_connect</function> opens a client
+  connection — <function><cr f="websocket.h">vws_cnx_new</cr>()</function>
+  followed by <function><cr f="websocket.h">vws_connect</cr>()</function>, dying
+  on failure — and returns a connected
+  <classname><cr f="websocket.h">vws_cnx</cr></classname> that the caller drives
+  with the real API. <function>vwsx_serve_stop_on_signal</function> installs
+  <literal>SIGINT</literal>/<literal>SIGTERM</literal> handlers that stop a
+  running server gracefully through
+  <function><cr f="server.h">vws_tcp_svr_stop</cr>()</function>; it is called with
+  the server cast to <type>(vws_tcp_svr*)</type>, since only the base server
+  exposes a stop entry point.</para>
+
+</partintro>
+
+  <xi:include href="ws.ex.client-basic.xml"   xmlns:xi="http://www.w3.org/2001/XInclude"/>
+  <xi:include href="ws.ex.client-message.xml" xmlns:xi="http://www.w3.org/2001/XInclude"/>
+  <xi:include href="ws.ex.server-core.xml"    xmlns:xi="http://www.w3.org/2001/XInclude"/>
+  <xi:include href="ws.ex.server-ws.xml"      xmlns:xi="http://www.w3.org/2001/XInclude"/>
+  <xi:include href="ws.ex.server-http.xml"    xmlns:xi="http://www.w3.org/2001/XInclude"/>
+  <xi:include href="ws.ex.server-message.xml" xmlns:xi="http://www.w3.org/2001/XInclude"/>
+
+  <xi:include href="ws.ex.advanced.xml"       xmlns:xi="http://www.w3.org/2001/XInclude"/>
+
+</part>
