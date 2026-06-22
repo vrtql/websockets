@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<chapter version="5.0"
+    xml:id="ws.ex.client-message"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>A Messaging Client</title>
+
+<section xml:id="ws.ex.client-message.overview">
+
+  <title>Overview</title>
+
+  <para>The <filename>client-message</filename> program uses libvws's higher-level
+  message type, <classname><cr f="message.h">vrtql_msg</cr></classname>: a routing
+  map, a headers map, and a content buffer, serialised (MessagePack or JSON) over a
+  WebSocket connection. The program connects, builds a message, sends it, reads the
+  content of the reply, and disconnects.</para>
+
+</section>
+
+<section xml:id="ws.ex.client-message.program">
+
+  <title>The Program</title>
+
+  <para>The complete program follows. It is generated from
+  <filename>client-message.c</filename> in the companion examples repository.</para>
+
+  <sourcecode href="client-message.c"/>
+
+</section>
+
+<section xml:id="ws.ex.client-message.walkthrough">
+
+  <title>Walk-through</title>
+
+  <para>The message API is reached through its own header, alongside the examples'
+  support header:</para>
+
+  <programlisting>#include &lt;vws/message.h&gt;
+
+#include "vwsx.h"</programlisting>
+
+  <para>The connection is opened with the same helper as the basic client:</para>
+
+  <programlisting>vws_cnx* cnx = vwsx_connect(URI);</programlisting>
+
+  <para>A message is created with
+  <function><cr f="message.h">vrtql_msg_new</cr>()</function> and then populated:</para>
+
+  <programlisting>vrtql_msg* request = vrtql_msg_new();
+vrtql_msg_set_header(request, "action", "echo");
+vrtql_msg_set_content(request, "hello in a vrtql_msg");</programlisting>
+
+  <para><function><cr f="message.h">vrtql_msg_set_header</cr>()</function> adds an
+  entry to the headers map, which is free for application use, and
+  <function><cr f="message.h">vrtql_msg_set_content</cr>()</function> sets the
+  payload. (A <classname><cr f="message.h">vrtql_msg</cr></classname> also has a
+  routing map, set with
+  <function><cr f="message.h">vrtql_msg_set_routing</cr>()</function>, which this
+  program does not use.) The wire format — MessagePack or JSON — is carried in the
+  message's <varname>format</varname> field and auto-detected on receipt, so the
+  two may be mixed on one connection.</para>
+
+  <para>The message is sent with
+  <function><cr f="message.h">vrtql_msg_send</cr>()</function>:</para>
+
+  <programlisting>if (vrtql_msg_send(cnx, request) &lt; 0)
+{
+    vwsx_die("vrtql_msg_send() failed");
+}</programlisting>
+
+  <para>It serialises the message and writes it to the connection, returning the
+  bytes written or a value less than zero on error.
+  <function><cr f="message.h">vrtql_msg_send</cr>()</function> does
+  <emphasis>not</emphasis> take ownership of the request, so the program frees it
+  later.</para>
+
+  <para>The reply is read with
+  <function><cr f="message.h">vrtql_msg_recv</cr>()</function>, which returns a
+  deserialised message or <literal>NULL</literal> on timeout, and its content is
+  printed:</para>
+
+  <programlisting>vrtql_msg* reply = vrtql_msg_recv(cnx);
+if (reply == NULL)
+{
+    vwsx_die("vrtql_msg_recv() returned NULL");
+}
+
+printf("client-message: reply content (%zu bytes): %s\n",
+       vrtql_msg_get_content_size(reply),
+       vrtql_msg_get_content(reply));</programlisting>
+
+  <para><function><cr f="message.h">vrtql_msg_get_content</cr>()</function> returns
+  the reply's payload and
+  <function><cr f="message.h">vrtql_msg_get_content_size</cr>()</function> its
+  length. Both the reply and the request are then released with
+  <function><cr f="message.h">vrtql_msg_free</cr>()</function>, and the connection
+  is closed and freed:</para>
+
+  <programlisting>vrtql_msg_free(reply);
+vrtql_msg_free(request);
+
+vws_disconnect(cnx);
+vws_cnx_free(cnx);</programlisting>
+
+</section>
+
+<section xml:id="ws.ex.client-message.build">
+
+  <title>Building and Running</title>
+
+  <para>Like the other examples it builds against installed libvws plus the
+  examples' <filename>libvwsx</filename>, through the companion repository's build.
+  It expects a message server on <literal>localhost</literal> port
+  <literal>8181</literal>, so start the server of
+  <xref linkend="ws.ex.server-message"/> first, then run the client:</para>
+
+  <screen><prompt>$</prompt> ./client-message
+client-message: reply content (20 bytes): hello in a vrtql_msg</screen>
+
+  <para>The reply is the server's echo of the message that was sent.</para>
+
+</section>
+
+<section xml:id="ws.ex.client-message.seealso">
+
+  <title>See Also</title>
+
+  <para>The message type and its calls are documented in the Message API section
+  of the API chapter. This is the structured-messaging counterpart of the
+  raw-WebSocket client in <xref linkend="ws.ex.client-basic"/>, and the server that
+  answers it is <xref linkend="ws.ex.server-message"/>.</para>
+
+</section>
+
+</chapter>

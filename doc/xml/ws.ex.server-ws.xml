@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<chapter version="5.0"
+    xml:id="ws.ex.server-ws"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>A WebSocket Server</title>
+
+<section xml:id="ws.ex.server-ws.overview">
+
+  <title>Overview</title>
+
+  <para>The <filename>server-ws</filename> program is a WebSocket echo server. It
+  uses the WebSocket server layer
+  (<classname><cr f="server.h">vws_svr</cr></classname>), which is built on the
+  core TCP server but operates on fully-formed WebSocket messages. Each message it
+  receives is echoed back, preserving the original opcode so that text stays text
+  and binary stays binary.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-ws.program">
+
+  <title>The Program</title>
+
+  <para>The complete program follows. It is generated from
+  <filename>server-ws.c</filename> in the companion examples repository.</para>
+
+  <sourcecode href="server-ws.c"/>
+
+</section>
+
+<section xml:id="ws.ex.server-ws.walkthrough">
+
+  <title>Walk-through</title>
+
+  <para>The server header and the examples' support header are included:</para>
+
+  <programlisting>#include &lt;vws/server.h&gt;
+
+#include "vwsx.h"</programlisting>
+
+  <para>The per-message hook echoes each inbound message. It receives the server,
+  the connection id, the incoming
+  <classname><cr f="websocket.h">vws_msg</cr></classname>, and the worker context
+  (unused here):</para>
+
+  <programlisting>static void echo(vws_svr* server, vws_cid_t cid, vws_msg* m, void* ctx)
+{
+    (void)ctx;
+
+    vws_msg* reply = vws_msg_new();
+    reply-&gt;opcode  = m-&gt;opcode;
+    vws_buffer_append(reply-&gt;data, m-&gt;data-&gt;data, m-&gt;data-&gt;size);
+
+    server-&gt;send(server, cid, reply, NULL);
+
+    vws_msg_free(m);
+}</programlisting>
+
+  <para>The reply is a new message that copies the incoming opcode — preserving
+  the message type — and appends the incoming payload with
+  <function><cr f="vws.h">vws_buffer_append</cr>()</function>. It is sent through
+  the server's <varname>send</varname> member, which takes ownership of the reply
+  and frees it; the handler therefore frees only the incoming message, with
+  <function><cr f="websocket.h">vws_msg_free</cr>()</function>.</para>
+
+  <para>The server is created in <function>main</function> and the handler is
+  installed on the correct hook:</para>
+
+  <programlisting>vws_svr* server = vws_svr_new(10, 0, 0);
+
+if (server == NULL)
+{
+    vwsx_die("vws_svr_new() failed");
+}
+
+server-&gt;process_ws = echo;</programlisting>
+
+  <para>The handler is assigned to <varname>process_ws</varname>, the hook the
+  framework invokes for each decoded WebSocket message. It must not be assigned to
+  the server's internal <varname>on_msg_in</varname> dispatcher, which is the code
+  that calls <varname>process_ws</varname>.</para>
+
+  <para>Finally the server is wired to stop on a signal and run:</para>
+
+  <programlisting>vwsx_serve_stop_on_signal((vws_tcp_svr*)server);
+
+vws_tcp_svr_run((vws_tcp_svr*)server, HOST, PORT);
+
+vws_svr_free(server);</programlisting>
+
+  <para>A <classname><cr f="server.h">vws_svr</cr></classname> embeds a
+  <classname><cr f="server.h">vws_tcp_svr</cr></classname> as its first member and
+  is driven through that base: both the stop-on-signal helper and the blocking
+  <function><cr f="server.h">vws_tcp_svr_run</cr>()</function> are passed the server
+  through a <type>(vws_tcp_svr*)</type> cast. Only the base server exposes a stop
+  entry point — <function><cr f="server.h">vws_tcp_svr_stop</cr>()</function> — so a
+  derived server is always stopped through it. When the run returns,
+  <function><cr f="server.h">vws_svr_free</cr>()</function> releases the
+  server.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-ws.build">
+
+  <title>Building and Running</title>
+
+  <para>Like the core server, this needs libvws built with
+  <filename>libuv</filename> support, and builds against it and the examples'
+  <filename>libvwsx</filename>. Start the server, then drive it with the basic
+  client of <xref linkend="ws.ex.client-basic"/>:</para>
+
+  <screen><prompt>$</prompt> ./server-ws
+server-ws: echo server on ws://127.0.0.1:8181/websocket (Ctrl-C to stop)</screen>
+
+  <para>Each message the client sends is echoed back unchanged. Press
+  <literal>Ctrl-C</literal> to stop the server.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-ws.seealso">
+
+  <title>See Also</title>
+
+  <para>The WebSocket server is documented in the Server API section of the API
+  chapter. It is built on the core server of
+  <xref linkend="ws.ex.server-core"/>, shares the same server type with the HTTP
+  handler of <xref linkend="ws.ex.server-http"/>, and is exercised by the client in
+  <xref linkend="ws.ex.client-basic"/>.</para>
+
+</section>
+
+</chapter>

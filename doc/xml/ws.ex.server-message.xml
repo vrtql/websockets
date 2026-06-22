@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<chapter version="5.0"
+    xml:id="ws.ex.server-message"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>A Message Server</title>
+
+<section xml:id="ws.ex.server-message.overview">
+
+  <title>Overview</title>
+
+  <para>The <filename>server-message</filename> program is the server counterpart
+  to the messaging client. It uses the message server layer
+  (<classname><cr f="server.h">vrtql_msg_svr</cr></classname>), which operates on
+  structured <classname><cr f="message.h">vrtql_msg</cr></classname> messages —
+  routing and header maps and a content buffer — rather than raw WebSocket
+  messages. It echoes each message back, preserving its serialisation
+  format.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-message.program">
+
+  <title>The Program</title>
+
+  <para>The complete program follows. It is generated from
+  <filename>server-message.c</filename> in the companion examples repository.</para>
+
+  <sourcecode href="server-message.c"/>
+
+</section>
+
+<section xml:id="ws.ex.server-message.walkthrough">
+
+  <title>Walk-through</title>
+
+  <para>Both the server and message headers are needed, with the support
+  header:</para>
+
+  <programlisting>#include &lt;vws/server.h&gt;
+#include &lt;vws/message.h&gt;
+
+#include "vwsx.h"</programlisting>
+
+  <para>The hook echoes each inbound message. It is declared with the base
+  <classname><cr f="server.h">vws_svr</cr></classname> pointer but operates on a
+  <classname><cr f="message.h">vrtql_msg</cr></classname>:</para>
+
+  <programlisting>static void echo(vws_svr* s, vws_cid_t cid, vrtql_msg* m, void* ctx)
+{
+    (void)ctx;
+
+    vrtql_msg* reply = vrtql_msg_new();
+    reply-&gt;format    = m-&gt;format;
+    vws_buffer_append(reply-&gt;content, m-&gt;content-&gt;data, m-&gt;content-&gt;size);
+
+    ((vrtql_msg_svr*)s)-&gt;send(s, cid, reply, NULL);
+
+    vrtql_msg_free(m);
+}</programlisting>
+
+  <para>The reply mirrors the request's <varname>format</varname> — keeping the
+  response in the same wire format, JSON or MessagePack — and copies the request's
+  content buffer into the reply's with
+  <function><cr f="vws.h">vws_buffer_append</cr>()</function>. The reply is sent
+  through the message server's own send function, reached by casting the base
+  pointer back to its real type: <literal>((vrtql_msg_svr*)s)-&gt;send</literal>.
+  This matters because the base
+  <classname><cr f="server.h">vws_svr</cr></classname>'s send expects a
+  <classname><cr f="websocket.h">vws_msg</cr></classname>, whereas the reply here
+  is a <classname><cr f="message.h">vrtql_msg</cr></classname>; the message
+  server's send is the one that accepts it. As with the WebSocket server, send
+  takes ownership of the reply, so the handler frees only the incoming
+  message.</para>
+
+  <para>The server is created and the handler installed on its hook:</para>
+
+  <programlisting>vrtql_msg_svr* server = vrtql_msg_svr_new(10, 0, 0);
+
+if (server == NULL)
+{
+    vwsx_die("vrtql_msg_svr_new() failed");
+}
+
+server-&gt;process = echo;</programlisting>
+
+  <para>The handler is assigned to <varname>process</varname>, the message server's
+  per-message hook — again not the internal <varname>on_msg_in</varname>
+  dispatcher. The server then runs and stops through the base type, exactly as the
+  other servers do:</para>
+
+  <programlisting>vwsx_serve_stop_on_signal((vws_tcp_svr*)server);
+
+vws_tcp_svr_run((vws_tcp_svr*)server, HOST, PORT);
+
+vrtql_msg_svr_free(server);</programlisting>
+
+  <para>A <classname><cr f="server.h">vrtql_msg_svr</cr></classname> is driven
+  through its base, so the stop-on-signal helper and the blocking
+  <function><cr f="server.h">vws_tcp_svr_run</cr>()</function> both take the server
+  via a <type>(vws_tcp_svr*)</type> cast;
+  <function><cr f="server.h">vrtql_msg_svr_free</cr>()</function> then releases
+  it.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-message.build">
+
+  <title>Building and Running</title>
+
+  <para>The message server needs libvws built with <filename>libuv</filename>
+  support. Start it, then drive it with the messaging client of
+  <xref linkend="ws.ex.client-message"/>:</para>
+
+  <screen><prompt>$</prompt> ./server-message
+server-message: vrtql_msg echo server on ws://127.0.0.1:8181/websocket (Ctrl-C to stop)</screen>
+
+  <para>Each structured message the client sends is echoed back in the same
+  serialisation format. Press <literal>Ctrl-C</literal> to stop the server.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-message.seealso">
+
+  <title>See Also</title>
+
+  <para>The message server is documented in the Server API and Message API
+  sections of the API chapter. Its client counterpart is
+  <xref linkend="ws.ex.client-message"/>, and it is layered on the raw-WebSocket
+  server of <xref linkend="ws.ex.server-ws"/>.</para>
+
+</section>
+
+</chapter>

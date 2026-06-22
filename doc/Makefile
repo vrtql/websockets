@@ -13,8 +13,24 @@ all:	xml/doc.mod includes ws
 xml/doc.mod: xml/doc.mod.in
 	cp $< $@
 
-includes: include/*
+# Companion example programs, pinned to a known-good tag, fetched at build time
+# so the walkthrough chapters include their real, compiling source (no drift, no
+# vendoring). Network is required at doc-build (a deliberate tradeoff). Re-fetch
+# by removing $(EXAMPLES_DIR).
+EXAMPLES_REPO ?= https://github.com/vrtql/websockets-examples.git
+EXAMPLES_TAG  ?= v0.1.0
+EXAMPLES_DIR  ?= examples
+
+$(EXAMPLES_DIR):
+	git clone --depth 1 --branch $(EXAMPLES_TAG) $(EXAMPLES_REPO) $(EXAMPLES_DIR)
+
+.PHONY: fetch-examples
+fetch-examples: $(EXAMPLES_DIR)
+
+includes: include/* fetch-examples
 	./scripts/makeincludes.sh
+	./scripts/makeincludes.sh $(EXAMPLES_DIR)/client
+	./scripts/makeincludes.sh $(EXAMPLES_DIR)/server
 
 ws: xml/doc.mod xml/* xml/ includes
 	cd $(HTML_DIR) && xsltproc -o $@ -path $(DOCBOOKDTD) \

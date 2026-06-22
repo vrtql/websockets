@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<chapter version="5.0"
+    xml:id="ws.ex.server-core"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>A Core Data Server</title>
+
+<section xml:id="ws.ex.server-core.overview">
+
+  <title>Overview</title>
+
+  <para>The <filename>server-core</filename> program is the simplest server: it
+  works at the lowest layer, the core TCP server
+  (<classname><cr f="server.h">vws_tcp_svr</cr></classname>), which deals in raw
+  inbound bytes rather than WebSocket messages, and echoes whatever it receives. It
+  also shows the per-worker thread context — a constructor and destructor that give
+  each worker thread its own state, delivered to the data callback as its
+  <varname>ctx</varname> argument.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-core.program">
+
+  <title>The Program</title>
+
+  <para>The complete program follows. It is generated from
+  <filename>server-core.c</filename> in the companion examples repository.</para>
+
+  <sourcecode href="server-core.c"/>
+
+</section>
+
+<section xml:id="ws.ex.server-core.walkthrough">
+
+  <title>Walk-through</title>
+
+  <para>The server API is declared by one header, with the examples' support
+  header alongside it:</para>
+
+  <programlisting>#include &lt;vws/server.h&gt;
+
+#include "vwsx.h"</programlisting>
+
+  <para>Each worker thread is given its own context by a constructor and
+  destructor. Here the context is just a label, to show the lifecycle:</para>
+
+  <programlisting>static void* worker_ctor(void* data)
+{
+    (void)data;
+    return vws.strdup("worker-ctx");
+}
+
+static void worker_dtor(void* ctx)
+{
+    vws.free(ctx);
+}</programlisting>
+
+  <para>The constructor's return value becomes the <varname>ctx</varname> passed to
+  the data callback on that thread, and the destructor frees it when the thread
+  exits. <varname>vws.strdup</varname> and <varname>vws.free</varname> are the
+  library's allocator-aware helpers. A real server would use this context for
+  per-thread resources such as a database handle.</para>
+
+  <para>The processing callback echoes the inbound bytes. It receives a
+  <classname><cr f="server.h">vws_svr_data</cr></classname> — a heap-allocated blob
+  carrying the received bytes, the originating connection id, and a back pointer to
+  the server — and the worker context (unused here):</para>
+
+  <programlisting>static void echo(vws_svr_data* req, void* ctx)
+{
+    (void)ctx;
+
+    char* data = (char*)vws.malloc(req-&gt;size);
+    memcpy(data, req-&gt;data, req-&gt;size);
+
+    vws_svr_data* reply = vws_svr_data_own(req-&gt;server, req-&gt;cid,
+                                           (ucstr)data, req-&gt;size);
+
+    vws_svr_data_free(req);
+    vws_tcp_svr_send(reply);
+}</programlisting>
+
+  <para>The handler copies the request payload into a fresh buffer and wraps it in
+  a response with
+  <function><cr f="server.h">vws_svr_data_own</cr>()</function>, which takes
+  ownership of that buffer and binds the reply to the same connection id. The
+  original request is released with
+  <function><cr f="server.h">vws_svr_data_free</cr>()</function>, and the reply is
+  queued for the networking thread with
+  <function><cr f="server.h">vws_tcp_svr_send</cr>()</function>.</para>
+
+  <para>The server is created and wired up in <function>main</function>:</para>
+
+  <programlisting>vws_tcp_svr* server = vws_tcp_svr_new(10, 0, 0);
+
+if (server == NULL)
+{
+    vwsx_die("vws_tcp_svr_new() failed");
+}
+
+server-&gt;on_data_in  = echo;
+server-&gt;worker_ctor = worker_ctor;
+server-&gt;worker_dtor = worker_dtor;</programlisting>
+
+  <para><function><cr f="server.h">vws_tcp_svr_new</cr>()</function> takes three
+  arguments: the number of worker threads, the listen backlog, and the
+  request/response queue size; passing zero for either of the latter two selects
+  its default (128 and 1024 respectively). The echo handler is installed on
+  <varname>on_data_in</varname> and the worker hooks on
+  <varname>worker_ctor</varname> and <varname>worker_dtor</varname>.</para>
+
+  <para>The server is then set up to stop cleanly, run, and be freed:</para>
+
+  <programlisting>vwsx_serve_stop_on_signal(server);
+
+vws_tcp_svr_run(server, HOST, PORT);
+
+vws_tcp_svr_free(server);</programlisting>
+
+  <para><function>vwsx_serve_stop_on_signal</function> installs
+  <literal>SIGINT</literal>/<literal>SIGTERM</literal> handlers that stop the
+  server; because this is the base server, it is passed directly, with no cast.
+  <function><cr f="server.h">vws_tcp_svr_run</cr>()</function> then blocks, serving
+  connections until a signal triggers
+  <function><cr f="server.h">vws_tcp_svr_stop</cr>()</function>, after which
+  <function><cr f="server.h">vws_tcp_svr_free</cr>()</function> releases the
+  server.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-core.build">
+
+  <title>Building and Running</title>
+
+  <para>The server component depends on <filename>libuv</filename>, so libvws must
+  have been built with the server enabled; the example builds against that and the
+  examples' <filename>libvwsx</filename>. Run it and it listens on
+  <literal>127.0.0.1</literal> port <literal>8183</literal>, echoing back the raw
+  bytes of whatever is sent to it:</para>
+
+  <screen><prompt>$</prompt> ./server-core
+server-core: raw echo server on 127.0.0.1:8183 (Ctrl-C to stop)</screen>
+
+  <para>Because this is the raw data layer, it performs no WebSocket handshake; it
+  is the foundation on which the WebSocket, HTTP and message servers of the
+  following chapters are built. Press <literal>Ctrl-C</literal> to stop it.</para>
+
+</section>
+
+<section xml:id="ws.ex.server-core.seealso">
+
+  <title>See Also</title>
+
+  <para>The server model and its calls are documented in the Server API section of
+  the API chapter. The WebSocket, HTTP and message servers in
+  <xref linkend="ws.ex.server-ws"/>, <xref linkend="ws.ex.server-http"/> and
+  <xref linkend="ws.ex.server-message"/> are layered on this core server, and the
+  worker-thread context shown here applies to each of them.</para>
+
+</section>
+
+</chapter>

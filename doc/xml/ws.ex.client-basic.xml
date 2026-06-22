@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE book [
+<!ENTITY % doc.mod SYSTEM "doc.mod" >
+%doc.mod;
+]>
+
+<chapter version="5.0"
+    xml:id="ws.ex.client-basic"
+    xmlns="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:mml="http://www.w3.org/1998/Math/MathML"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:db="http://docbook.org/ns/docbook">
+
+<title>A Basic Client</title>
+
+<section xml:id="ws.ex.client-basic.overview">
+
+  <title>Overview</title>
+
+  <para>The <filename>client-basic</filename> program is the smallest complete
+  libvws WebSocket client. It connects to a server, sends a single text frame and
+  then a small binary message, prints the echoed reply to each, and disconnects.
+  It exercises the core of the synchronous client API — opening a connection,
+  sending a frame and a message, and the blocking receive.</para>
+
+  <para>The connection setup uses the examples' <function>vwsx_connect</function>
+  helper, which is simply <function><cr f="websocket.h">vws_cnx_new</cr>()</function>
+  followed by <function><cr f="websocket.h">vws_connect</cr>()</function>, exiting
+  with a message on failure. Everything after the connection is opened is done
+  with the real libvws calls.</para>
+
+</section>
+
+<section xml:id="ws.ex.client-basic.program">
+
+  <title>The Program</title>
+
+  <para>The complete program follows. It is generated from
+  <filename>client-basic.c</filename> in the companion examples repository.</para>
+
+  <sourcecode href="client-basic.c"/>
+
+</section>
+
+<section xml:id="ws.ex.client-basic.walkthrough">
+
+  <title>Walk-through</title>
+
+  <para>The program needs the WebSocket API header and the examples' support
+  header:</para>
+
+  <programlisting>#include &lt;vws/websocket.h&gt;
+
+#include "vwsx.h"</programlisting>
+
+  <para>The connection is opened in a single call:</para>
+
+  <programlisting>vws_cnx* cnx = vwsx_connect(URI);</programlisting>
+
+  <para><function>vwsx_connect</function> performs
+  <function><cr f="websocket.h">vws_cnx_new</cr>()</function> and then
+  <function><cr f="websocket.h">vws_connect</cr>()</function> against the URI
+  (<literal>ws://localhost:8181/websocket</literal>), exiting through
+  <function>vwsx_die</function> if either step fails; a <literal>wss</literal> URI
+  would negotiate TLS transparently. On return <varname>cnx</varname> is a
+  connected <classname><cr f="websocket.h">vws_cnx</cr></classname>.</para>
+
+  <para>The first exchange sends a single text frame:</para>
+
+  <programlisting>if (vws_frame_send_text(cnx, "hello over a text frame") &lt; 0)
+{
+    vwsx_die("vws_frame_send_text() failed");
+}</programlisting>
+
+  <para><function><cr f="websocket.h">vws_frame_send_text</cr>()</function> returns
+  the number of bytes written, or a value less than zero on error. The reply is
+  collected and printed by the program's <function>recv_and_print</function>
+  helper:</para>
+
+  <programlisting>vws_msg* reply = vws_msg_recv(cnx);
+
+if (reply == NULL)
+{
+    vwsx_die("vws_msg_recv() returned NULL waiting for %s", what);
+}
+
+printf("client-basic: %s reply -- %zu bytes (opcode %u): %.*s\n",
+       what,
+       reply-&gt;data-&gt;size,
+       reply-&gt;opcode,
+       (int)reply-&gt;data-&gt;size,
+       (const char*)reply-&gt;data-&gt;data);
+
+vws_msg_free(reply);</programlisting>
+
+  <para><function><cr f="websocket.h">vws_msg_recv</cr>()</function> blocks until a
+  complete message arrives and returns it, or returns <literal>NULL</literal> on
+  timeout. The payload bytes are <varname>reply-&gt;data-&gt;data</varname> and
+  their length is <varname>reply-&gt;data-&gt;size</varname>; the frame type is in
+  <varname>reply-&gt;opcode</varname>. Each received message is released with
+  <function><cr f="websocket.h">vws_msg_free</cr>()</function>.</para>
+
+  <para>The second exchange sends a four-byte binary message rather than a text
+  frame:</para>
+
+  <programlisting>const unsigned char payload[] = { 0x01, 0x02, 0x03, 0x04 };
+if (vws_msg_send_binary(cnx, (ucstr)payload, sizeof(payload)) &lt; 0)
+{
+    vwsx_die("vws_msg_send_binary() failed");
+}</programlisting>
+
+  <para>Unlike the frame call,
+  <function><cr f="websocket.h">vws_msg_send_binary</cr>()</function> takes an
+  explicit length, so the payload may contain embedded NUL bytes. Its reply is
+  received and printed by the same helper.</para>
+
+  <para>Finally the program shuts the connection down in two steps:</para>
+
+  <programlisting>vws_disconnect(cnx);
+vws_cnx_free(cnx);</programlisting>
+
+  <para><function><cr f="websocket.h">vws_disconnect</cr>()</function> performs an
+  orderly WebSocket close and
+  <function><cr f="websocket.h">vws_cnx_free</cr>()</function> releases the
+  connection object; after this the connection must not be used again.</para>
+
+</section>
+
+<section xml:id="ws.ex.client-basic.build">
+
+  <title>Building and Running</title>
+
+  <para>The example builds against an installed libvws together with the small
+  examples-support library (<filename>libvwsx</filename>); the companion
+  repository's build does this for you. It expects a WebSocket server on
+  <literal>localhost</literal> port <literal>8181</literal>, so start the server
+  of <xref linkend="ws.ex.server-ws"/> first, then run the client:</para>
+
+  <screen><prompt>$</prompt> ./client-basic</screen>
+
+  <para>It prints two lines: the echoed text reply (23 bytes — the
+  <literal>hello over a text frame</literal> string) and the echoed binary reply
+  (four bytes), each tagged with its byte count and opcode as the server returned
+  them.</para>
+
+</section>
+
+<section xml:id="ws.ex.client-basic.seealso">
+
+  <title>See Also</title>
+
+  <para>The connection, frame and message calls used here are documented in the
+  Client API section of the API chapter. The structured-messaging counterpart to
+  this program is <xref linkend="ws.ex.client-message"/>, and the server that
+  echoes its messages back is <xref linkend="ws.ex.server-ws"/>.</para>
+
+</section>
+
+</chapter>
