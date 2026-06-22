@@ -875,6 +875,17 @@ void worker_thread(void* arg)
 
 void vws_tcp_svr_uv_close(vws_tcp_svr* server, uv_handle_t* handle)
 {
+    // Guard against a redundant close. Under reconnect-with-inflight two
+    // cnx-teardown paths can reach the SAME handle (svr_on_read's EOF
+    // close, the uv_thread CLOSE-response close, peer_disconnect, the run()
+    // sweep). libuv asserts !uv__is_closing on a second uv_close and aborts the
+    // process, so every cnx-teardown close funnels through here and becomes a
+    // no-op once the handle is already closing.
+    if (uv_is_closing(handle) != 0)
+    {
+        return;
+    }
+
     uv_close(handle, svr_on_close);
 }
 
@@ -935,7 +946,7 @@ void uv_thread(uv_async_t* handle)
             {
                 // Close connections
                 vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
-                uv_close((uv_handle_t*)cnx->handle, svr_on_close);
+                vws_tcp_svr_uv_close(server, (uv_handle_t*)cnx->handle);
             }
 
             vws_svr_data_free(data);
@@ -1302,7 +1313,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     //> Shutdown server
 
     // Close the listening socket handle
-    uv_close((uv_handle_t*)socket, svr_on_close);
+    vws_tcp_svr_uv_close(server, (uv_handle_t*)socket);
 
     vws.trace( VL_INFO, "vws_tcp_svr_run(%p): Shutdown connections=%lu",
                server,
@@ -1326,7 +1337,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
                            cnx->handle );
             }
 
-            uv_close((uv_handle_t*)cnx->handle, svr_on_close);
+            vws_tcp_svr_uv_close(server, (uv_handle_t*)cnx->handle);
         }
     }
 
@@ -1637,7 +1648,7 @@ bool vws_tcp_svr_peer_connect(vws_tcp_svr* s, vws_peer* peer, void* x)
 void vws_tcp_svr_peer_disconnect(vws_tcp_svr* s, vws_peer* peer)
 {
     // Close the server-side connection
-    uv_close((uv_handle_t*)peer->info.cnx->handle, svr_on_close);
+    vws_tcp_svr_uv_close(s, (uv_handle_t*)peer->info.cnx->handle);
 }
 
 vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
@@ -2096,13 +2107,18 @@ void svr_on_connect(uv_stream_t* socket, int status)
             // the handle + cinfo; cid is invalid so no cnx cleanup runs) rather
             // than leaking it on the early return.
             vws.error(VE_RT, "Failed to start reading from client");
-            uv_close((uv_handle_t*)c, svr_on_close);
+            vws_tcp_svr_uv_close(server, (uv_handle_t*)c);
             return;
         }
     }
     else
     {
-        uv_close((uv_handle_t*)c, svr_on_close);
+        // Accept failed: close the handle AND return. Without the return the
+        // path fell through to svr_cnx_new() + on_connect() on a closing handle
+        // -- a spurious connection (and, with the shutdown sweep, a candidate
+        // double-close). The read_start-fail arm above already returns.
+        vws_tcp_svr_uv_close(server, (uv_handle_t*)c);
+        return;
     }
 
     //> Add connection to registry and initialize
@@ -2131,7 +2147,7 @@ void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
 
     if (nread < 0)
     {
-        uv_close((uv_handle_t*)c, svr_on_close);
+        vws_tcp_svr_uv_close(server, (uv_handle_t*)c);
         vws.free(buf->base);
         return;
     }

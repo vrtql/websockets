@@ -308,6 +308,22 @@ if(BUILD_SERVER)
     COMMAND valgrind --leak-check=full --show-reachable=yes
             --suppressions=valgrind.suppress ./test_svr_sp5 )
   add_dependencies(test_svr_sp5 static_test_lib static_lib)
+
+  # SP6: teardown-safety regression (FIX-NOW #1 double uv_close + #3 accept-fail
+  # fall-through, ticket 7247dcc924). #include-server.c isolation; one-shot ld
+  # --wrap=uv_accept drives svr_on_connect's accept-failure arm. Self-bounding
+  # harness (own-loop unit for #1 + bounded live server, watchdog, stop/join).
+  add_executable(test_svr_sp6 test_svr_sp6.c)
+  target_include_directories(test_svr_sp6 PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_options(test_svr_sp6 PRIVATE -Wl,--wrap=uv_accept)
+  target_link_libraries(test_svr_sp6 PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_sp6 COMMAND test_svr_sp6)
+  add_custom_target(test_svr_sp6_leakcheck
+    COMMAND valgrind --leak-check=full --show-reachable=yes
+            --suppressions=valgrind.suppress ./test_svr_sp6 )
+  add_dependencies(test_svr_sp6 static_test_lib static_lib)
 endif()
 
 # client/server test programs
