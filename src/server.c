@@ -1404,11 +1404,30 @@ void vws_tcp_svr_stop(vws_tcp_svr* server)
 
     uv_async_send(server->wakeup);
 
-    while (server->state != VS_HALTED)
+    // Bound the shutdown drain (a57b5e8ad7 / cea2369900 #4). The original loop
+    // waited forever for VS_HALTED: if a uv handle never finishes closing — e.g.
+    // a connection dropped with unflushed inflight data leaves a write/handle
+    // whose close never completes — the loop never observes VS_HALTED and stop()
+    // hangs the caller indefinitely. Cap the wait so stop() always returns within
+    // a bounded budget; on timeout we proceed best-effort (the process is
+    // shutting down regardless) rather than block the caller forever.
+    const int drain_budget_ms = 15000;   // bounded shutdown budget
+    const int poll_ms         = 100;     // finer granularity than the old 1000ms
+    int       waited_ms       = 0;
+
+    while (server->state != VS_HALTED && waited_ms < drain_budget_ms)
     {
-        // uv_sleep() is portable (POSIX sleep() is unavailable on Windows);
-        // 1000 ms matches the original sleep(1). This is a libuv TU already.
-        uv_sleep(1000);
+        // uv_sleep() is portable (POSIX sleep() is unavailable on Windows).
+        uv_sleep(poll_ms);
+        waited_ms += poll_ms;
+    }
+
+    if (server->state != VS_HALTED)
+    {
+        vws.error( VE_RT,
+                   "vws_tcp_svr_stop(): drain did not reach VS_HALTED within "
+                   "%d ms; returning best-effort (a handle may not have closed)",
+                   drain_budget_ms );
     }
 }
 
