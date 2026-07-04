@@ -190,6 +190,20 @@ endif()
 
 add_test(NAME test_message COMMAND test_message)
 
+# regression guard. vrtql_msg_deserialize
+# must reject a JSON message with a non-string routing/header value instead of
+# crashing on strlen(NULL) in vws_kvs_set_cstring.
+add_executable(test_msg_json_nonstr test_msg_json_nonstr.c)
+target_include_directories(test_msg_json_nonstr PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_link_libraries(test_msg_json_nonstr PRIVATE static_lib ${OS_LIBS} -lm)
+
+if(WIN32)
+  target_link_libraries(test_msg_json_nonstr PRIVATE ws2_32)
+endif()
+
+add_test(NAME test_msg_json_nonstr COMMAND test_msg_json_nonstr)
+
 add_custom_target(test_message_leakcheck
   COMMAND valgrind --leak-check=full --show-reachable=yes
           --suppressions=valgrind.suppress ./test_message )

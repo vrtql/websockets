@@ -376,6 +376,18 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             while ((key = yyjson_obj_iter_next(&iter)))
             {
                 value = yyjson_obj_iter_get_val(key);
+
+                // A non-string value yields NULL from yyjson_get_str(), which
+                // vws_kvs_set_cstring() would pass to strlen() -> crash. Reject
+                // the message instead, matching the content-string guard below.
+                if (!yyjson_is_str(value))
+                {
+                    vws.error(VE_RT, "Invalid JSON: routing value not a string");
+                    yyjson_doc_free(doc);
+
+                    return false;
+                }
+
                 vws_kvs_set_cstring( msg->routing,
                                      yyjson_get_str(key),
                                      yyjson_get_str(value) );
@@ -395,6 +407,17 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             while ((key = yyjson_obj_iter_next(&iter)))
             {
                 value = yyjson_obj_iter_get_val(key);
+
+                // See routing loop above: a non-string value would reach
+                // strlen(NULL) in vws_kvs_set_cstring(). Reject instead.
+                if (!yyjson_is_str(value))
+                {
+                    vws.error(VE_RT, "Invalid JSON: header value not a string");
+                    yyjson_doc_free(doc);
+
+                    return false;
+                }
+
                 vws_kvs_set_cstring( msg->headers,
                                      yyjson_get_str(key),
                                      yyjson_get_str(value) );
