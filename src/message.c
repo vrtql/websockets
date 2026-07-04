@@ -177,7 +177,7 @@ vws_buffer* vrtql_msg_serialize(vrtql_msg* msg)
             char buf[256];
             cstr text = mpack_error_to_string(rc);
             snprintf(buf, sizeof(buf), "Encoding errror: %s", text);
-            vws.error(VE_RT, buf);
+            vws.error(VE_RT, "%s", buf);
 
             vws_buffer_free(buffer);
             return NULL;
@@ -337,7 +337,7 @@ bool vrtql_msg_deserialize(vrtql_msg* msg, ucstr data, size_t length)
             char buf[256];
             cstr text = mpack_error_to_string(rc);
             snprintf(buf, sizeof(buf), "Decoding errror: %s", text);
-            vws.error(VE_RT, buf);
+            vws.error(VE_RT, "%s", buf);
 
             return false;
         }

@@ -90,7 +90,10 @@ bool vrtql_rpc_invoke(vrtql_rpc* rpc, vrtql_msg* req)
 
     if ((rc != NULL) && (msg != NULL))
     {
-        vws.error(atoi(rc), msg);
+        // Pass the peer-supplied message as a %s argument, not as the format
+        // string: vws.error() is printf-style, so a reply whose "m" header
+        // contains format specifiers must not be interpreted as a format.
+        vws.error(atoi(rc), "%s", msg);
     }
     else
     {

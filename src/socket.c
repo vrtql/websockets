@@ -429,7 +429,7 @@ bool vws_socket_connect(vws_socket* c, cstr host, int port, bool ssl)
                       ssl_err == SSL_ERROR_SYSCALL ? "System call" :
                       ssl_err == SSL_ERROR_SSL ? "SSL protocol" : "Other",
                       ssl_err );
-            vws.error(VE_SYS, err_msg);
+            vws.error(VE_SYS, "%s", err_msg);
 
             vws_socket_close(c);
             return false;
@@ -1176,7 +1176,7 @@ vws_sockfd_t connect_to_host(const char* host, const char* port)
             char buf[256];
             int e = WSAGetLastError();
             snprintf(buf, sizeof(buf), "socket failed with error: %ld", e);
-            vws.error(VE_RT, buf);
+            vws.error(VE_RT, "%s", buf);
 
             WSACleanup();
             return VWS_INVALID_SOCKET;

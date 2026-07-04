@@ -281,6 +281,21 @@ endif()
 
 add_test(NAME test_rpc_notag COMMAND test_rpc_notag)
 
+# Regression guard: vrtql_rpc_invoke must not treat the peer "m" reply header as
+# a printf format string (drives a hostile "%s..." header through the real path).
+add_executable(test_rpc_fmt test_rpc_fmt.c)
+target_include_directories(test_rpc_fmt PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_link_options(test_rpc_fmt PRIVATE
+  -Wl,--wrap=vrtql_msg_send -Wl,--wrap=vrtql_msg_recv)
+target_link_libraries(test_rpc_fmt PRIVATE static_lib ${OS_LIBS} -lm)
+
+if(WIN32)
+  target_link_libraries(test_rpc_fmt PRIVATE ws2_32)
+endif()
+
+add_test(NAME test_rpc_fmt COMMAND test_rpc_fmt)
+
 # Regression guard: vws_kvs_set must replace an existing key in place rather than
 # append a duplicate (the map is single-valued: get/remove use bsearch).
 add_executable(test_kvs_dupset test_kvs_dupset.c)
