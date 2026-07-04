@@ -243,7 +243,10 @@ url_get_protocol (const char* url) {
   char *protocol = (char *) malloc(URL_PROTOCOL_MAX_LENGTH);
   if (!protocol) return NULL;
 
-  sscanf(url, "%[^://]", protocol);
+  // Bound the scanset to the buffer: the field width must leave room for the
+  // NUL, so it is URL_PROTOCOL_MAX_LENGTH-1 (=31). Without it, a scheme prefix
+  // longer than the buffer overflows the heap allocation.
+  sscanf(url, "%31[^://]", protocol);
   if (url_is_protocol(protocol)) return protocol;
 
   free(protocol);

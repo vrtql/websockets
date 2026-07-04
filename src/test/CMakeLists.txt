@@ -142,6 +142,18 @@ endif()
 
 add_test(NAME test_url COMMAND test_url)
 
+# regression guard. url_get_protocol must
+# not overflow its fixed 32-byte buffer on a long scheme prefix. Built with ASan
+# and url.c compiled in-tree so the buffer is an instrumented allocation; on the
+# buggy source ASan aborts on the overflow write, on the fixed source it exits 0.
+add_executable(test_url_overflow test_url_overflow.c ../url.c)
+target_include_directories(test_url_overflow PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_compile_options(test_url_overflow PRIVATE -fsanitize=address)
+target_link_options(test_url_overflow PRIVATE -fsanitize=address)
+
+add_test(NAME test_url_overflow COMMAND test_url_overflow)
+
 add_custom_target(test_url_leakcheck
   COMMAND valgrind --leak-check=full --show-reachable=yes
           --suppressions=valgrind.suppress ./test_url )
