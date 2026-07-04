@@ -401,6 +401,23 @@ if(BUILD_SERVER)
     COMMAND valgrind --leak-check=full --show-reachable=yes
             --suppressions=valgrind.suppress ./test_svr_uafopen )
   add_dependencies(test_svr_uafopen static_test_lib static_lib)
+
+  # the bind/listen fail arm must uv_close the registered listen
+  # handle (freeing handle + its ci via svr_on_close_discard) not leak both.
+  # RED #includes server.c; drives the bind-fail arm (held port) then the real
+  # dtor teardown so only genuine orphans remain. Functional cell is the ctest
+  # gate; the leak is surfaced by the _leakcheck evidence target (LSan/valgrind
+  # reports 424 bytes -- 248 handle + 176 ci -- against the pre-fix source).
+  add_executable(test_svr_cileak test_svr_cileak.c)
+  target_include_directories(test_svr_cileak PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_cileak PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_cileak COMMAND test_svr_cileak)
+  add_custom_target(test_svr_cileak_leakcheck
+    COMMAND valgrind --leak-check=full --show-reachable=yes
+            --suppressions=valgrind.suppress ./test_svr_cileak )
+  add_dependencies(test_svr_cileak static_test_lib static_lib)
 endif()
 
 # client/server test programs

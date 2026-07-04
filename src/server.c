@@ -1278,6 +1278,11 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     if (rc)
     {
         vws.error(VE_RT, "Bind error %s", uv_strerror(rc));
+
+        // the listen handle is registered in the loop (uv_tcp_init
+        // succeeded), so uv_close it (freeing the handle + its ci via
+        // svr_on_close_discard) rather than leaking both on the early return.
+        uv_close((uv_handle_t*)socket, svr_on_close_discard);
         return -1;
     }
 
@@ -1288,6 +1293,9 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     if (rc)
     {
         vws.error(VE_RT, "Listen error %s", uv_strerror(rc));
+
+        // same as the bind arm above -- close the registered handle.
+        uv_close((uv_handle_t*)socket, svr_on_close_discard);
         return -1;
     }
 
