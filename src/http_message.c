@@ -114,6 +114,8 @@ vws_http_msg* vws_http_msg_new(int mode)
     req->value            = vws_buffer_new();
     req->headers_complete = false;
     req->done             = false;
+    req->header_bytes     = 0;
+    req->max_header_size  = VWS_MAX_HTTP_HEADER_SIZE;
     req->headers          = vws_kvs_new(10, false); // Case-insensitive headers
 
     llhttp_settings_init(req->settings);
@@ -186,6 +188,17 @@ int on_header_field(llhttp_t* p, cstr at, size_t l)
 {
     vws_http_msg* req = p->data;
 
+    // Bound total header bytes (field-name + value) for the request. Fail the
+    // parse before appending so a client streaming many headers -- or one
+    // enormous header -- cannot grow the buffers without limit during the
+    // upgrade handshake. A non-zero return makes llhttp_execute fail, so
+    // vws_http_msg_parse returns -1 and the server replies 431 and closes.
+    req->header_bytes += l;
+    if (req->header_bytes > req->max_header_size)
+    {
+        return -1;
+    }
+
     process_header(req);
 
     // Start new field
@@ -197,6 +210,14 @@ int on_header_field(llhttp_t* p, cstr at, size_t l)
 int on_header_value(llhttp_t* p, cstr at, size_t l)
 {
     vws_http_msg* req = p->data;
+
+    // Same bound as on_header_field (see there): fail before appending.
+    req->header_bytes += l;
+    if (req->header_bytes > req->max_header_size)
+    {
+        return -1;
+    }
+
     vws_buffer_append(req->value, (ucstr)at, l);
 
     return 0;

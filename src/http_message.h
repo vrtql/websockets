@@ -8,6 +8,14 @@
 extern "C" {
 #endif
 
+// Maximum accepted total header bytes (sum of header field-name and value
+// bytes) for a single HTTP request. Bounds the request during the upgrade
+// handshake so a client streaming many headers -- or one enormous header value
+// -- cannot grow the header buffers without limit and exhaust memory before the
+// request completes. Compile-time default; overridable per message via
+// vws_http_msg.max_header_size.
+#define VWS_MAX_HTTP_HEADER_SIZE (64u * 1024u)  // 64 KiB
+
 /**
  * @struct vws_http_msg
  * @brief Structure representing an HTTP request
@@ -40,6 +48,14 @@ typedef struct vws_http_msg
 
     /** Flag indicates a complete message has been parsed. */
     bool done;
+
+    /** Running total of header field-name + value bytes seen so far. */
+    size_t header_bytes;
+
+    /** Maximum accepted total header bytes for this request. A request whose
+     *  headers exceed this fails the parse (the callback returns an error).
+     *  Default VWS_MAX_HTTP_HEADER_SIZE; settable (config-overridable). */
+    size_t max_header_size;
 } vws_http_msg;
 
 /**

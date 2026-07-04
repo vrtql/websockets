@@ -2624,6 +2624,29 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
         size_t size = c->base.buffer->size;
         ssize_t n   = vws_http_msg_parse(cnx->http, (cstr)data, size);
 
+        // Fatal parse error before the request completed. If the header-size
+        // cap was exceeded, reply 431 (Request Header Fields Too Large, RFC
+        // 6585) before closing; either way close the connection rather than
+        // keep buffering a broken/oversized request pre-handshake.
+        if (n < 0)
+        {
+            if (cnx->http->header_bytes > cnx->http->max_header_size)
+            {
+                vws_buffer* http = vws_buffer_new();
+                vws_buffer_printf(http,
+                    "HTTP/1.1 431 Request Header Fields Too Large\r\n");
+                vws_buffer_printf(http, "Connection: close\r\n");
+                vws_buffer_printf(http, "Content-Length: 0\r\n\r\n");
+
+                vws_svr_data* reply = vws_svr_data_new(cnx->server, cnx->cid, &http);
+                cnx->server->on_data_out(reply, NULL);
+                vws_buffer_free(http);
+            }
+
+            svr_cnx_close(cnx->server, cnx->cid);
+            return;
+        }
+
         // Did we get a complete request?
         if (cnx->http->headers_complete == true)
         {

@@ -456,6 +456,18 @@ if(BUILD_SERVER)
     static_test_lib static_lib ${OS_LIBS} -lm)
   add_test(NAME test_svr_msgflood COMMAND test_svr_msgflood)
   add_dependencies(test_svr_msgflood static_test_lib static_lib)
+
+  # HTTP upgrade header-size cap: a client must not grow the request header
+  # buffers without bound (pre-auth). RED #includes server.c; drives the server
+  # ingress with an over-cap header stream and requires a 431 + close, plus an
+  # under-cap control that still upgrades (101).
+  add_executable(test_http_hdrflood test_http_hdrflood.c)
+  target_include_directories(test_http_hdrflood PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_http_hdrflood PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_http_hdrflood COMMAND test_http_hdrflood)
+  add_dependencies(test_http_hdrflood static_test_lib static_lib)
 endif()
 
 # client/server test programs
