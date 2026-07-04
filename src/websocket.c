@@ -18,97 +18,7 @@
 
 #define MAX_BUFFER_SIZE 1024
 
-/** @brief Defines the various states of a WebSocket connection */
-typedef enum
-{
-    /** The connection with the client is closed. */
-    CNX_CLOSED = 0,
 
-    /** The connection with the client is established and open. */
-    CNX_CONNECTED = (1 << 1),
-
-    /** The connection with the client is in the process of being closed. */
-    CNX_CLOSING = (1 << 2),
-
-    /** The connection with the client is in the initial SSL handshake phase. */
-    CNX_SSL_INIT = (1 << 3),
-
-    /** The connection is in server mode. */
-    CNX_SERVER = (1 << 4)
-
-} cnx_flags_t;
-
-/** @brief Defines WebSocket close reason codes for CLOSE frames */
-typedef enum
-{
-    /** Normal Closure. This means that the purpose for which the connection was
-     * established has been fulfilled. */
-    WS_CLOSE_NORMAL = 1000,
-
-    /** Going Away. A server is going down, a browser has navigated away from a
-     * page, etc. */
-    WS_CLOSE_GOING_AWAY = 1001,
-
-    /** Protocol Error. The endpoint is terminating the connection due to a
-     * protocol error. */
-    WS_CLOSE_PROTOCOL_ERROR = 1002,
-
-    /** Unsupported Data. The connection is being terminated because an endpoint
-     * received a type of data it cannot accept. */
-    WS_CLOSE_UNSUPPORTED = 1003,
-
-    /** Reserved. The specific meaning might be defined in the future. */
-    WS_CLOSE_RESERVED = 1004,
-
-    /** No Status Received. Reserved value. The connection is closed with no
-     * status code. */
-    WS_CLOSE_NO_STATUS = 1005,
-
-    /** Abnormal Closure. Reserved value. The connection is closed with no
-     * status code. */
-    WS_CLOSE_ABNORMAL = 1006,
-
-    /** Invalid frame payload data. The endpoint is terminating the connection
-     * because a message was received that contains inconsistent data. */
-    WS_CLOSE_INVALID_PAYLOAD = 1007,
-
-    /** Policy Violation. The endpoint is terminating the connection because it
-     * received a message that violates its policy. */
-    WS_CLOSE_POLICY_VIOLATION = 1008,
-
-    /** Message Too Big. The endpoint is terminating the connection because a
-     * data frame was received that is too large. */
-    WS_CLOSE_TOO_BIG = 1009,
-
-    /** Missing Extension. The client is terminating the connection because it
-     * wanted the server to negotiate one or more extension, but the server
-     * didn't. */
-    WS_CLOSE_MISSING_EXTENSION = 1010,
-
-    /** Internal Error. The server is terminating the connection because it
-     * encountered an unexpected condition that prevented it from fulfilling the
-     * request. */
-    WS_CLOSE_INTERNAL_ERROR = 1011,
-
-    /** Service Restart. The server is terminating the connection because it is
-     * restarting. */
-    WS_CLOSE_SERVICE_RESTART = 1012,
-
-    /** Try Again Later. The server is terminating the connection due to a
-     * temporary condition, e.g. it is overloaded and is casting off some of its
-     * clients. */
-    WS_CLOSE_TRY_AGAIN_LATER = 1013,
-
-    /** Bad Gateway. The server was acting as a gateway or proxy and received an
-     * invalid response from the upstream server. This is similar to 502 HTTP
-     * Status Code. */
-    WS_CLOSE_BAD_GATEWAY = 1014,
-
-    /** TLS handshake. Reserved value. The connection is closed due to a failure
-     * to perform a TLS handshake. */
-    WS_CLOSE_TLS_HANDSHAKE = 1015
-
-} ws_close_code_t;
 
 //------------------------------------------------------------------------------
 // Internal functions
@@ -314,6 +224,10 @@ vws_cnx* vws_cnx_ctor(vws_cnx* c)
     c->data       = NULL;
 
     sc_queue_init(&c->queue);
+
+    // Default the reassembly cap (settable post-construction, e.g. by
+    // the broker from app.conf). msg_bytes is 0 from the memset above.
+    c->max_message_size = VWS_MAX_MESSAGE_SIZE;
 
     return c;
 }
@@ -927,6 +841,7 @@ vws_buffer* vws_serialize(vws_frame* f)
 // broker message-size profile if larger frames are required.
 #define VWS_MAX_FRAME_SIZE (64u * 1024u * 1024u)   // 64 MiB
 
+
 fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
 {
     // Check if the data contains the minimum required frame header bytes
@@ -1069,8 +984,33 @@ void process_frame(vws_cnx* c, vws_frame* f)
         case BINARY_FRAME:
         case CONTINUATION_FRAME:
         {
+            // Bound the in-progress reassembled message. Accumulate
+            // the queued frame bytes; if this message's aggregate exceeds the
+            // cap, send a 1009 (Message Too Big) close, flag the connection
+            // closing, and drop the frame instead of queuing without limit.
+            c->msg_bytes += f->size;
+            if (c->msg_bytes > c->max_message_size)
+            {
+                vws_set_flag(&c->flags, CNX_CLOSING);
+
+                vws_buffer* buffer = vws_generate_close_frame_code(WS_CLOSE_TOO_BIG);
+                vws_socket_write((vws_socket*)c, buffer->data, buffer->size);
+                vws_buffer_free(buffer);
+
+                vws_frame_free(f);
+                c->msg_bytes = 0;
+
+                break;
+            }
+
             // Add to queue
             sc_queue_add_first(&c->queue, f);
+
+            // Message complete: reset the aggregate for the next message.
+            if (f->fin == 1)
+            {
+                c->msg_bytes = 0;
+            }
 
             break;
         }
@@ -1259,18 +1199,23 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
     return total_consumed;
 }
 
-vws_buffer* vws_generate_close_frame()
+vws_buffer* vws_generate_close_frame_code(int16_t code)
 {
     size_t size   = sizeof(int16_t);
     int16_t* data = vws.malloc(size);
 
     // Convert to network byte order before assignement
-    *data        = htons(WS_CLOSE_NORMAL);
+    *data        = htons(code);
     vws_frame* f = vws_frame_new((ucstr)data, size, CLOSE_FRAME);
 
     vws.free(data);
 
     return vws_serialize(f);
+}
+
+vws_buffer* vws_generate_close_frame()
+{
+    return vws_generate_close_frame_code(WS_CLOSE_NORMAL);
 }
 
 vws_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s)

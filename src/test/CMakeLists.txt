@@ -444,6 +444,18 @@ if(BUILD_SERVER)
     static_test_lib static_lib ${OS_LIBS} -lm)
   add_test(NAME test_svr_bindfail COMMAND test_svr_bindfail)
   add_dependencies(test_svr_bindfail static_test_lib static_lib)
+
+  # Message-reassembly cap: a peer must not grow the per-connection reassembly
+  # queue without bound (fin-less continuation flood). RED #includes server.c;
+  # floods ws_svr_process_frame past the aggregate cap and requires a 1009 close
+  # + bounded queue, plus an under-cap control that still assembles + delivers.
+  add_executable(test_svr_msgflood test_svr_msgflood.c)
+  target_include_directories(test_svr_msgflood PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_msgflood PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_msgflood COMMAND test_svr_msgflood)
+  add_dependencies(test_svr_msgflood static_test_lib static_lib)
 endif()
 
 # client/server test programs

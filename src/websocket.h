@@ -18,6 +18,93 @@
 extern "C" {
 #endif
 
+// Maximum accepted AGGREGATE size of one reassembled (multi-frame)
+// message -- the sum of queued frame bytes for a single in-progress message.
+// DISTINCT from VWS_MAX_FRAME_SIZE (which caps ONE frame, websocket.c): without
+// this a peer streaming continuation frames (fin=0) that each pass the per-frame
+// cap grows the reassembly queue without bound and exhausts memory. Compile-time
+// default; overridable per connection via cnx->max_message_size (broker sets it
+// from app.conf).
+#define VWS_MAX_MESSAGE_SIZE (64u * 1024u * 1024u)  // 64 MiB
+
+//------------------------------------------------------------------------------
+// Connection state / close codes (public: server.c and callers reference these)
+//------------------------------------------------------------------------------
+
+/** @brief Defines the various states of a WebSocket connection */
+typedef enum
+{
+    /** The connection with the client is closed. */
+    CNX_CLOSED = 0,
+
+    /** The connection with the client is established and open. */
+    CNX_CONNECTED = (1 << 1),
+
+    /** The connection with the client is in the process of being closed. */
+    CNX_CLOSING = (1 << 2),
+
+    /** The connection with the client is in the initial SSL handshake phase. */
+    CNX_SSL_INIT = (1 << 3),
+
+    /** The connection is in server mode. */
+    CNX_SERVER = (1 << 4)
+
+} cnx_flags_t;
+
+/** @brief Defines WebSocket close reason codes for CLOSE frames */
+typedef enum
+{
+    /** Normal Closure. */
+    WS_CLOSE_NORMAL = 1000,
+
+    /** Going Away. */
+    WS_CLOSE_GOING_AWAY = 1001,
+
+    /** Protocol Error. */
+    WS_CLOSE_PROTOCOL_ERROR = 1002,
+
+    /** Unsupported Data. */
+    WS_CLOSE_UNSUPPORTED = 1003,
+
+    /** Reserved. */
+    WS_CLOSE_RESERVED = 1004,
+
+    /** No Status Received. */
+    WS_CLOSE_NO_STATUS = 1005,
+
+    /** Abnormal Closure. */
+    WS_CLOSE_ABNORMAL = 1006,
+
+    /** Invalid frame payload data. */
+    WS_CLOSE_INVALID_PAYLOAD = 1007,
+
+    /** Policy Violation. */
+    WS_CLOSE_POLICY_VIOLATION = 1008,
+
+    /** Message Too Big. The endpoint is terminating the connection because a
+     * data frame (or reassembled message) was received that is too large. */
+    WS_CLOSE_TOO_BIG = 1009,
+
+    /** Missing Extension. */
+    WS_CLOSE_MISSING_EXTENSION = 1010,
+
+    /** Internal Error. */
+    WS_CLOSE_INTERNAL_ERROR = 1011,
+
+    /** Service Restart. */
+    WS_CLOSE_SERVICE_RESTART = 1012,
+
+    /** Try Again Later. */
+    WS_CLOSE_TRY_AGAIN_LATER = 1013,
+
+    /** Bad Gateway. */
+    WS_CLOSE_BAD_GATEWAY = 1014,
+
+    /** TLS handshake failure. */
+    WS_CLOSE_TLS_HANDSHAKE = 1015
+
+} ws_close_code_t;
+
 //------------------------------------------------------------------------------
 // Frame
 //------------------------------------------------------------------------------
@@ -141,6 +228,14 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed);
 vws_buffer* vws_generate_close_frame();
 
 /**
+ * @brief Generates a CLOSE frame carrying a specific status code.
+ *
+ * @param code The WebSocket close status code (e.g. WS_CLOSE_TOO_BIG).
+ * @return A serialized CLOSE frame buffer.
+ */
+vws_buffer* vws_generate_close_frame_code(int16_t code);
+
+/**
  * @brief Generates a pong frame in response to a received ping frame.
  *
  * @param ping_data The data from the received ping frame.
@@ -262,6 +357,17 @@ typedef struct vws_cnx
 
     /**< User-defined data associated with the connection */
     char* data;
+
+    /**< Aggregate bytes of the in-progress (multi-frame) message;
+         accumulated as frames are queued, reset when a message completes
+         (fin=1). */
+    size_t msg_bytes;
+
+    /**< Maximum aggregate bytes for one reassembled message. A peer
+         whose in-progress message exceeds this is sent a 1009 close and the
+         connection is closed instead of buffering without limit. Default
+         VWS_MAX_MESSAGE_SIZE; settable (broker overrides from app.conf). */
+    size_t max_message_size;
 
 } vws_cnx;
 

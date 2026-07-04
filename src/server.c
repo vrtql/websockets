@@ -2484,8 +2484,36 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
         case BINARY_FRAME:
         case CONTINUATION_FRAME:
         {
+            // Bound the in-progress reassembled message (twin of
+            // websocket.c process_frame). Accumulate the queued frame bytes; if
+            // this message's aggregate exceeds the cap, send a 1009 (Message Too
+            // Big) close to the client, flag the connection closing, drop the
+            // frame, and stop queuing instead of buffering without limit.
+            c->msg_bytes += f->size;
+            if (c->msg_bytes > c->max_message_size)
+            {
+                vws_buffer* buffer =
+                    vws_generate_close_frame_code(WS_CLOSE_TOO_BIG);
+                vws_svr_data* response =
+                    vws_svr_data_new(cnx->server, cnx->cid, &buffer);
+                vws_tcp_svr_send(response);
+                vws_buffer_free(buffer);
+
+                vws_set_flag(&c->flags, CNX_CLOSING);
+                vws_frame_free(f);
+                c->msg_bytes = 0;
+
+                break;
+            }
+
             // Add to queue
             sc_queue_add_first(&c->queue, f);
+
+            // Message complete: reset the aggregate for the next message.
+            if (f->fin == 1)
+            {
+                c->msg_bytes = 0;
+            }
 
             break;
         }
