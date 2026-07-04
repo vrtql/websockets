@@ -7,12 +7,42 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__linux__) || defined(__bsd__) || defined(__sunos__)
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#endif
+
 #include "server.h"
 #include "websocket.h"
 
 //------------------------------------------------------------------------------
 // Internal functions
 //------------------------------------------------------------------------------
+
+// [36dd9deecb Phase-0 #2, Mike-authorized 2026-07-04] Enable OS-level dead-peer
+// detection on an accepted/adopted connection. Without this an accepted fd has
+// SO_KEEPALIVE=0, so a dead or half-open peer (network partition / power-off /
+// cable pull -- no FIN) is only detected after the ~2h OS default, stranding
+// the connection slot and any queued state. uv_tcp_keepalive turns on
+// SO_KEEPALIVE with an idle interval; TCP_USER_TIMEOUT (Linux) additionally
+// bounds unacknowledged in-flight data so a stalled send is dropped promptly.
+// Best-effort: failures are non-fatal (the connection still works, just
+// without accelerated dead-peer detection).
+static void vws_enable_keepalive(uv_tcp_t* handle)
+{
+    // SO_KEEPALIVE on, start probing after 30s idle.
+    uv_tcp_keepalive(handle, 1, 30);
+
+#if defined(TCP_USER_TIMEOUT)
+    uv_os_fd_t fd;
+    if (uv_fileno((uv_handle_t*)handle, &fd) == 0)
+    {
+        int ms = 20000;   // drop after 20s of unacknowledged data
+        setsockopt((int)fd, IPPROTO_TCP, TCP_USER_TIMEOUT, &ms, sizeof(ms));
+    }
+#endif
+}
 
 void vws_cid_clear(vws_cid_t* cid)
 {
@@ -1023,6 +1053,10 @@ void uv_thread(uv_async_t* handle)
                 uv_close((uv_handle_t*)c, svr_on_close_discard);
                 return;
             }
+
+            // [36dd9deecb Phase-0 #2] OS-level dead-peer detection on the
+            // adopted peer fd (same as the accept path).
+            vws_enable_keepalive(c);
 
             // Create socket info structure
             vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
@@ -2172,6 +2206,9 @@ void svr_on_connect(uv_stream_t* socket, int status)
 
     if (uv_accept(socket, (uv_stream_t*)c) == 0)
     {
+        // [36dd9deecb Phase-0 #2] OS-level dead-peer detection on the accepted fd.
+        vws_enable_keepalive(c);
+
         if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
         {
             // C-SVR-2: the handle is already registered + the fd adopted, so it
