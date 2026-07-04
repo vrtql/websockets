@@ -735,6 +735,21 @@ size_t vws_kvs_size(vws_kvs* m)
 
 void vws_kvs_set(vws_kvs* m, const char* key, void* data, size_t size)
 {
+    // The map is single-valued (get/remove use bsearch), so an existing key
+    // must be replaced in place rather than appended. Appending a duplicate
+    // left get() returning an arbitrary entry and remove()/clear() deleting
+    // only one, so a re-set key could not be cleared. Replace here.
+    vws_value* existing = vws_kvs_get(m, key);
+    if (existing != NULL)
+    {
+        void* data_copy = malloc(size);
+        memcpy(data_copy, data, size);
+        free(existing->data);
+        existing->data = data_copy;
+        existing->size = size;
+        return;
+    }
+
     if (m->used == m->size)
     {
         m->size *= 2;

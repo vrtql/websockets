@@ -281,6 +281,19 @@ endif()
 
 add_test(NAME test_rpc_notag COMMAND test_rpc_notag)
 
+# Regression guard: vws_kvs_set must replace an existing key in place rather than
+# append a duplicate (the map is single-valued: get/remove use bsearch).
+add_executable(test_kvs_dupset test_kvs_dupset.c)
+target_include_directories(test_kvs_dupset PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_link_libraries(test_kvs_dupset PRIVATE static_lib ${OS_LIBS} -lm)
+
+if(WIN32)
+  target_link_libraries(test_kvs_dupset PRIVATE ws2_32)
+endif()
+
+add_test(NAME test_kvs_dupset COMMAND test_kvs_dupset)
+
 add_custom_target(test_rpc_cov_leakcheck
   COMMAND valgrind --leak-check=full --show-reachable=yes
           --suppressions=valgrind.suppress ./test_rpc_cov )
