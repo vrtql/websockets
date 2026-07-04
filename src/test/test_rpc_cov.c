@@ -56,7 +56,9 @@ int __wrap_RAND_bytes(unsigned char* buf, int num)
 ssize_t __wrap_vrtql_msg_send(vws_cnx* c, vrtql_msg* m)
 {
     (void)c;
-    cstr t = vrtql_msg_get_routing(m, "tag");
+    // Routing key aligned to "t" : exec now tags the request with
+    // "t", matching the reply builder and the broker wire contract.
+    cstr t = vrtql_msg_get_routing(m, "t");
     if (t != NULL)
     {
         strncpy(g_sent_tag, t, sizeof(g_sent_tag) - 1);
@@ -82,7 +84,8 @@ vrtql_msg* __wrap_vrtql_msg_recv(vws_cnx* c)
     if (action == RV_GENERIC) { vws.e.code = VE_RT;      return NULL; }
 
     vrtql_msg* r = vrtql_msg_new();
-    vrtql_msg_set_routing(r, "tag",
+    // Echo the tag under key "t"  so exec's aligned read matches.
+    vrtql_msg_set_routing(r, "t",
                           action == RV_MISMATCH ? "WRONGTAG" : g_sent_tag);
     if (g_reply_c != NULL) vrtql_msg_set_header(r, "c", g_reply_c);
     if (g_reply_m != NULL) vrtql_msg_set_header(r, "m", g_reply_m);

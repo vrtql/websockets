@@ -110,9 +110,12 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
 {
     //> Send request
 
-    // Assign a tag to verify response
+    // Assign a tag to verify response. The routing key is "t" — the same key
+    // the reply builder (vrtql_rpc_reply) echoes and the broker wire contract
+    // uses. was "tag", which no reply carried, so the tag check
+    // below always saw NULL.
     cstr tag = vrtql_rpc_tag(7);
-    vrtql_msg_set_routing(req, "tag", tag);
+    vrtql_msg_set_routing(req, "t", tag);
 
     if (vws.tracelevel >= VT_SERVICE)
     {
@@ -169,11 +172,16 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
         // If we have a message
         if (reply != NULL)
         {
-            // Get message tag
-            cstr t = vrtql_msg_get_routing(reply, "tag");
+            // Get message tag (routing key "t", matching the request above and
+            // the reply builder).
+            cstr t = vrtql_msg_get_routing(reply, "t");
 
-            // If tags do not match
-            if (strncmp(tag, t, strlen(tag)) != 0)
+            // If there is no tag, or the tags do not match, this is not our
+            // response. t is NULL when a reply carries no "t"
+            // routing entry (a malformed or unrelated peer message); the old
+            // code passed NULL straight to strncmp() and crashed. Guard it and
+            // route the message to the out-of-band handler.
+            if (t == NULL || strncmp(tag, t, strlen(tag)) != 0)
             {
                 // This is not response message. Send to handler.
                 rpc->out_of_band(rpc, reply);

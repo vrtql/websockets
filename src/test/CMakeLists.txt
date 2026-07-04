@@ -265,6 +265,22 @@ endif()
 
 add_test(NAME test_rpc_cov COMMAND test_rpc_cov)
 
+# regression guard. vrtql_rpc_exec must
+# not crash on a reply carrying no tag routing entry; the recv wrap returns one
+# tagless reply then times out so the fixed retry loop drains and returns NULL.
+add_executable(test_rpc_notag test_rpc_notag.c)
+target_include_directories(test_rpc_notag PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_link_options(test_rpc_notag PRIVATE
+  -Wl,--wrap=vrtql_msg_send -Wl,--wrap=vrtql_msg_recv)
+target_link_libraries(test_rpc_notag PRIVATE static_lib ${OS_LIBS} -lm)
+
+if(WIN32)
+  target_link_libraries(test_rpc_notag PRIVATE ws2_32)
+endif()
+
+add_test(NAME test_rpc_notag COMMAND test_rpc_notag)
+
 add_custom_target(test_rpc_cov_leakcheck
   COMMAND valgrind --leak-check=full --show-reachable=yes
           --suppressions=valgrind.suppress ./test_rpc_cov )
