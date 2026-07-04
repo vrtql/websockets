@@ -382,6 +382,25 @@ if(BUILD_SERVER)
     COMMAND valgrind --leak-check=full --show-reachable=yes
             --suppressions=valgrind.suppress ./test_svr_reqleak )
   add_dependencies(test_svr_reqleak static_test_lib static_lib)
+
+  # adoption error arms must uv_close, not bare-free, a registered
+  # handle. RED #includes server.c; one-shot --wrap=uv_tcp_open forces the
+  # inetd adopt to fail after uv_tcp_init, then the real dtor uv_walk trips the
+  # UAF on the freed handle. Functional cell is the ctest gate; the UAF is
+  # surfaced by the _leakcheck evidence target (valgrind reports an invalid
+  # read/write in uv_walk against pre-fix -- the fault is inside libuv, so
+  # valgrind, not ASan, is the observer).
+  add_executable(test_svr_uafopen test_svr_uafopen.c)
+  target_include_directories(test_svr_uafopen PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_options(test_svr_uafopen PRIVATE -Wl,--wrap=uv_tcp_open)
+  target_link_libraries(test_svr_uafopen PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_uafopen COMMAND test_svr_uafopen)
+  add_custom_target(test_svr_uafopen_leakcheck
+    COMMAND valgrind --leak-check=full --show-reachable=yes
+            --suppressions=valgrind.suppress ./test_svr_uafopen )
+  add_dependencies(test_svr_uafopen static_test_lib static_lib)
 endif()
 
 # client/server test programs

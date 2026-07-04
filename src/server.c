@@ -247,6 +247,7 @@ static void on_uv_close(uv_handle_t* handle);
  * @param arg    Optional argument passed to the function (not used in this case).
  */
 static void on_uv_walk(uv_handle_t* handle, void* arg);
+static void svr_on_close_discard(uv_handle_t* handle);
 
 /**
  * @brief Callback for new client connection.
@@ -1014,9 +1015,12 @@ void uv_thread(uv_async_t* handle)
 
             if (uv_tcp_open(c, peer->sockfd))
             {
-                // Handle uv_tcp_open failure.
+                // Handle uv_tcp_open failure. Handle is registered in the loop;
+                // uv_close (not bare free) to avoid a dangling handle_queue node
+                // (UAF at teardown's uv_walk). No cinfo yet, so data is NULL.
                 vws.error(VE_RT, "Failed to adopt the socket descriptor.");
-                vws.free(c);
+                c->data = NULL;
+                uv_close((uv_handle_t*)c, svr_on_close_discard);
                 return;
             }
 
@@ -1029,9 +1033,11 @@ void uv_thread(uv_async_t* handle)
             // Start reads on socket
             if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
             {
+                // Handle + adopted fd registered; uv_close (not bare free) so the
+                // handle leaves the loop queue cleanly and the fd is closed. The
+                // close cb frees both the handle and its cinfo (on ->data).
                 vws.error(VE_RT, "Failed to start reading from client");
-                vws.free(c);
-                vws.free(ci);
+                uv_close((uv_handle_t*)c, svr_on_close_discard);
                 return;
             }
 
@@ -1476,9 +1482,13 @@ int vws_tcp_svr_inetd_run(vws_tcp_svr* server, vws_sockfd_t sockfd)
 
     if (uv_tcp_open(c, sockfd))
     {
-        // Handle uv_tcp_open failure.
+        // Handle uv_tcp_open failure. The handle is already registered in the
+        // loop (uv_tcp_init succeeded), so it must be uv_close'd -- a bare free
+        // leaves a dangling node in loop->handle_queue (UAF at teardown's
+        // uv_walk). No cinfo yet, so data is NULL.
         vws.error(VE_RT, "Failed to adopt the socket descriptor.");
-        vws.free(c);
+        c->data = NULL;
+        uv_close((uv_handle_t*)c, svr_on_close_discard);
         return 1;
     }
 
@@ -1491,9 +1501,11 @@ int vws_tcp_svr_inetd_run(vws_tcp_svr* server, vws_sockfd_t sockfd)
     // Start reads on socket
     if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
     {
+        // Handle + adopted fd are registered; uv_close (not bare free) so the
+        // handle leaves the loop queue cleanly and the fd is closed. The close
+        // cb frees both the handle and its cinfo (carried on ->data).
         vws.error(VE_RT, "Failed to start reading from client");
-        vws.free(c);
-        vws.free(ci);
+        uv_close((uv_handle_t*)c, svr_on_close_discard);
         return 1;
     }
 
@@ -1807,6 +1819,22 @@ void on_uv_walk(uv_handle_t* handle, void* arg)
     {
         uv_close(handle, (uv_close_cb)on_uv_close);
     }
+}
+
+// Close callback for a half-adopted handle that was registered in the loop
+// (uv_tcp_init succeeded) but failed a later adoption step (uv_tcp_open /
+// uv_read_start). It has no registered cnx, so there is no pool/cnx cleanup —
+// just free the optional cinfo carried on ->data and the handle itself. Freeing
+// such a handle bare (without uv_close) would leave a dangling node in
+// loop->handle_queue and a use-after-free at teardown's uv_walk.
+static void svr_on_close_discard(uv_handle_t* handle)
+{
+    if (handle->data != NULL)
+    {
+        vws.free(handle->data);
+    }
+
+    vws.free(handle);
 }
 
 void tcp_svr_dtor(vws_tcp_svr* svr)
