@@ -2060,17 +2060,27 @@ void svr_shutdown(vws_tcp_svr* server)
 
     //> Cleanup queues
 
-    vws_svr_queue* queue = &server->responses;
-    uv_mutex_lock(&queue->mutex);
-    while (queue->size > 0)
+    // Drain BOTH queues before destroy. queue_destroy frees only the ring
+    // buffer array, not the vws_svr_data items still resident in it. The
+    // requests queue can hold residual items at shutdown: once stop() flips
+    // its state to VS_HALTING, queue_pop returns NULL immediately (even with
+    // size>0), so worker threads stop draining with items still queued. Draining
+    // requests here, symmetric to responses, frees those items + their payloads.
+    vws_svr_queue* queues[2] = { &server->requests, &server->responses };
+    for (int i = 0; i < 2; i++)
     {
-        vws_svr_data* data = queue->buffer[queue->head];
-        queue->head        = (queue->head + 1) % queue->capacity;
-        queue->size--;
+        vws_svr_queue* queue = queues[i];
+        uv_mutex_lock(&queue->mutex);
+        while (queue->size > 0)
+        {
+            vws_svr_data* data = queue->buffer[queue->head];
+            queue->head        = (queue->head + 1) % queue->capacity;
+            queue->size--;
 
-        vws_svr_data_free(data);
+            vws_svr_data_free(data);
+        }
+        uv_mutex_unlock(&queue->mutex);
     }
-    uv_mutex_unlock(&queue->mutex);
 
     queue_destroy(&server->requests);
     queue_destroy(&server->responses);

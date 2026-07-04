@@ -366,6 +366,22 @@ if(BUILD_SERVER)
     COMMAND valgrind --leak-check=full --show-reachable=yes
             --suppressions=valgrind.suppress ./test_svr_sp6 )
   add_dependencies(test_svr_sp6 static_test_lib static_lib)
+
+  # shutdown must drain the requests queue before destroy. RED
+  # #includes server.c (statics shadow static_lib's server.o); queues one
+  # request resident at shutdown and drives svr_shutdown. Functional cell is
+  # the ctest gate; the leak is surfaced by the _leakcheck evidence target
+  # (valgrind reports 264 bytes leaked against the pre-fix source).
+  add_executable(test_svr_reqleak test_svr_reqleak.c)
+  target_include_directories(test_svr_reqleak PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_reqleak PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_reqleak COMMAND test_svr_reqleak)
+  add_custom_target(test_svr_reqleak_leakcheck
+    COMMAND valgrind --leak-check=full --show-reachable=yes
+            --suppressions=valgrind.suppress ./test_svr_reqleak )
+  add_dependencies(test_svr_reqleak static_test_lib static_lib)
 endif()
 
 # client/server test programs
