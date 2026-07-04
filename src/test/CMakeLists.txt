@@ -418,6 +418,19 @@ if(BUILD_SERVER)
     COMMAND valgrind --leak-check=full --show-reachable=yes
             --suppressions=valgrind.suppress ./test_svr_cileak )
   add_dependencies(test_svr_cileak static_test_lib static_lib)
+
+  # bind/listen failure must expose VS_FAILED, not leave the ctor
+  # VS_HALTED (indistinguishable from not-started -> caller spins forever).
+  # RED #includes server.c; holds a port then runs a second server on it so
+  # the bind fails synchronously, and asserts the post-fail state is VS_FAILED.
+  # A plain functional gate -- RED on the pre-fix source, GREEN after.
+  add_executable(test_svr_bindfail test_svr_bindfail.c)
+  target_include_directories(test_svr_bindfail PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_bindfail PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_bindfail COMMAND test_svr_bindfail)
+  add_dependencies(test_svr_bindfail static_test_lib static_lib)
 endif()
 
 # client/server test programs

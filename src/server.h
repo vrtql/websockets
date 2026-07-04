@@ -501,6 +501,10 @@ typedef enum
     /**< Server is not running */
     VS_HALTED  = 2,
 
+    /**< Server failed to start (bind/listen error); distinct from VS_HALTED so
+         a caller polling for startup can tell "failed" from "not yet started" */
+    VS_FAILED  = 3,
+
 } vws_tcp_svr_state_t;
 
 /**

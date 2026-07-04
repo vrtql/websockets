@@ -1283,6 +1283,10 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
         // succeeded), so uv_close it (freeing the handle + its ci via
         // svr_on_close_discard) rather than leaking both on the early return.
         uv_close((uv_handle_t*)socket, svr_on_close_discard);
+
+        // expose a distinct failure state so a caller polling for
+        // startup breaks instead of spinning forever on VS_HALTED.
+        server->state = VS_FAILED;
         return -1;
     }
 
@@ -1296,6 +1300,9 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
 
         // same as the bind arm above -- close the registered handle.
         uv_close((uv_handle_t*)socket, svr_on_close_discard);
+
+        // expose the failure state (see the bind arm above).
+        server->state = VS_FAILED;
         return -1;
     }
 
