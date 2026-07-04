@@ -2624,17 +2624,22 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
         size_t size = c->base.buffer->size;
         ssize_t n   = vws_http_msg_parse(cnx->http, (cstr)data, size);
 
-        // Fatal parse error before the request completed. If the header-size
-        // cap was exceeded, reply 431 (Request Header Fields Too Large, RFC
-        // 6585) before closing; either way close the connection rather than
-        // keep buffering a broken/oversized request pre-handshake.
+        // Fatal parse error before the request completed. If the total-request
+        // size cap was exceeded, reply with the matching status -- 414 (URI Too
+        // Long, RFC 7231) if the request-line tripped it, else 431 (Request
+        // Header Fields Too Large, RFC 6585) -- before closing. Either way close
+        // the connection rather than keep buffering an oversized/broken request
+        // pre-handshake.
         if (n < 0)
         {
-            if (cnx->http->header_bytes > cnx->http->max_header_size)
+            int status = cnx->http->oversize_status;
+
+            if (status == 414 || status == 431)
             {
+                cstr reason = (status == 414) ? "URI Too Long"
+                                              : "Request Header Fields Too Large";
                 vws_buffer* http = vws_buffer_new();
-                vws_buffer_printf(http,
-                    "HTTP/1.1 431 Request Header Fields Too Large\r\n");
+                vws_buffer_printf(http, "HTTP/1.1 %d %s\r\n", status, reason);
                 vws_buffer_printf(http, "Connection: close\r\n");
                 vws_buffer_printf(http, "Content-Length: 0\r\n\r\n");
 

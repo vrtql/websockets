@@ -8,13 +8,13 @@
 extern "C" {
 #endif
 
-// Maximum accepted total header bytes (sum of header field-name and value
-// bytes) for a single HTTP request. Bounds the request during the upgrade
-// handshake so a client streaming many headers -- or one enormous header value
-// -- cannot grow the header buffers without limit and exhaust memory before the
-// request completes. Compile-time default; overridable per message via
-// vws_http_msg.max_header_size.
-#define VWS_MAX_HTTP_HEADER_SIZE (64u * 1024u)  // 64 KiB
+// Maximum accepted total size of a single HTTP request -- the sum of the
+// request-line (URL), all header field-name and value bytes, and the body.
+// Bounds the request during the upgrade handshake so a client cannot grow the
+// url/header/body buffers without limit and exhaust memory before the request
+// completes. Compile-time default; overridable per message via
+// vws_http_msg.max_request_size.
+#define VWS_MAX_HTTP_REQUEST_SIZE (128u * 1024u)  // 128 KiB
 
 /**
  * @struct vws_http_msg
@@ -56,13 +56,20 @@ typedef struct vws_http_msg
      *  from a field name still being accumulated across split callbacks. */
     bool in_value;
 
-    /** Running total of header field-name + value bytes seen so far. */
-    size_t header_bytes;
+    /** Running total request size seen so far: URL + header field-name/value +
+     *  body bytes. */
+    size_t request_bytes;
 
-    /** Maximum accepted total header bytes for this request. A request whose
-     *  headers exceed this fails the parse (the callback returns an error).
-     *  Default VWS_MAX_HTTP_HEADER_SIZE; settable (config-overridable). */
-    size_t max_header_size;
+    /** Maximum accepted total request size. A request whose url/headers/body
+     *  together exceed this fails the parse (the callback returns an error).
+     *  Default VWS_MAX_HTTP_REQUEST_SIZE; settable (config-overridable). */
+    size_t max_request_size;
+
+    /** When the size cap is exceeded, the HTTP status the server should reply
+     *  before closing: 414 (URI Too Long) if the request-line tripped it, 431
+     *  (Request Header Fields Too Large) if a header or the body did; 0 if not
+     *  tripped. */
+    int oversize_status;
 } vws_http_msg;
 
 /**
