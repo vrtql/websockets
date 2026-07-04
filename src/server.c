@@ -2256,6 +2256,26 @@ void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
 
     if (nread < 0)
     {
+        // [36dd9deecb] Feed a PEER link's socket-close back to the peer state
+        // machine. An established peer's EOF was handled at the cnx level but
+        // never reset peer->state, so it stayed CONNECTED forever -> peer_loop's
+        // `if (state == VWS_PEER_CLOSED)` reconnect branch never re-fired -> the
+        // peer never reconnected when it returned. Match the peer by its
+        // connection cid.key (the VWS_SVR_STATE_PEER flag lives on cnx->cid, not
+        // this cinfo->cid copy) and mark it CLOSED so the reconnect re-arms; the
+        // bounded outbound backlog then drains + delivers on the peer's return.
+        for (size_t i = 0; i < server->peers->used; i++)
+        {
+            vws_peer* pr = (vws_peer*)server->peers->array[i].value.data;
+
+            if (pr != NULL && pr->state == VWS_PEER_CONNECTED
+                && pr->info.cid.key == cid.key)
+            {
+                pr->state = VWS_PEER_CLOSED;
+                break;
+            }
+        }
+
         vws_tcp_svr_uv_close(server, (uv_handle_t*)c);
         vws.free(buf->base);
         return;
