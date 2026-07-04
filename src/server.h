@@ -389,6 +389,15 @@ typedef struct vws_svr_cnx
      */
     vrtql_msg_format_t format;
 
+    /**< [36dd9deecb Primitive-D comp 3] Read-side flow control. When the
+     * request queue is full, svr_client_read uv_read_stop()s this socket (so
+     * the kernel applies TCP backpressure) rather than blocking the reactor in
+     * queue_push. read_paused records that; pending holds the one in-flight
+     * item that could not be pushed (at most one, since reads are stopped). On
+     * queue drain the reactor pushes `pending` and uv_read_start()s again. */
+    bool           read_paused;
+    vws_svr_data*  pending;
+
 } vws_svr_cnx;
 
 /**
@@ -533,6 +542,42 @@ typedef struct vws_tcp_svr
 
     /**< Number of threads in the worker pool */
     int pool_size;
+
+    /**< [36dd9deecb Primitive-D] Per-connection OUTBOUND write-queue byte cap.
+     * When libuv's queued-but-unsent write bytes for a connection would exceed
+     * this, the connection is SHED (force-closed) instead of growing the write
+     * heap unbounded (the slow-consumer -> OOM killer). 0 => the built-in
+     * default (2 x VWS_MAX_MESSAGE_SIZE). The effective cap is floored at
+     * 1 x VWS_MAX_MESSAGE_SIZE so a single legitimate max-size message can
+     * never be false-shed. Configurable by the app (broker sets from config). */
+    size_t write_queue_cap;
+
+    /**< [36dd9deecb Primitive-D comp 3] Count of connections whose reads are
+     * currently paused because the request queue was full. Workers signal the
+     * reactor (uv_async_send) to run a resume pass only while this is > 0. */
+    VWS_ATOMIC(int) reads_paused;
+
+    /**< [36dd9deecb grid.broker.* reliability config] Broker-settable defaults
+     * (from vrtql.conf grid.broker.*). In-code defaults below stand when the
+     * broker does not override, so behavior is unchanged by default. */
+
+    /**< SO_KEEPALIVE idle interval (seconds) applied to accepted/adopted fds.
+     * Default 30. */
+    int keepalive_idle_sec;
+
+    /**< TCP_USER_TIMEOUT (milliseconds) applied to accepted/adopted fds.
+     * Default 20000. */
+    int keepalive_user_timeout_ms;
+
+    /**< Server-side aggregate request-reassembly cap (bytes): a single
+     * in-progress reassembled message exceeding this gets a 1009 Too-Big close.
+     * Default VWS_MAX_MESSAGE_SIZE. */
+    size_t request_reassembly_cap;
+
+    /**< Server-level default per-connection max message size (bytes). New
+     * connections inherit this into cnx->max_message_size on accept. Default
+     * VWS_MAX_MESSAGE_SIZE. */
+    size_t max_message_size;
 
     /**< Thread handles */
     uv_thread_t* threads;

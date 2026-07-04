@@ -29,16 +29,19 @@
 // bounds unacknowledged in-flight data so a stalled send is dropped promptly.
 // Best-effort: failures are non-fatal (the connection still works, just
 // without accelerated dead-peer detection).
-static void vws_enable_keepalive(uv_tcp_t* handle)
+static void vws_enable_keepalive(vws_tcp_svr* server, uv_tcp_t* handle)
 {
-    // SO_KEEPALIVE on, start probing after 30s idle.
-    uv_tcp_keepalive(handle, 1, 30);
+    // SO_KEEPALIVE on, idle interval from the broker-settable config field
+    // (grid.broker.keepalive_idle_sec; default 30).
+    uv_tcp_keepalive(handle, 1, server->keepalive_idle_sec);
 
 #if defined(TCP_USER_TIMEOUT)
     uv_os_fd_t fd;
     if (uv_fileno((uv_handle_t*)handle, &fd) == 0)
     {
-        int ms = 20000;   // drop after 20s of unacknowledged data
+        // grid.broker.keepalive_user_timeout_ms (default 20000): drop after
+        // this many ms of unacknowledged data.
+        int ms = server->keepalive_user_timeout_ms;
         setsockopt((int)fd, IPPROTO_TCP, TCP_USER_TIMEOUT, &ms, sizeof(ms));
     }
 #endif
@@ -757,6 +760,8 @@ static void queue_destroy(vws_svr_queue* queue);
  * @ingroup QueueGroup
  */
 static void queue_push(vws_svr_queue* queue, vws_svr_data* data);
+static bool queue_try_push(vws_svr_queue* queue, vws_svr_data* data);
+static void svr_resume_paused_reads(vws_tcp_svr* server);
 
 /**
  * @brief Pops data from the server queue.
@@ -868,6 +873,15 @@ void worker_thread(void* arg)
         // This will put the thread to sleep on a condition variable until
         // something arrives in queue.
         vws_svr_data* request = queue_pop(&server->requests);
+
+        // [36dd9deecb Primitive-D comp 3] A slot just freed in the request
+        // queue. If any connection's reads were paused by backpressure, wake
+        // the reactor to run a resume pass (uv_read_start must run on the loop
+        // thread). uv_async_send coalesces, so this is cheap even under load.
+        if (atomic_load(&server->reads_paused) > 0)
+        {
+            uv_async_send(server->wakeup);
+        }
 
         // If there's no request (null request), check the server's state
         if (request == NULL)
@@ -1056,7 +1070,7 @@ void uv_thread(uv_async_t* handle)
 
             // [36dd9deecb Phase-0 #2] OS-level dead-peer detection on the
             // adopted peer fd (same as the accept path).
-            vws_enable_keepalive(c);
+            vws_enable_keepalive(server, c);
 
             // Create socket info structure
             vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
@@ -1110,6 +1124,15 @@ void uv_thread(uv_async_t* handle)
         }
     }
 
+    // [36dd9deecb Primitive-D comp 3] Resume any reads paused by request-queue
+    // backpressure now that workers have drained (this wakeup was signalled by
+    // a worker after a pop). Runs on the reactor thread, so uv_read_start is
+    // safe here.
+    if (atomic_load(&server->reads_paused) > 0)
+    {
+        svr_resume_paused_reads(server);
+    }
+
     // Call user-defined loop callback if defined
     if (server->loop_cb != NULL)
     {
@@ -1121,6 +1144,48 @@ void uv_thread(uv_async_t* handle)
     {
         // Set wakeup timer since we expect response from thread(s)
         vws_tcp_svr_peer_timer(server);
+    }
+}
+
+// [36dd9deecb Primitive-D comp 3] Reactor-thread resume pass. For each
+// connection whose reads were paused because the request queue was full, try
+// to push its stashed pending item now; on success, clear the pause and
+// restart reads (kernel TCP flow-control lifts). If the queue is still full,
+// leave the connection paused -- the next drain will signal another pass.
+static void svr_resume_paused_reads(vws_tcp_svr* server)
+{
+    address_pool* pool = server->cpool;
+
+    for (uint32_t i = 0; i < pool->capacity; i++)
+    {
+        uintptr_t ptr = pool->slots[i];
+        if (ptr == 0)
+        {
+            continue;
+        }
+
+        vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
+
+        if (cnx->read_paused == false || cnx->pending == NULL)
+        {
+            continue;
+        }
+
+        if (queue_try_push(&server->requests, cnx->pending) == false)
+        {
+            // Still full -- try again on the next drain signal.
+            continue;
+        }
+
+        cnx->pending     = NULL;
+        cnx->read_paused = false;
+        atomic_fetch_sub(&server->reads_paused, 1);
+
+        // Resume reading from this socket (unless it is closing).
+        if (uv_is_closing((uv_handle_t*)cnx->handle) == 0)
+        {
+            uv_read_start(cnx->handle, svr_on_realloc, svr_on_read);
+        }
     }
 }
 
@@ -1814,6 +1879,16 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->cnx_open_cb      = NULL;
     svr->cnx_close_cb     = NULL;
     svr->backlog          = backlog;
+    svr->write_queue_cap  = 0;   // 0 => default 2 x VWS_MAX_MESSAGE_SIZE
+    atomic_init(&svr->reads_paused, 0);
+
+    // [36dd9deecb grid.broker.* config] In-code defaults (broker overrides from
+    // vrtql.conf grid.broker.*); these preserve today's behavior.
+    svr->keepalive_idle_sec        = 30;
+    svr->keepalive_user_timeout_ms = 20000;
+    svr->request_reassembly_cap    = (size_t)VWS_MAX_MESSAGE_SIZE;
+    svr->max_message_size          = (size_t)VWS_MAX_MESSAGE_SIZE;
+
     svr->loop             = (uv_loop_t*)vws.malloc(sizeof(uv_loop_t));
     svr->state            = VS_HALTED;
     svr->trace            = vws.tracelevel;
@@ -1987,8 +2062,21 @@ void svr_client_read(vws_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
     // Store reference to server
     data->server = c->server;
 
-    // Put on queue
-    queue_push(&server->requests, data);
+    // [36dd9deecb Primitive-D comp 3] Non-blocking hand-off. This runs on the
+    // REACTOR thread; the old blocking queue_push froze the whole reactor when
+    // the request queue was full (reproduced: harness_backpressure ROW-6). If
+    // the queue is full, apply read-side TCP flow control instead: uv_read_stop
+    // this socket (the kernel stops accepting from the peer), stash the one
+    // in-flight item, and mark the connection paused. A worker signals the
+    // reactor on drain, which pushes the pending item and resumes reads. The
+    // reactor never blocks; nothing is dropped.
+    if (queue_try_push(&server->requests, data) == false)
+    {
+        uv_read_stop((uv_stream_t*)c->handle);
+        c->pending     = data;
+        c->read_paused = true;
+        atomic_fetch_add(&server->reads_paused, 1);
+    }
 }
 
 void svr_client_data_in(vws_svr_data* m, void* x)
@@ -2030,12 +2118,68 @@ void svr_client_data_out(vws_svr_data* data, void* x)
         return;
     }
 
+    uv_stream_t* handle = ((vws_svr_cnx*)ptr)->handle;
+
+    // If the connection is already being torn down (a prior shed, or a normal
+    // close in flight), drop this message: uv_write on a closing handle is
+    // invalid and a second uv_close would abort libuv. The cid lingers in the
+    // pool until svr_on_close runs, so without this guard the responses still
+    // queued to a just-shed cid would each re-enter the shed below and double-
+    // close. [36dd9deecb Primitive-D]
+    if (uv_is_closing((uv_handle_t*)handle))
+    {
+        vws_svr_data_free(data);
+        return;
+    }
+
+    // [36dd9deecb Primitive-D comp 1+2] Outbound backpressure cap + SHED.
+    // Without this, uv_write queues unboundedly for a slow/stalled consumer
+    // (TCP recv-window full) -> libuv write heap grows without limit -> broker
+    // OOM (reproduced: harness_backpressure ROW 5). Cap the per-connection
+    // queued write bytes; on exceed, drop this message and force-close the
+    // connection. The close runs normal teardown -> the consumer's bindings
+    // release -> each pending sender gets the EXISTING per-message M2 refused
+    // NACK (producer-paced request-reply, no mass-NACK blast) -> it reconnects
+    // when healthy (down-is-down).
+    size_t cap = data->server->write_queue_cap;
+    if (cap == 0)
+    {
+        cap = 2 * (size_t)VWS_MAX_MESSAGE_SIZE;   // default
+    }
+    if (cap < (size_t)VWS_MAX_MESSAGE_SIZE)
+    {
+        cap = (size_t)VWS_MAX_MESSAGE_SIZE;       // floor: never false-shed a
+                                                  // single legit max message
+    }
+
+    size_t queued = uv_stream_get_write_queue_size(handle);
+
+    if (queued + data->size > cap)
+    {
+        vws.error(VE_RT,
+                  "svr_client_data_out(): write-queue cap exceeded "
+                  "(%zu queued + %zu > %zu cap) -- shedding cid",
+                  queued, data->size, cap);
+
+        vws_svr_data_free(data);
+
+        // Force-close DIRECTLY on the loop thread (we are on it) via uv_close ->
+        // svr_on_close -> on_disconnect (bindings release -> the existing
+        // per-message M2 refused NACK to each pending sender). NOT the
+        // response-queue close (vws_tcp_svr_close), which would deadlock here:
+        // under a flood the response queue is full, so enqueuing a close from
+        // the loop thread would block in queue_push while the producer also
+        // blocks pushing -> hang. Direct uv_close has no queue round-trip.
+        vws_tcp_svr_uv_close(data->server, (uv_handle_t*)handle);
+
+        return;
+    }
+
     uv_buf_t buf    = uv_buf_init(data->data, data->size);
     uv_write_t* req = (uv_write_t*)vws.malloc(sizeof(uv_write_t));
     req->data       = data;
 
     // Write out to libuv
-    uv_stream_t* handle = ((vws_svr_cnx*)ptr)->handle;
     if (uv_write(req, handle, &buf, 1, svr_on_write_complete) != 0)
     {
         // Connection is closing/closed.
@@ -2055,6 +2199,8 @@ vws_svr_cnx* svr_cnx_new(vws_tcp_svr* s, uv_stream_t* handle)
     cnx->handle      = handle;
     cnx->data        = NULL;
     cnx->format      = VM_MPACK_FORMAT;
+    cnx->read_paused = false;    // [36dd9deecb Primitive-D comp 3]
+    cnx->pending     = NULL;
 
     vws_cid_clear(&cnx->cid);
 
@@ -2207,7 +2353,7 @@ void svr_on_connect(uv_stream_t* socket, int status)
     if (uv_accept(socket, (uv_stream_t*)c) == 0)
     {
         // [36dd9deecb Phase-0 #2] OS-level dead-peer detection on the accepted fd.
-        vws_enable_keepalive(c);
+        vws_enable_keepalive(server, c);
 
         if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
         {
@@ -2430,6 +2576,44 @@ void queue_push(vws_svr_queue* queue, vws_svr_data* data)
     uv_mutex_unlock(&queue->mutex);
 }
 
+// [36dd9deecb Primitive-D comp 3] Non-blocking push. Returns true if the item
+// was enqueued, false if the queue is full (caller applies read-side flow
+// control instead of blocking) or not running. NEVER blocks -- this is what
+// the reactor thread uses so a full request queue can never freeze it.
+static bool queue_try_push(vws_svr_queue* queue, vws_svr_data* data)
+{
+    if (queue->state != VS_RUNNING)
+    {
+        vws_svr_data_free(data);
+        return true;   // consumed (dropped a not-running hand-off); no retry
+    }
+
+    uv_mutex_lock(&queue->mutex);
+
+    if (queue->state != VS_RUNNING)
+    {
+        uv_mutex_unlock(&queue->mutex);
+        vws_svr_data_free(data);
+        return true;
+    }
+
+    if (queue->size == queue->capacity)
+    {
+        // Full: do NOT block. Tell the caller to pause reads + stash.
+        uv_mutex_unlock(&queue->mutex);
+        return false;
+    }
+
+    queue->buffer[queue->tail] = data;
+    queue->tail = (queue->tail + 1) % queue->capacity;
+    queue->size++;
+
+    uv_cond_signal(&queue->cond);
+    uv_mutex_unlock(&queue->mutex);
+
+    return true;
+}
+
 vws_svr_data* queue_pop(vws_svr_queue* queue)
 {
     uv_mutex_lock(&queue->mutex);
@@ -2547,7 +2731,18 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
             // Big) close to the client, flag the connection closing, drop the
             // frame, and stop queuing instead of buffering without limit.
             c->msg_bytes += f->size;
-            if (c->msg_bytes > c->max_message_size)
+            // [36dd9deecb grid.broker.*] Two independent layered caps, MIN-WINS
+            // (Mike-confirmed): the SRV aggregate-reassembly cap
+            // (request_reassembly_cap) AND the per-cnx ws message cap
+            // (max_message_size, inherited from server->max_message_size on
+            // accept). Both default VWS_MAX_MESSAGE_SIZE = behavior-preserving;
+            // the smaller of the two gates an over-size in-progress message.
+            size_t reassembly_cap = cnx->server->request_reassembly_cap;
+            if (c->max_message_size < reassembly_cap)
+            {
+                reassembly_cap = c->max_message_size;
+            }
+            if (c->msg_bytes > reassembly_cap)
             {
                 vws_buffer* buffer =
                     vws_generate_close_frame_code(WS_CLOSE_TOO_BIG);
@@ -2637,6 +2832,13 @@ void ws_svr_client_connect(vws_svr_cnx* c)
     // Create a new vws_cnx
     vws_cnx* cnx = (void*)vws_cnx_new();
     cnx->process = ws_svr_process_frame;
+
+    // [36dd9deecb grid.broker.*] Inherit the server-level max message size
+    // default onto this per-connection ws cnx (broker sets server->
+    // max_message_size from vrtql.conf; default VWS_MAX_MESSAGE_SIZE =
+    // behavior-preserving).
+    cnx->max_message_size = c->server->max_message_size;
+
     cnx->data    = (void*)c;   // Link cnx -> c
     c->data      = (void*)cnx; // Link c -> cnx
 }
