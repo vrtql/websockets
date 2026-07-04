@@ -85,22 +85,22 @@ ucstr lcase(char* s)
 
 static void process_header(vws_http_msg* req)
 {
-    if (req->value->size != 0)
-    {
-        // We've got a complete field-value pair.
+    // Emit the accumulated field/value pair and ALWAYS clear both buffers. The
+    // value may be empty (an empty-valued header is stored as ""). Callers gate
+    // this on req->in_value, so it is only reached once a value callback has
+    // completed the pair. Keying the emit on value->size instead would skip the
+    // clear for an empty-valued header, leaving the field buffer to concatenate
+    // onto the next field name (header smuggling / loss).
+    vws_buffer_append(req->field, (ucstr)"\0", 1);
+    vws_buffer_append(req->value, (ucstr)"\0", 1);
 
-        // Null-terminate
-        vws_buffer_append(req->field, (ucstr)"\0", 1);
-        vws_buffer_append(req->value, (ucstr)"\0", 1);
+    ucstr field = lcase((cstr)req->field->data);
+    ucstr data  = req->value->data;
+    vws_kvs_set_cstring(req->headers, (cstr)field, (cstr)data);
 
-        ucstr field = lcase((cstr)req->field->data);
-        ucstr data  = req->value->data;
-        vws_kvs_set_cstring(req->headers, (cstr)field, (cstr)data);
-
-        // Reset for the next field-value pair.
-        vws_buffer_clear(req->field);
-        vws_buffer_clear(req->value);
-    }
+    // Reset for the next field-value pair.
+    vws_buffer_clear(req->field);
+    vws_buffer_clear(req->value);
 }
 
 vws_http_msg* vws_http_msg_new(int mode)
@@ -114,6 +114,7 @@ vws_http_msg* vws_http_msg_new(int mode)
     req->value            = vws_buffer_new();
     req->headers_complete = false;
     req->done             = false;
+    req->in_value         = false;
     req->header_bytes     = 0;
     req->max_header_size  = VWS_MAX_HTTP_HEADER_SIZE;
     req->headers          = vws_kvs_new(10, false); // Case-insensitive headers
@@ -161,8 +162,12 @@ int on_headers_complete(llhttp_t* p)
     vws_http_msg* req     = p->data;
     req->headers_complete = true;
 
-    // Process final header, if any.
-    process_header(req);
+    // Emit the final field/value pair, if a value callback completed it.
+    if (req->in_value)
+    {
+        process_header(req);
+        req->in_value = false;
+    }
 
     return 0;
 }
@@ -199,7 +204,14 @@ int on_header_field(llhttp_t* p, cstr at, size_t l)
         return -1;
     }
 
-    process_header(req);
+    // A new field name begins. If a value callback completed the previous pair,
+    // emit and clear it first. Gating on in_value (not field->size) preserves a
+    // field name that llhttp splits across multiple on_header_field callbacks.
+    if (req->in_value)
+    {
+        process_header(req);
+        req->in_value = false;
+    }
 
     // Start new field
     vws_buffer_append(req->field, (ucstr)at, l);
@@ -219,6 +231,11 @@ int on_header_value(llhttp_t* p, cstr at, size_t l)
     }
 
     vws_buffer_append(req->value, (ucstr)at, l);
+
+    // Mark the pair complete-and-ready-to-emit. llhttp fires this callback even
+    // for an empty value, so this is set for every header including empty-valued
+    // ones -- which is what lets the next field / headers_complete emit + clear.
+    req->in_value = true;
 
     return 0;
 }

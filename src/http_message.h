@@ -49,6 +49,13 @@ typedef struct vws_http_msg
     /** Flag indicates a complete message has been parsed. */
     bool done;
 
+    /** True once a value callback has fired for the current header, i.e. the
+     *  field/value pair is complete and ready to emit. Set in on_header_value
+     *  (which llhttp fires even for an empty value) and consulted by the next
+     *  on_header_field / on_headers_complete. Distinguishes a completed pair
+     *  from a field name still being accumulated across split callbacks. */
+    bool in_value;
+
     /** Running total of header field-name + value bytes seen so far. */
     size_t header_bytes;
 

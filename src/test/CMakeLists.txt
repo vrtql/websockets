@@ -483,6 +483,17 @@ if(BUILD_SERVER)
     static_test_lib static_lib ${OS_LIBS} -lm)
   add_test(NAME test_http_hdrflood COMMAND test_http_hdrflood)
   add_dependencies(test_http_hdrflood static_test_lib static_lib)
+
+  # Header field/value pairing across empty values and split callbacks: an
+  # empty-valued header must not clobber the next header, and split field names
+  # / values must still pair correctly.
+  add_executable(test_http_hdrpair test_http_hdrpair.c)
+  target_include_directories(test_http_hdrpair PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_http_hdrpair PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_http_hdrpair COMMAND test_http_hdrpair)
+  add_dependencies(test_http_hdrpair static_test_lib static_lib)
 endif()
 
 # client/server test programs
