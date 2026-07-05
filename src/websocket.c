@@ -231,7 +231,7 @@ vws_cnx* vws_cnx_ctor(vws_cnx* c)
 
     // Heartbeat liveness: ping_outstanding/ping_sent_ts are 0 from the memset.
     // Seed last_active to now so a fresh connection is not immediately idle.
-    c->last_active = time(NULL);
+    c->last_active = vws_now_ms();
 
     return c;
 }
@@ -965,7 +965,7 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
 void process_frame(vws_cnx* c, vws_frame* f)
 {
     // Any inbound frame is liveness activity.
-    c->last_active = time(NULL);
+    c->last_active = vws_now_ms();
 
     switch (f->opcode)
     {

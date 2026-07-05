@@ -17,6 +17,29 @@
 #include "websocket.h"
 
 //------------------------------------------------------------------------------
+// Monotonic clock
+//------------------------------------------------------------------------------
+
+// Test-only override for vws_now_ms(); NULL in production (see websocket.h).
+uint64_t (*vws_now_ms_fn)(void) = NULL;
+
+// Monotonic milliseconds for all heartbeat/liveness deadlines. uv_hrtime() is a
+// monotonic nanosecond counter -- it never moves backward and is unaffected by
+// wall-clock/NTP steps -- so a clock adjustment cannot spuriously trip a
+// deadline (a false peer-down) or defer detection of a real one. Dividing by
+// 1e6 yields ms, matching the *_ms deadline units (so the deadline math no
+// longer multiplies a seconds delta by 1000).
+uint64_t vws_now_ms(void)
+{
+    if (vws_now_ms_fn != NULL)
+    {
+        return vws_now_ms_fn();
+    }
+
+    return uv_hrtime() / 1000000;
+}
+
+//------------------------------------------------------------------------------
 // Internal functions
 //------------------------------------------------------------------------------
 
@@ -1061,7 +1084,7 @@ void uv_thread(uv_async_t* handle)
             // report a single time. This one-timestamp form covers both a peer
             // that was up then froze and one that never connected. The P2
             // duration-track composes here; the up-side ping/deadline is above.
-            time_t unreach_now = time(NULL);
+            uint64_t unreach_now = vws_now_ms();
             if (peer->first_unreachable_ts == 0)
             {
                 peer->first_unreachable_ts = unreach_now;
@@ -1069,8 +1092,8 @@ void uv_thread(uv_async_t* handle)
             else if ( server->peer_unrecoverable_ms > 0            &&
                       server->peer_unrecoverable_cb != NULL        &&
                       peer->unrecoverable_reported == false        &&
-                      (unreach_now - peer->first_unreachable_ts) * 1000
-                          > server->peer_unrecoverable_ms )
+                      (unreach_now - peer->first_unreachable_ts)
+                          > (uint64_t)server->peer_unrecoverable_ms )
             {
                 peer->unrecoverable_reported = true;
                 server->peer_unrecoverable_cb(server, peer->info.cid);
@@ -1211,13 +1234,13 @@ void uv_thread(uv_async_t* handle)
         if (peer->state == VWS_PEER_CONNECTED && peer->info.cnx != NULL)
         {
             vws_cnx* c   = (vws_cnx*)peer->info.cnx->data;
-            time_t   now = time(NULL);
+            uint64_t now = vws_now_ms();
 
             if (c != NULL)
             {
                 if ( server->pong_deadline_ms > 0 &&
                      c->ping_outstanding &&
-                     (now - c->ping_sent_ts) * 1000 > server->pong_deadline_ms )
+                     (now - c->ping_sent_ts) > (uint64_t)server->pong_deadline_ms )
                 {
                     // Frozen peer: an outstanding PING went unanswered past the
                     // deadline. Transition the peer OUT of CONNECTED first --
@@ -1235,8 +1258,8 @@ void uv_thread(uv_async_t* handle)
                 }
                 else if ( server->ping_interval_ms > 0 &&
                           c->ping_outstanding == false &&
-                          (now - c->last_active) * 1000
-                              > server->ping_interval_ms )
+                          (now - c->last_active)
+                              > (uint64_t)server->ping_interval_ms )
                 {
                     // Idle peer: send a proactive PING and arm the deadline.
                     vws_buffer*   frame = vws_generate_ping_frame();

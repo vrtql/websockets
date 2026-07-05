@@ -290,8 +290,9 @@ typedef struct vws_peer
      * CONNECTED transition. A single timestamp (not a per-attempt counter)
      * covers both never-was-up and was-up-then-froze, and is retry-stateless
      * (dials do not reset it), so elapsed accumulates until recovery. 0 when
-     * the peer is (or has recovered to) connected. */
-    time_t first_unreachable_ts;
+     * the peer is (or has recovered to) connected. Monotonic ms (vws_now_ms);
+     * uint64_t, same 8-byte width as the former time_t on LP64. */
+    uint64_t first_unreachable_ts;
 
     /**< True once peer_unrecoverable_cb has fired for the current unreachable
      * span, so it fires exactly once per span. Cleared with

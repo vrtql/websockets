@@ -255,6 +255,27 @@ vws_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s);
 vws_buffer* vws_generate_ping_frame();
 
 /**
+ * @brief Returns a monotonic clock reading in milliseconds.
+ *
+ * Backed by a monotonic source (uv_hrtime), so the value never moves backward
+ * and is unaffected by wall-clock/NTP adjustments. All heartbeat and liveness
+ * deadlines are measured with this rather than wall-clock time() so a clock
+ * step cannot spuriously trip a deadline (a false peer-down) or defer one.
+ *
+ * @return Monotonic milliseconds from an unspecified fixed origin.
+ */
+uint64_t vws_now_ms(void);
+
+/**
+ * @brief Test-only injection seam for vws_now_ms().
+ *
+ * When non-NULL, vws_now_ms() returns this function's value instead of the real
+ * monotonic clock, letting tests drive liveness deadlines deterministically.
+ * NULL (the default) uses the real monotonic clock. Not for production use.
+ */
+extern uint64_t (*vws_now_ms_fn)(void);
+
+/**
  * @brief Dumps the contents of a WebSocket frame for debugging purposes.
  *
  * @param data The data of the WebSocket frame.
@@ -381,12 +402,14 @@ typedef struct vws_cnx
          PONG; set when the PING is sent, cleared on PONG receipt. */
     bool ping_outstanding;
 
-    /**< Time the outstanding PING was sent (deadline base). */
-    time_t ping_sent_ts;
+    /**< Monotonic ms (vws_now_ms) the outstanding PING was sent (deadline
+         base). uint64_t, same 8-byte width as the former time_t on LP64. */
+    uint64_t ping_sent_ts;
 
-    /**< Time of the last inbound activity (frame received). A connection idle
-         longer than the server's ping_interval gets a proactive PING. */
-    time_t last_active;
+    /**< Monotonic ms (vws_now_ms) of the last inbound activity (frame
+         received). A connection idle longer than the server's ping_interval
+         gets a proactive PING. */
+    uint64_t last_active;
 
 } vws_cnx;
 

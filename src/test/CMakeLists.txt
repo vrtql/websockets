@@ -356,6 +356,16 @@ if(BUILD_SERVER)
   add_test(NAME test_svr_sp2 COMMAND test_svr_sp2)
   add_dependencies(test_svr_sp2 static_test_lib static_lib)
 
+  # Monotonic-clock liveness deadlines (NTP-step robustness). #include-server.c
+  # isolation; the clock seam vws_now_ms_fn drives the RED jump deterministically.
+  add_executable(test_svr_heartbeat_monotonic test_svr_heartbeat_monotonic.c)
+  target_include_directories(test_svr_heartbeat_monotonic PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_heartbeat_monotonic PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_heartbeat_monotonic COMMAND test_svr_heartbeat_monotonic)
+  add_dependencies(test_svr_heartbeat_monotonic static_test_lib static_lib)
+
   # SP3: inetd mode (adopted fd over a loopback pair, auto-stop).
   add_executable(test_svr_sp3 test_svr_sp3.c)
   target_include_directories(test_svr_sp3 PRIVATE
