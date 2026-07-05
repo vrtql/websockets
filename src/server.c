@@ -835,24 +835,18 @@ void peer_timer_callback(uv_timer_t* handle)
         vws.trace(VL_INFO, "peer_timer_callback(%p)", handle);
     }
 
-    // Stop timer
-    uv_timer_stop(handle);
-
-    // Wakeup server
+    // Wakeup server. The timer repeats until uv_thread() observes every
+    // peer CONNECTED and stops it, so peer retry never depends on a
+    // one-shot re-arm racing the wakeup it requested.
     vws_tcp_svr* s = (vws_tcp_svr*)handle->data;
     uv_async_send(s->wakeup);
 }
 
 void vws_tcp_svr_peer_timer(vws_tcp_svr* s)
 {
-    float interval = 0.2;
-
-    // Get the current time
-    time_t current_time = time(NULL);
-
-    if (s->peer_timeout > current_time)
+    if (uv_is_active((uv_handle_t*)s->peer_timer))
     {
-        // If we have a timeout already set in the future
+        // The repeating timer is already running
         return;
     }
 
@@ -861,17 +855,16 @@ void vws_tcp_svr_peer_timer(vws_tcp_svr* s)
         vws.trace(VL_INFO, "vws_tcp_svr_peer_timer(%p)", s);
     }
 
-    // Calculate the time 15 seconds in advance
-    time_t timeout_time = current_time + interval;
-
     // Set data
     s->peer_timer->data = s;
 
-    // Start the timer with a 15-second timeout
-    uv_timer_start(s->peer_timer, peer_timer_callback, interval * 1000, 0);
-
-    // Update peer_timeout to the timeout time
-    s->peer_timeout = timeout_time;
+    // Start the retry tick: first fire in 200ms, then every 200ms until
+    // uv_thread() stops it. The previous one-shot guarded re-arm through
+    // time_t-plus-float wall-clock math: float granularity past epoch 2^30
+    // is 128 seconds, so the recorded timeout could land up to ~64s in the
+    // future and the guard then refused every re-arm while no timer was
+    // pending -- permanently extinguishing the peer retry chain.
+    uv_timer_start(s->peer_timer, peer_timer_callback, 200, 200);
 }
 
 //------------------------------------------------------------------------------
@@ -967,6 +960,22 @@ void vws_tcp_svr_uv_close(vws_tcp_svr* server, uv_handle_t* handle)
     }
 
     uv_close(handle, svr_on_close);
+}
+
+// A dialed peer socket failed adoption into the loop. Close the descriptor
+// (uv never took ownership of it) and return the peer to VWS_PEER_CLOSED so
+// uv_thread() re-queues the dial on the next retry tick, rather than parking
+// it in a state peer processing never revisits.
+static void peer_adopt_fail(vws_peer* peer)
+{
+#if defined(__windows__)
+    closesocket(peer->sockfd);
+#else
+    close(peer->sockfd);
+#endif
+
+    peer->sockfd = VWS_INVALID_SOCKET;
+    peer->state  = VWS_PEER_CLOSED;
 }
 
 void uv_thread(uv_async_t* handle)
@@ -1078,6 +1087,7 @@ void uv_thread(uv_async_t* handle)
             if (vws_socket_set_nonblocking(peer->sockfd) == false)
             {
                 vws.error(VE_RT, "Failed to set socket to nonblocking");
+                peer_adopt_fail(peer);
                 return;
             }
 
@@ -1089,6 +1099,7 @@ void uv_thread(uv_async_t* handle)
                 // Handle uv_tcp_init failure.
                 vws.error(VE_RT, "Failed to initialize new TCP handle");
                 vws.free(c);
+                peer_adopt_fail(peer);
                 return;
             }
 
@@ -1100,6 +1111,7 @@ void uv_thread(uv_async_t* handle)
                 vws.error(VE_RT, "Failed to adopt the socket descriptor.");
                 c->data = NULL;
                 uv_close((uv_handle_t*)c, svr_on_close_discard);
+                peer_adopt_fail(peer);
                 return;
             }
 
@@ -1121,6 +1133,11 @@ void uv_thread(uv_async_t* handle)
                 // close cb frees both the handle and its cinfo (on ->data).
                 vws.error(VE_RT, "Failed to start reading from client");
                 uv_close((uv_handle_t*)c, svr_on_close_discard);
+
+                // The adopted fd is closed by uv_close above; only return
+                // the peer to CLOSED so the dial is re-queued.
+                peer->sockfd = VWS_INVALID_SOCKET;
+                peer->state  = VWS_PEER_CLOSED;
                 return;
             }
 
@@ -1177,8 +1194,14 @@ void uv_thread(uv_async_t* handle)
     // If not all peers are connected
     if (vws_tcp_svr_peers_online(server) == false)
     {
-        // Set wakeup timer since we expect response from thread(s)
+        // Ensure the repeating peer retry tick is running
         vws_tcp_svr_peer_timer(server);
+    }
+    else
+    {
+        // All peers connected: the retry tick is no longer needed. A later
+        // disconnect or vws_tcp_svr_peer_add() restarts it.
+        uv_timer_stop(server->peer_timer);
     }
 }
 
