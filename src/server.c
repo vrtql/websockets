@@ -20,30 +20,60 @@
 // Internal functions
 //------------------------------------------------------------------------------
 
-// [36dd9deecb Phase-0 #2, Mike-authorized 2026-07-04] Enable OS-level dead-peer
-// detection on an accepted/adopted connection. Without this an accepted fd has
-// SO_KEEPALIVE=0, so a dead or half-open peer (network partition / power-off /
-// cable pull -- no FIN) is only detected after the ~2h OS default, stranding
-// the connection slot and any queued state. uv_tcp_keepalive turns on
-// SO_KEEPALIVE with an idle interval; TCP_USER_TIMEOUT (Linux) additionally
-// bounds unacknowledged in-flight data so a stalled send is dropped promptly.
-// Best-effort: failures are non-fatal (the connection still works, just
-// without accelerated dead-peer detection).
+// Enable OS-level dead-peer detection on an accepted/adopted connection.
+// Without this an accepted fd has SO_KEEPALIVE=0, so a dead or half-open peer
+// (network partition / power-off / cable pull -- no FIN) is only detected
+// after the ~2h OS default, stranding the connection slot and any queued
+// state. uv_tcp_keepalive turns on SO_KEEPALIVE with an idle interval; a
+// platform-specific socket option additionally bounds how long a stalled or
+// unacknowledged send is tolerated before the connection is dropped, so a
+// dead peer is detected in seconds rather than the ~2h default. Best-effort:
+// failures are non-fatal (the connection still works, just without the
+// accelerated detection).
 static void vws_enable_keepalive(vws_tcp_svr* server, uv_tcp_t* handle)
 {
-    // SO_KEEPALIVE on, idle interval from the broker-settable config field
-    // (grid.broker.keepalive_idle_sec; default 30).
+    // SO_KEEPALIVE on with a settable idle interval (keepalive_idle_sec,
+    // default 30). uv_tcp_keepalive is portable across platforms.
     uv_tcp_keepalive(handle, 1, server->keepalive_idle_sec);
 
-#if defined(TCP_USER_TIMEOUT)
+    // The fast-abort bound (keepalive_user_timeout_ms, default 20000) is
+    // applied via the platform's native option. Each branch is compile-guarded
+    // so the file builds everywhere; a platform providing none of them keeps
+    // SO_KEEPALIVE alone.
     uv_os_fd_t fd;
-    if (uv_fileno((uv_handle_t*)handle, &fd) == 0)
+    if (uv_fileno((uv_handle_t*)handle, &fd) != 0)
     {
-        // grid.broker.keepalive_user_timeout_ms (default 20000): drop after
-        // this many ms of unacknowledged data.
-        int ms = server->keepalive_user_timeout_ms;
-        setsockopt((int)fd, IPPROTO_TCP, TCP_USER_TIMEOUT, &ms, sizeof(ms));
+        return;
     }
+
+    int sock = (int)fd;
+    int ms   = server->keepalive_user_timeout_ms;
+
+#if defined(TCP_USER_TIMEOUT)
+    // Linux: bound total unacknowledged in-flight time directly (ms).
+    setsockopt(sock, IPPROTO_TCP, TCP_USER_TIMEOUT, &ms, sizeof(ms));
+#elif defined(TCP_KEEPALIVE_ABORT_THRESHOLD)
+    // Illumos / Solaris: total abort threshold in ms -- the direct analogue of
+    // TCP_USER_TIMEOUT (bounds total unacknowledged time, not just idle).
+    // Checked BEFORE the keepalive-probe fallback below: illumos defines both
+    // TCP_KEEPINTVL/CNT and this, and this is the stronger, intended option.
+    setsockopt(sock, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD, &ms, sizeof(ms));
+#elif defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
+    // BSD / macOS: no single total-timeout option; approximate it as a probe
+    // interval x probe count summing to keepalive_user_timeout_ms. (Detects a
+    // dead peer only while idle, not a stalled active send -- weaker, so it is
+    // the last resort.)
+    int intvl = 5;                                  // seconds between probes
+    int cnt   = ms / (intvl * 1000);
+    if (cnt < 1)
+    {
+        cnt = 1;
+    }
+    setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT,   &cnt,   sizeof(cnt));
+#else
+    (void)sock;
+    (void)ms;
 #endif
 }
 
@@ -874,7 +904,7 @@ void worker_thread(void* arg)
         // something arrives in queue.
         vws_svr_data* request = queue_pop(&server->requests);
 
-        // [36dd9deecb Primitive-D comp 3] A slot just freed in the request
+        // A slot just freed in the request
         // queue. If any connection's reads were paused by backpressure, wake
         // the reactor to run a resume pass (uv_read_start must run on the loop
         // thread). uv_async_send coalesces, so this is cheap even under load.
@@ -1068,7 +1098,7 @@ void uv_thread(uv_async_t* handle)
                 return;
             }
 
-            // [36dd9deecb Phase-0 #2] OS-level dead-peer detection on the
+            // OS-level dead-peer detection on the
             // adopted peer fd (same as the accept path).
             vws_enable_keepalive(server, c);
 
@@ -1124,7 +1154,7 @@ void uv_thread(uv_async_t* handle)
         }
     }
 
-    // [36dd9deecb Primitive-D comp 3] Resume any reads paused by request-queue
+    // Resume any reads paused by request-queue
     // backpressure now that workers have drained (this wakeup was signalled by
     // a worker after a pop). Runs on the reactor thread, so uv_read_start is
     // safe here.
@@ -1147,7 +1177,7 @@ void uv_thread(uv_async_t* handle)
     }
 }
 
-// [36dd9deecb Primitive-D comp 3] Reactor-thread resume pass. For each
+// Reactor-thread resume pass. For each
 // connection whose reads were paused because the request queue was full, try
 // to push its stashed pending item now; on success, clear the pause and
 // restart reads (kernel TCP flow-control lifts). If the queue is still full,
@@ -1882,7 +1912,7 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->write_queue_cap  = 0;   // 0 => default 2 x VWS_MAX_MESSAGE_SIZE
     atomic_init(&svr->reads_paused, 0);
 
-    // [36dd9deecb grid.broker.* config] In-code defaults (broker overrides from
+    // In-code defaults (broker overrides from
     // vrtql.conf grid.broker.*); these preserve today's behavior.
     svr->keepalive_idle_sec        = 30;
     svr->keepalive_user_timeout_ms = 20000;
@@ -2062,7 +2092,7 @@ void svr_client_read(vws_svr_cnx* c, ssize_t size, const uv_buf_t* buf)
     // Store reference to server
     data->server = c->server;
 
-    // [36dd9deecb Primitive-D comp 3] Non-blocking hand-off. This runs on the
+    // Non-blocking hand-off. This runs on the
     // REACTOR thread; the old blocking queue_push froze the whole reactor when
     // the request queue was full (reproduced: harness_backpressure ROW-6). If
     // the queue is full, apply read-side TCP flow control instead: uv_read_stop
@@ -2125,14 +2155,14 @@ void svr_client_data_out(vws_svr_data* data, void* x)
     // invalid and a second uv_close would abort libuv. The cid lingers in the
     // pool until svr_on_close runs, so without this guard the responses still
     // queued to a just-shed cid would each re-enter the shed below and double-
-    // close. [36dd9deecb Primitive-D]
+    // close. 
     if (uv_is_closing((uv_handle_t*)handle))
     {
         vws_svr_data_free(data);
         return;
     }
 
-    // [36dd9deecb Primitive-D comp 1+2] Outbound backpressure cap + SHED.
+    // Outbound backpressure cap + SHED.
     // Without this, uv_write queues unboundedly for a slow/stalled consumer
     // (TCP recv-window full) -> libuv write heap grows without limit -> broker
     // OOM (reproduced: harness_backpressure ROW 5). Cap the per-connection
@@ -2199,7 +2229,7 @@ vws_svr_cnx* svr_cnx_new(vws_tcp_svr* s, uv_stream_t* handle)
     cnx->handle      = handle;
     cnx->data        = NULL;
     cnx->format      = VM_MPACK_FORMAT;
-    cnx->read_paused = false;    // [36dd9deecb Primitive-D comp 3]
+    cnx->read_paused = false;    // 
     cnx->pending     = NULL;
 
     vws_cid_clear(&cnx->cid);
@@ -2352,7 +2382,7 @@ void svr_on_connect(uv_stream_t* socket, int status)
 
     if (uv_accept(socket, (uv_stream_t*)c) == 0)
     {
-        // [36dd9deecb Phase-0 #2] OS-level dead-peer detection on the accepted fd.
+        // OS-level dead-peer detection on the accepted fd.
         vws_enable_keepalive(server, c);
 
         if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
@@ -2402,7 +2432,7 @@ void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
 
     if (nread < 0)
     {
-        // [36dd9deecb] Feed a PEER link's socket-close back to the peer state
+        // Feed a PEER link's socket-close back to the peer state
         // machine. An established peer's EOF was handled at the cnx level but
         // never reset peer->state, so it stayed CONNECTED forever -> peer_loop's
         // `if (state == VWS_PEER_CLOSED)` reconnect branch never re-fired -> the
@@ -2576,7 +2606,7 @@ void queue_push(vws_svr_queue* queue, vws_svr_data* data)
     uv_mutex_unlock(&queue->mutex);
 }
 
-// [36dd9deecb Primitive-D comp 3] Non-blocking push. Returns true if the item
+// Non-blocking push. Returns true if the item
 // was enqueued, false if the queue is full (caller applies read-side flow
 // control instead of blocking) or not running. NEVER blocks -- this is what
 // the reactor thread uses so a full request queue can never freeze it.
@@ -2731,7 +2761,7 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
             // Big) close to the client, flag the connection closing, drop the
             // frame, and stop queuing instead of buffering without limit.
             c->msg_bytes += f->size;
-            // [36dd9deecb grid.broker.*] Two independent layered caps, MIN-WINS
+            // Two independent layered caps, MIN-WINS
             // (Mike-confirmed): the SRV aggregate-reassembly cap
             // (request_reassembly_cap) AND the per-cnx ws message cap
             // (max_message_size, inherited from server->max_message_size on
@@ -2833,7 +2863,7 @@ void ws_svr_client_connect(vws_svr_cnx* c)
     vws_cnx* cnx = (void*)vws_cnx_new();
     cnx->process = ws_svr_process_frame;
 
-    // [36dd9deecb grid.broker.*] Inherit the server-level max message size
+    // Inherit the server-level max message size
     // default onto this per-connection ws cnx (broker sets server->
     // max_message_size from vrtql.conf; default VWS_MAX_MESSAGE_SIZE =
     // behavior-preserving).

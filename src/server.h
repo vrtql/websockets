@@ -389,7 +389,7 @@ typedef struct vws_svr_cnx
      */
     vrtql_msg_format_t format;
 
-    /**< [36dd9deecb Primitive-D comp 3] Read-side flow control. When the
+    /**< Read-side flow control. When the
      * request queue is full, svr_client_read uv_read_stop()s this socket (so
      * the kernel applies TCP backpressure) rather than blocking the reactor in
      * queue_push. read_paused records that; pending holds the one in-flight
@@ -543,7 +543,7 @@ typedef struct vws_tcp_svr
     /**< Number of threads in the worker pool */
     int pool_size;
 
-    /**< [36dd9deecb Primitive-D] Per-connection OUTBOUND write-queue byte cap.
+    /**< Per-connection OUTBOUND write-queue byte cap.
      * When libuv's queued-but-unsent write bytes for a connection would exceed
      * this, the connection is SHED (force-closed) instead of growing the write
      * heap unbounded (the slow-consumer -> OOM killer). 0 => the built-in
@@ -552,12 +552,12 @@ typedef struct vws_tcp_svr
      * never be false-shed. Configurable by the app (broker sets from config). */
     size_t write_queue_cap;
 
-    /**< [36dd9deecb Primitive-D comp 3] Count of connections whose reads are
+    /**< Count of connections whose reads are
      * currently paused because the request queue was full. Workers signal the
      * reactor (uv_async_send) to run a resume pass only while this is > 0. */
     VWS_ATOMIC(int) reads_paused;
 
-    /**< [36dd9deecb grid.broker.* reliability config] Broker-settable defaults
+    /**< Broker-settable defaults
      * (from vrtql.conf grid.broker.*). In-code defaults below stand when the
      * broker does not override, so behavior is unchanged by default. */
 
