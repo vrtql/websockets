@@ -229,6 +229,10 @@ vws_cnx* vws_cnx_ctor(vws_cnx* c)
     // the broker from app.conf). msg_bytes is 0 from the memset above.
     c->max_message_size = VWS_MAX_MESSAGE_SIZE;
 
+    // Heartbeat liveness: ping_outstanding/ping_sent_ts are 0 from the memset.
+    // Seed last_active to now so a fresh connection is not immediately idle.
+    c->last_active = time(NULL);
+
     return c;
 }
 
@@ -960,6 +964,9 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
 
 void process_frame(vws_cnx* c, vws_frame* f)
 {
+    // Any inbound frame is liveness activity.
+    c->last_active = time(NULL);
+
     switch (f->opcode)
     {
         case CLOSE_FRAME:
@@ -1032,7 +1039,9 @@ void process_frame(vws_cnx* c, vws_frame* f)
 
         case PONG_FRAME:
         {
-            // No need to send a response
+            // Liveness: a PONG answers our proactive PING -> the peer is alive,
+            // so clear the outstanding-ping state (last_active bumped above).
+            c->ping_outstanding = false;
 
             vws_frame_free(f);
 
@@ -1224,6 +1233,14 @@ vws_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s)
     vws_frame* f = vws_frame_new(ping_data, s, PONG_FRAME);
 
     // Serialize the frame and return it
+    return vws_serialize(f);
+}
+
+vws_buffer* vws_generate_ping_frame()
+{
+    // A payload-less PING control frame for liveness probing.
+    vws_frame* f = vws_frame_new(NULL, 0, PING_FRAME);
+
     return vws_serialize(f);
 }
 

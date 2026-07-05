@@ -1054,6 +1054,28 @@ void uv_thread(uv_async_t* handle)
         // If closed
         if (peer->state == VWS_PEER_CLOSED)
         {
+            // Duration-track anchor (down-retry branch). Stamp the first moment
+            // this peer became unreachable ONCE -- never re-stamp on a retry, or
+            // elapsed would reset every dial and never accumulate. Once the peer
+            // has stayed down past peer_unrecoverable_ms, fire the unrecoverable
+            // report a single time. This one-timestamp form covers both a peer
+            // that was up then froze and one that never connected. The P2
+            // duration-track composes here; the up-side ping/deadline is above.
+            time_t unreach_now = time(NULL);
+            if (peer->first_unreachable_ts == 0)
+            {
+                peer->first_unreachable_ts = unreach_now;
+            }
+            else if ( server->peer_unrecoverable_ms > 0            &&
+                      server->peer_unrecoverable_cb != NULL        &&
+                      peer->unrecoverable_reported == false        &&
+                      (unreach_now - peer->first_unreachable_ts) * 1000
+                          > server->peer_unrecoverable_ms )
+            {
+                peer->unrecoverable_reported = true;
+                server->peer_unrecoverable_cb(server, peer->info.cid);
+            }
+
             // Set to pending
             peer->state = VWS_PEER_PENDING;
 
@@ -1173,6 +1195,61 @@ void uv_thread(uv_async_t* handle)
 
             // New connection state
             peer->state = VWS_PEER_CONNECTED;
+
+            // Recovered: clear the duration-track anchor so a later down-span
+            // measures from its own start, and re-arm the one-shot report.
+            peer->first_unreachable_ts   = 0;
+            peer->unrecoverable_reported = false;
+        }
+
+        // Heartbeat liveness -- UP branch of the per-peer state gate. On an
+        // established peer connection we proactively PING when the link goes
+        // idle and clean-close it if a PING is left unanswered past the
+        // deadline. The DOWN states (CLOSED/PENDING/FAILED) are handled by the
+        // reconnect path above and are the composition point for higher-level
+        // fault handling; this branch touches only the CONNECTED case.
+        if (peer->state == VWS_PEER_CONNECTED && peer->info.cnx != NULL)
+        {
+            vws_cnx* c   = (vws_cnx*)peer->info.cnx->data;
+            time_t   now = time(NULL);
+
+            if (c != NULL)
+            {
+                if ( server->pong_deadline_ms > 0 &&
+                     c->ping_outstanding &&
+                     (now - c->ping_sent_ts) * 1000 > server->pong_deadline_ms )
+                {
+                    // Frozen peer: an outstanding PING went unanswered past the
+                    // deadline. Transition the peer OUT of CONNECTED first --
+                    // exactly as svr_on_read() does on a read-side EOF -- so this
+                    // sweep's CONNECTED branch will not touch the (about-to-be-
+                    // freed) cnx again and wd's reconnect branch re-dials it.
+                    // Then clean-close with the same close used on EOF/shutdown;
+                    // that removes the cid from the pool, so any responses still
+                    // queued for it fall to the existing data-lost drop path. No
+                    // failure record is emitted here; that policy belongs to the
+                    // layer above this transport.
+                    peer->state = VWS_PEER_CLOSED;
+                    vws_tcp_svr_uv_close( server,
+                                          (uv_handle_t*)peer->info.cnx->handle );
+                }
+                else if ( server->ping_interval_ms > 0 &&
+                          c->ping_outstanding == false &&
+                          (now - c->last_active) * 1000
+                              > server->ping_interval_ms )
+                {
+                    // Idle peer: send a proactive PING and arm the deadline.
+                    vws_buffer*   frame = vws_generate_ping_frame();
+                    vws_svr_data* data  =
+                        vws_svr_data_new(server, peer->info.cid, &frame);
+
+                    server->on_data_out(data, NULL);
+                    vws_buffer_free(frame);
+
+                    c->ping_outstanding = true;
+                    c->ping_sent_ts     = now;
+                }
+            }
         }
     }
 
@@ -1197,10 +1274,19 @@ void uv_thread(uv_async_t* handle)
         // Ensure the repeating peer retry tick is running
         vws_tcp_svr_peer_timer(server);
     }
+    else if (server->ping_interval_ms > 0 || server->pong_deadline_ms > 0)
+    {
+        // All peers connected, but heartbeat liveness is configured: the tick
+        // must keep running so the CONNECTED-peer sweep above can probe idle
+        // peers (idle-PING) and time out silent ones (pong-deadline). Keep it
+        // armed rather than stopping it.
+        vws_tcp_svr_peer_timer(server);
+    }
     else
     {
-        // All peers connected: the retry tick is no longer needed. A later
-        // disconnect or vws_tcp_svr_peer_add() restarts it.
+        // All peers connected and no heartbeat configured: the retry tick is no
+        // longer needed. A later disconnect or vws_tcp_svr_peer_add() restarts
+        // it.
         uv_timer_stop(server->peer_timer);
     }
 }
@@ -1870,6 +1956,12 @@ vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
         return NULL;
     }
 
+    // Zero the record so info/sockfd and the duration-track anchor
+    // (first_unreachable_ts / unrecoverable_reported) start well-defined; the
+    // first not-CONNECTED sweep stamps the anchor and CONNECTED clears it.
+    memset(&peer, 0, sizeof(peer));
+    vws_cid_clear(&peer.info.cid);
+
     // Set connection function
     peer.connect = fn;
 
@@ -1946,6 +2038,10 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     svr->keepalive_user_timeout_ms = 20000;
     svr->request_reassembly_cap    = (size_t)VWS_MAX_MESSAGE_SIZE;
     svr->max_message_size          = (size_t)VWS_MAX_MESSAGE_SIZE;
+    svr->ping_interval_ms          = 10000;
+    svr->pong_deadline_ms          = 20000;
+    svr->peer_unrecoverable_ms     = 60000;
+    svr->peer_unrecoverable_cb     = NULL;
 
     svr->loop             = (uv_loop_t*)vws.malloc(sizeof(uv_loop_t));
     svr->state            = VS_HALTED;

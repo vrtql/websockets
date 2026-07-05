@@ -284,6 +284,19 @@ typedef struct vws_peer
     vws_sockfd_t sockfd;
     vws_peer_connect connect;
     void* data;
+
+    /**< Duration-track anchor: the time this peer FIRST became unreachable,
+     * stamped once while it is not CONNECTED and cleared on the successful
+     * CONNECTED transition. A single timestamp (not a per-attempt counter)
+     * covers both never-was-up and was-up-then-froze, and is retry-stateless
+     * (dials do not reset it), so elapsed accumulates until recovery. 0 when
+     * the peer is (or has recovered to) connected. */
+    time_t first_unreachable_ts;
+
+    /**< True once peer_unrecoverable_cb has fired for the current unreachable
+     * span, so it fires exactly once per span. Cleared with
+     * first_unreachable_ts on the CONNECTED transition. */
+    bool unrecoverable_reported;
 } vws_peer;
 
 struct vws_tcp_svr;
@@ -517,6 +530,15 @@ typedef enum
 } vws_tcp_svr_state_t;
 
 /**
+ * @brief Callback invoked once when a peer has been continuously unreachable
+ *   past the unrecoverable threshold (peer_unrecoverable_ms).
+ *
+ * @param server The server owning the peer.
+ * @param cid The connection id of the unreachable peer.
+ */
+typedef void (*vws_peer_unrecoverable)(struct vws_tcp_svr* server, vws_cid_t cid);
+
+/**
  * @brief Struct representing a basic server. It does not do anything but
  * process raw data. It does not have any knowledge of WebSockets.
  */
@@ -578,6 +600,24 @@ typedef struct vws_tcp_svr
      * connections inherit this into cnx->max_message_size on accept. Default
      * VWS_MAX_MESSAGE_SIZE. */
     size_t max_message_size;
+
+    /**< Heartbeat: idle time (ms) before a proactive PING is sent on a peer
+     * connection. Default 10000; 0 disables proactive pings. */
+    int ping_interval_ms;
+
+    /**< Heartbeat: max time (ms) an outstanding PING waits for a PONG before
+     * the peer is declared frozen and the connection is clean-closed. Default
+     * 20000; 0 disables the liveness deadline. */
+    int pong_deadline_ms;
+
+    /**< Duration-track: how long (ms) a peer may be continuously unreachable
+     * before peer_unrecoverable_cb fires. Default 60000; 0 disables the
+     * unrecoverable report. */
+    int peer_unrecoverable_ms;
+
+    /**< Optional callback fired once per unreachable span when a peer has been
+     * down longer than peer_unrecoverable_ms. NULL disables the report. */
+    vws_peer_unrecoverable peer_unrecoverable_cb;
 
     /**< Thread handles */
     uv_thread_t* threads;

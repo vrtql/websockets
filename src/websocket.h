@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <time.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -247,6 +248,13 @@ vws_buffer* vws_generate_close_frame_code(int16_t code);
 vws_buffer* vws_generate_pong_frame(ucstr ping_data, size_t s);
 
 /**
+ * @brief Generates a PING control frame for liveness probing.
+ *
+ * @return A serialized PING frame buffer.
+ */
+vws_buffer* vws_generate_ping_frame();
+
+/**
  * @brief Dumps the contents of a WebSocket frame for debugging purposes.
  *
  * @param data The data of the WebSocket frame.
@@ -368,6 +376,17 @@ typedef struct vws_cnx
          connection is closed instead of buffering without limit. Default
          VWS_MAX_MESSAGE_SIZE; settable (broker overrides from app.conf). */
     size_t max_message_size;
+
+    /**< Heartbeat liveness state. True while a proactive PING is awaiting a
+         PONG; set when the PING is sent, cleared on PONG receipt. */
+    bool ping_outstanding;
+
+    /**< Time the outstanding PING was sent (deadline base). */
+    time_t ping_sent_ts;
+
+    /**< Time of the last inbound activity (frame received). A connection idle
+         longer than the server's ping_interval gets a proactive PING. */
+    time_t last_active;
 
 } vws_cnx;
 
