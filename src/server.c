@@ -53,8 +53,13 @@ static void vws_enable_keepalive(vws_tcp_svr* server, uv_tcp_t* handle)
     // Linux: bound total unacknowledged in-flight time directly (ms).
     setsockopt(sock, IPPROTO_TCP, TCP_USER_TIMEOUT, &ms, sizeof(ms));
 #elif defined(TCP_KEEPALIVE_ABORT_THRESHOLD)
-    // Illumos / Solaris: total abort threshold in ms -- the direct analogue of
-    // TCP_USER_TIMEOUT (bounds total unacknowledged time, not just idle).
+    // Illumos / Solaris: keepalive abort threshold in ms -- bounds how long
+    // unanswered keepalive probes are tolerated before the connection is
+    // aborted. This is the keepalive (idle) path: it detects a dead peer after
+    // the connection goes idle. It does NOT bound a stalled ACTIVE send (data
+    // unacked mid-transfer) -- on illumos that is the separate retransmit-abort
+    // path. Linux TCP_USER_TIMEOUT covers both idle and active-send in one
+    // option; here only the idle case is bounded per-socket.
     // Checked BEFORE the keepalive-probe fallback below: illumos defines both
     // TCP_KEEPINTVL/CNT and this, and this is the stronger, intended option.
     setsockopt(sock, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD, &ms, sizeof(ms));
