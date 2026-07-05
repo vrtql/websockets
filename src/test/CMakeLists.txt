@@ -1,5 +1,18 @@
 SET(CMAKE_BUILD_TYPE "Debug")
 
+# AddressSanitizer is not available on every target (for example illumos lacks
+# the runtime). Detect support so ASan-instrumented tests still build on those
+# platforms -- the instrumentation is applied where supported and skipped where
+# it is not; the test itself runs either way.
+include(CheckCCompilerFlag)
+# The check must LINK with the flag too: -fsanitize=address pulls in the ASan
+# runtime, so a compile-only probe false-negatives (undefined symbols at link)
+# on platforms where ASan actually works. Adding it to the link options makes
+# the probe true where the runtime is present and false where it is absent.
+set(CMAKE_REQUIRED_LINK_OPTIONS "-fsanitize=address")
+check_c_compiler_flag("-fsanitize=address" HAVE_ASAN)
+unset(CMAKE_REQUIRED_LINK_OPTIONS)
+
 #-------------------------------------------------------------------------------
 # Test programs
 #-------------------------------------------------------------------------------
@@ -149,8 +162,10 @@ add_test(NAME test_url COMMAND test_url)
 add_executable(test_url_overflow test_url_overflow.c ../url.c)
 target_include_directories(test_url_overflow PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
-target_compile_options(test_url_overflow PRIVATE -fsanitize=address)
-target_link_options(test_url_overflow PRIVATE -fsanitize=address)
+if(HAVE_ASAN)
+  target_compile_options(test_url_overflow PRIVATE -fsanitize=address)
+  target_link_options(test_url_overflow PRIVATE -fsanitize=address)
+endif()
 
 add_test(NAME test_url_overflow COMMAND test_url_overflow)
 
