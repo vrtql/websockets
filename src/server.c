@@ -862,6 +862,18 @@ void peer_timer_callback(uv_timer_t* handle)
     // peer CONNECTED and stops it, so peer retry never depends on a
     // one-shot re-arm racing the wakeup it requested.
     vws_tcp_svr* s = (vws_tcp_svr*)handle->data;
+
+    // Defense-in-depth NULL guard. tcp_svr_dtor stops this repeating timer
+    // before nulling data + uv_close, so the teardown uv_run drain can no
+    // longer dispatch this callback with stale state. If any residual fire
+    // slips through, NULL data means the server is already gone -> drop
+    // harmlessly instead of dereferencing s->wakeup (which crashed
+    // intermittently during server teardown).
+    if (s == NULL)
+    {
+        return;
+    }
+
     uv_async_send(s->wakeup);
 }
 
@@ -2145,7 +2157,14 @@ void tcp_svr_dtor(vws_tcp_svr* svr)
     // Close the server async handle
     uv_close((uv_handle_t*)svr->wakeup, svr_on_close);
 
-    // Close peer timer
+    // Close peer timer. STOP the repeating timer FIRST (mirrors the normal-path
+    // uv_timer_stop in vws_tcp_svr_peer_timer's
+    // all-connected branch): peer_timer is armed with uv_timer_start(...,200,200)
+    // and left active; nulling data + uv_close alone did NOT stop the subsequent
+    // teardown uv_run drain from dispatching one more peer_timer_callback with data
+    // already NULL -> uv_async_send(NULL->wakeup) SIGSEGV. Stopping first removes
+    // the pending fire at its source (the callback null-guard is belt-and-suspenders).
+    uv_timer_stop(svr->peer_timer);
     svr->peer_timer->data = NULL;
     uv_close((uv_handle_t*)svr->peer_timer, svr_on_timer_close);
 
