@@ -52,7 +52,8 @@ if(BUILD_SERVER)
     test_http_server
     test_ws_server
     test_inetd_server
-    test_msg_server )
+    test_msg_server
+    test_svr_http_cov )
 endif()
 
 foreach(x ${test_targets})

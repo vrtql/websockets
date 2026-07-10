@@ -3255,7 +3255,17 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
         }
         else
         {
-            // No complete HTTP request yet
+            // No complete HTTP request yet. llhttp has CONSUMED every byte fed
+            // this event (vws_http_msg_parse returns size for an incomplete
+            // message) and holds the parse state, so drain them -- mirroring the
+            // headers-complete drain above -- so the next read event feeds ONLY
+            // new bytes. Leaving them re-fed the already-consumed prefix into
+            // the mid-state parser on the next event: a fatal parse error that
+            // closed any split request with no reply, and made the 414 oversize
+            // reply unreachable (an oversized request line always spans read
+            // events).
+            vws_buffer_drain(c->base.buffer, n);
+
             return;
         }
 
