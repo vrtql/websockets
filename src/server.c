@@ -2496,6 +2496,19 @@ void svr_shutdown(vws_tcp_svr* server)
             queue->head        = (queue->head + 1) % queue->capacity;
             queue->size--;
 
+            // A PEER_CONNECT block carries a BORROWED pointer to the kvs-owned
+            // vws_peer (built at the peer-reconnect producer with (ucstr)peer).
+            // The normal consumer (svr_route_data) clears ->data before free for
+            // exactly this reason; this generic drain must mirror it, else it
+            // frees the peer that tcp_svr_dtor's vws_kvs_free later double-frees
+            // (use-after-free on peer->host + double-free). The peer is owned by
+            // the peers kvs and freed there exactly once; only the block struct
+            // is this drain's to reclaim.
+            if (vws_is_flag(&data->flags, VWS_SVR_STATE_PEER_CONNECT))
+            {
+                data->data = NULL;
+            }
+
             vws_svr_data_free(data);
         }
         uv_mutex_unlock(&queue->mutex);

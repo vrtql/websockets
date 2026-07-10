@@ -436,6 +436,38 @@ if(BUILD_SERVER)
             --suppressions=valgrind.suppress ./test_svr_reqleak )
   add_dependencies(test_svr_reqleak static_test_lib static_lib)
 
+  # borrowed-peer DOUBLE-FREE at the shutdown drain. #includes server.c
+  # (statics shadow static_lib's server.o); queues a residual PEER_CONNECT
+  # block borrowing the kvs peer and drives svr_shutdown (frees the peer) then
+  # tcp_svr_dtor (double-frees it). ASan is the primary, self-observing gate:
+  # unpatched the cell ABORTS with heap-use-after-free (peer->host read) at
+  # server.c:2210; patched it passes. Deterministic (no reactor, no race).
+  add_executable(test_svr_peeruaf test_svr_peeruaf.c)
+  target_include_directories(test_svr_peeruaf PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  if(HAVE_ASAN)
+    target_compile_options(test_svr_peeruaf PRIVATE -fsanitize=address)
+    target_link_options(test_svr_peeruaf PRIVATE -fsanitize=address)
+  endif()
+  target_link_libraries(test_svr_peeruaf PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_peeruaf COMMAND test_svr_peeruaf)
+  add_dependencies(test_svr_peeruaf static_test_lib static_lib)
+
+  # Non-ASan twin for the valgrind cross-check (ASan and valgrind cannot share
+  # a binary). Same source; valgrind is the observer via the _leakcheck target
+  # (unpatched: Invalid read @server.c:2210 + Invalid free @server.c:2213;
+  # patched: 0 errors, 0 leaks — the block struct is still reclaimed).
+  add_executable(test_svr_peeruaf_vg test_svr_peeruaf.c)
+  target_include_directories(test_svr_peeruaf_vg PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_peeruaf_vg PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_custom_target(test_svr_peeruaf_leakcheck
+    COMMAND valgrind --leak-check=full --show-reachable=yes --error-exitcode=99
+            --suppressions=valgrind.suppress ./test_svr_peeruaf_vg )
+  add_dependencies(test_svr_peeruaf_vg static_test_lib static_lib)
+
   # adoption error arms must uv_close, not bare-free, a registered
   # handle. RED #includes server.c; one-shot --wrap=uv_tcp_open forces the
   # inetd adopt to fail after uv_tcp_init, then the real dtor uv_walk trips the
