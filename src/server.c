@@ -981,6 +981,33 @@ void worker_thread(void* arg)
     vws_cleanup();
 }
 
+// Feed ANY close of a CONNECTED peer's connection back to the peer state
+// machine BEFORE the close is requested. Only the read-EOF and pong-deadline
+// arms did this; every other close of a peer link (the CLOSE-response arm,
+// the write-queue-cap shed, peer_disconnect) freed the cnx and left the peer
+// record CONNECTED with info.cnx dangling: the heartbeat sweep then read and
+// wrote through the freed cnx (and could uv_close the freed handle), the
+// reconnect branch never re-fired (the peer was never re-dialed until process
+// restart), and the unrecoverable report never triggered. Matching by
+// info.cid.key (the PEER flag lives on cnx->cid, not this copy) and marking
+// CLOSED here — on the loop thread, before uv_close — closes every arm at
+// once with the EOF arm's proven ordering: no window where the sweep can see
+// CONNECTED alongside a closing handle.
+static void svr_peer_close_feedback(vws_tcp_svr* server, vws_cid_t cid)
+{
+    for (size_t i = 0; i < server->peers->used; i++)
+    {
+        vws_peer* pr = (vws_peer*)server->peers->array[i].value.data;
+
+        if (pr != NULL && pr->state == VWS_PEER_CONNECTED
+            && pr->info.cid.key == cid.key)
+        {
+            pr->state = VWS_PEER_CLOSED;
+            break;
+        }
+    }
+}
+
 void vws_tcp_svr_uv_close(vws_tcp_svr* server, uv_handle_t* handle)
 {
     // Guard against a redundant close. Under reconnect-with-inflight two
@@ -992,6 +1019,14 @@ void vws_tcp_svr_uv_close(vws_tcp_svr* server, uv_handle_t* handle)
     if (uv_is_closing(handle) != 0)
     {
         return;
+    }
+
+    // Peer-close feedback for every funneled close (see helper above). All
+    // cnx-teardown closes carry a vws_cinfo in handle->data (svr_on_close
+    // relies on the same invariant).
+    if (handle->data != NULL)
+    {
+        svr_peer_close_feedback(server, ((vws_cinfo*)handle->data)->cid);
     }
 
     uv_close(handle, svr_on_close);
@@ -1536,7 +1571,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
     ci->cnx       = NULL;
     ci->server    = server;
-    ci->cid.key   = 0;
+    ci->cid.key   = -1;   // never a pool slot: 0 is a VALID slot (safe close path)
     socket->data  = ci;
 
     //> Bind to address
@@ -2093,7 +2128,7 @@ vws_tcp_svr* tcp_svr_ctor(vws_tcp_svr* svr, int nt, int backlog, int queue_size)
     vws_cinfo* cinfo = vws.malloc(sizeof(vws_cinfo));
     cinfo->cnx       = NULL;
     cinfo->server    = svr;
-    cinfo->cid.key   = 0;
+    cinfo->cid.key   = -1;   // never a pool slot: 0 is a VALID slot (safe close path)
 
     svr->wakeup = vws.malloc(sizeof(uv_async_t));
     svr->wakeup->data = cinfo;
@@ -2611,26 +2646,9 @@ void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
 
     if (nread < 0)
     {
-        // Feed a PEER link's socket-close back to the peer state
-        // machine. An established peer's EOF was handled at the cnx level but
-        // never reset peer->state, so it stayed CONNECTED forever -> peer_loop's
-        // `if (state == VWS_PEER_CLOSED)` reconnect branch never re-fired -> the
-        // peer never reconnected when it returned. Match the peer by its
-        // connection cid.key (the VWS_SVR_STATE_PEER flag lives on cnx->cid, not
-        // this cinfo->cid copy) and mark it CLOSED so the reconnect re-arms; the
-        // bounded outbound backlog then drains + delivers on the peer's return.
-        for (size_t i = 0; i < server->peers->used; i++)
-        {
-            vws_peer* pr = (vws_peer*)server->peers->array[i].value.data;
-
-            if (pr != NULL && pr->state == VWS_PEER_CONNECTED
-                && pr->info.cid.key == cid.key)
-            {
-                pr->state = VWS_PEER_CLOSED;
-                break;
-            }
-        }
-
+        // A PEER link's socket-close feeds back to the peer state machine
+        // inside vws_tcp_svr_uv_close (svr_peer_close_feedback) -- the same
+        // discipline this arm pioneered, now on every close path.
         vws_tcp_svr_uv_close(server, (uv_handle_t*)c);
         vws.free(buf->base);
         return;

@@ -53,7 +53,8 @@ if(BUILD_SERVER)
     test_ws_server
     test_inetd_server
     test_msg_server
-    test_svr_http_cov )
+    test_svr_http_cov
+    test_svr_peerclose )
 endif()
 
 foreach(x ${test_targets})
