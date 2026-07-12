@@ -1715,6 +1715,9 @@ bool vws_tcp_svr_is_halted(vws_tcp_svr* server)
 
 void vws_tcp_svr_stop(vws_tcp_svr* server)
 {
+    // Failed-start fast path decision: read BEFORE the clobber below.
+    int failed_start = (server->state == VS_FAILED);
+
     // Set shutdown flags
     server->state           = VS_HALTING;
     server->requests.state  = VS_HALTING;
@@ -1729,6 +1732,27 @@ void vws_tcp_svr_stop(vws_tcp_svr* server)
     uv_mutex_lock(&server->requests.mutex);
     uv_cond_broadcast(&server->requests.cond);
     uv_mutex_unlock(&server->requests.mutex);
+
+    if (failed_start)
+    {
+        // A failed start (bind/listen error, after run() already spawned the
+        // worker pool) means the uv loop never ran: the wakeup async below is
+        // inert and uv_thread's halting arm — the only setter of VS_HALTED on
+        // the stop path and the only worker-join site — can never fire. The
+        // drain below would burn its full budget waiting for a state no live
+        // thread can set, and the workers (woken by the broadcast above,
+        // exiting through queue_pop's HALTING arm) would never be joined —
+        // free to still be inside queue_pop when the owner destroys the queue
+        // mutex/cond right after stop() returns. Join them deterministically
+        // instead, then mark the server halted.
+        for (int i = 0; i < server->pool_size; i++)
+        {
+            uv_thread_join(&server->threads[i]);
+        }
+
+        server->state = VS_HALTED;
+        return;
+    }
 
     // Wakeup the main event loop to shutdown main thread
     if (vws.tracelevel >= VT_SERVICE)
