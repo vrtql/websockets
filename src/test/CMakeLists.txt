@@ -235,6 +235,19 @@ endif()
 
 add_test(NAME test_msg_json_nonstr COMMAND test_msg_json_nonstr)
 
+# an empty-content JSON message must round-trip: serialize always emits the
+# third (content) element so the root is an array of size 3 in every case.
+add_executable(test_msg_json_empty test_msg_json_empty.c)
+target_include_directories(test_msg_json_empty PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_link_libraries(test_msg_json_empty PRIVATE static_lib ${OS_LIBS} -lm)
+
+if(WIN32)
+  target_link_libraries(test_msg_json_empty PRIVATE ws2_32)
+endif()
+
+add_test(NAME test_msg_json_empty COMMAND test_msg_json_empty)
+
 add_custom_target(test_message_leakcheck
   COMMAND valgrind --leak-check=full --show-reachable=yes
           --suppressions=valgrind.suppress ./test_message )

@@ -224,14 +224,13 @@ vws_buffer* vrtql_msg_serialize(vrtql_msg* msg)
                                     msg->headers->array[i].value.data );
         }
 
-        // Add content
+        // Add content. Always emit the third element -- an empty string when
+        // there is no content -- so the root is an array of size 3 in every
+        // case; deserialize requires exactly that shape.
         int size  = msg->content->size;
         cstr data = (cstr)msg->content->data;
 
-        if (size > 0)
-        {
-            yyjson_mut_arr_add_strncpy(doc, root, data, size);
-        }
+        yyjson_mut_arr_add_strncpy(doc, root, (size > 0) ? data : "", size);
 
         // To string, minified
         cstr json = yyjson_mut_write(doc, 0, NULL);
