@@ -55,7 +55,8 @@ if(BUILD_SERVER)
     test_msg_server
     test_svr_http_cov
     test_svr_peerclose
-    test_svr_failstop )
+    test_svr_failstop
+    test_svr_splitbody )
 endif()
 
 foreach(x ${test_targets})

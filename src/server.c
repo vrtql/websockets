@@ -3162,8 +3162,16 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
             return;
         }
 
-        // Did we get a complete request?
-        if (cnx->http->headers_complete == true)
+        // Did we get a complete request? The gate is `done` (set only by
+        // on_message_complete, which pauses the parser), NOT headers_complete:
+        // a read event that completes the HEADERS but not the BODY leaves
+        // llhttp at HPE_OK with done==false, and entering this branch then
+        // misread HPE_OK as a parse error -- every bodied request (POST/PUT)
+        // whose body arrived in a later read event was closed with no reply.
+        // With the done gate, that event falls through to the incomplete-parse
+        // drain arm below and the errno check here only ever sees HPE_PAUSED.
+        // (ws_svr_on_http_read gates on done the same way.)
+        if (cnx->http->done == true)
         {
             // Check for parsing errors
             enum llhttp_errno err = llhttp_get_errno(cnx->http->parser);
