@@ -978,19 +978,24 @@ void vws_msleep(unsigned int ms)
 #endif
 }
 
+// Atomic: flag words are shared across threads (a server's reactor and its
+// worker pool both set/clear/read connection state words), and the plain
+// read-modify-write here raced -- concurrent set/clear could lose an update.
+// The intrinsics keep the declared uint64_t (no caller or layout change) and
+// make each operation a single atomic RMW/load.
 uint8_t vws_is_flag(const uint64_t* flags, uint64_t flag)
 {
-    return (*flags & flag) == flag;
+    return (__atomic_load_n(flags, __ATOMIC_SEQ_CST) & flag) == flag;
 }
 
 void vws_set_flag(uint64_t* flags, uint64_t flag)
 {
-    *flags |= flag;
+    __atomic_fetch_or(flags, flag, __ATOMIC_SEQ_CST);
 }
 
 void vws_clear_flag(uint64_t* flags, uint64_t flag)
 {
-    *flags &= ~flag;
+    __atomic_fetch_and(flags, ~flag, __ATOMIC_SEQ_CST);
 }
 
 char* vws_file_path(const char* root, const char* filename)

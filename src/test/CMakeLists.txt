@@ -248,6 +248,20 @@ endif()
 
 add_test(NAME test_msg_json_empty COMMAND test_msg_json_empty)
 
+# the flag helpers must be atomic under concurrent set/clear (reactor vs
+# worker-pool flag words); the deterministic race gate is an external TSan
+# build of the same drive.
+add_executable(test_flags_atomic test_flags_atomic.c)
+target_include_directories(test_flags_atomic PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+target_link_libraries(test_flags_atomic PRIVATE static_lib ${OS_LIBS} -lm -lpthread)
+
+if(WIN32)
+  target_link_libraries(test_flags_atomic PRIVATE ws2_32)
+endif()
+
+add_test(NAME test_flags_atomic COMMAND test_flags_atomic)
+
 add_custom_target(test_message_leakcheck
   COMMAND valgrind --leak-check=full --show-reachable=yes
           --suppressions=valgrind.suppress ./test_message )
