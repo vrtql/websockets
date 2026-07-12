@@ -3128,195 +3128,219 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
     // If we are in HTTP mode
     if (cnx->upgraded == false)
     {
-        // Parse incoming data as HTTP request.
-
-        ucstr data  = c->base.buffer->data;
-        size_t size = c->base.buffer->size;
-        ssize_t n   = vws_http_msg_parse(cnx->http, (cstr)data, size);
-
-        // Fatal parse error before the request completed. If the total-request
-        // size cap was exceeded, reply with the matching status -- 414 (URI Too
-        // Long, RFC 7231) if the request-line tripped it, else 431 (Request
-        // Header Fields Too Large, RFC 6585) -- before closing. Either way close
-        // the connection rather than keep buffering an oversized/broken request
-        // pre-handshake.
-        if (n < 0)
+        // Parse incoming data as HTTP request. Loop: one read event may
+        // carry several pipelined COMPLETE requests, and this function is
+        // the only parse entry and only runs on a new event -- without the
+        // loop a fully buffered second request waits for client bytes that
+        // may never come. Each pass either consumes one complete request
+        // (and re-enters), leaves a partial tail to the drain arm below
+        // (done == false), or exits via upgrade/close/return.
+        while (true)
         {
-            int status = cnx->http->oversize_status;
 
-            if (status == 414 || status == 431)
+            ucstr data  = c->base.buffer->data;
+            size_t size = c->base.buffer->size;
+            ssize_t n   = vws_http_msg_parse(cnx->http, (cstr)data, size);
+
+            // Fatal parse error before the request completed. If the total-request
+            // size cap was exceeded, reply with the matching status -- 414 (URI Too
+            // Long, RFC 7231) if the request-line tripped it, else 431 (Request
+            // Header Fields Too Large, RFC 6585) -- before closing. Either way close
+            // the connection rather than keep buffering an oversized/broken request
+            // pre-handshake.
+            if (n < 0)
             {
-                cstr reason = (status == 414) ? "URI Too Long"
-                                              : "Request Header Fields Too Large";
-                vws_buffer* http = vws_buffer_new();
-                vws_buffer_printf(http, "HTTP/1.1 %d %s\r\n", status, reason);
-                vws_buffer_printf(http, "Connection: close\r\n");
-                vws_buffer_printf(http, "Content-Length: 0\r\n\r\n");
+                int status = cnx->http->oversize_status;
 
-                vws_svr_data* reply = vws_svr_data_new(cnx->server, cnx->cid, &http);
-                cnx->server->on_data_out(reply, NULL);
-                vws_buffer_free(http);
-            }
+                if (status == 414 || status == 431)
+                {
+                    cstr reason = (status == 414) ? "URI Too Long"
+                                                  : "Request Header Fields Too Large";
+                    vws_buffer* http = vws_buffer_new();
+                    vws_buffer_printf(http, "HTTP/1.1 %d %s\r\n", status, reason);
+                    vws_buffer_printf(http, "Connection: close\r\n");
+                    vws_buffer_printf(http, "Content-Length: 0\r\n\r\n");
 
-            svr_cnx_close(cnx->server, cnx->cid);
-            return;
-        }
+                    vws_svr_data* reply = vws_svr_data_new(cnx->server, cnx->cid, &http);
+                    cnx->server->on_data_out(reply, NULL);
+                    vws_buffer_free(http);
+                }
 
-        // Did we get a complete request? The gate is `done` (set only by
-        // on_message_complete, which pauses the parser), NOT headers_complete:
-        // a read event that completes the HEADERS but not the BODY leaves
-        // llhttp at HPE_OK with done==false, and entering this branch then
-        // misread HPE_OK as a parse error -- every bodied request (POST/PUT)
-        // whose body arrived in a later read event was closed with no reply.
-        // With the done gate, that event falls through to the incomplete-parse
-        // drain arm below and the errno check here only ever sees HPE_PAUSED.
-        // (ws_svr_on_http_read gates on done the same way.)
-        if (cnx->http->done == true)
-        {
-            // Check for parsing errors
-            enum llhttp_errno err = llhttp_get_errno(cnx->http->parser);
-
-            // If there was a parsing error, close connection
-            if(err != HPE_PAUSED)
-            {
-                vws.error( VE_RT, "Error: %s (%s)",
-                           llhttp_errno_name(err),
-                           llhttp_get_error_reason(cnx->http->parser) );
-
-                // Close connection
                 svr_cnx_close(cnx->server, cnx->cid);
-
                 return;
             }
 
-            // Drain HTTP request data from cnx->data buffer
-            vws_buffer_drain(c->base.buffer, n);
-
-            //> Generate HTTP response and send
-
-            vws_kvs* headers = cnx->http->headers;
-
-            // Check if it's an upgrade request
-            cstr upgrade = vws_kvs_get_cstring(headers, "upgrade");
-
-            if (upgrade == NULL)
+            // Did we get a complete request? The gate is `done` (set only by
+            // on_message_complete, which pauses the parser), NOT headers_complete:
+            // a read event that completes the HEADERS but not the BODY leaves
+            // llhttp at HPE_OK with done==false, and entering this branch then
+            // misread HPE_OK as a parse error -- every bodied request (POST/PUT)
+            // whose body arrived in a later read event was closed with no reply.
+            // With the done gate, that event falls through to the incomplete-parse
+            // drain arm below and the errno check here only ever sees HPE_PAUSED.
+            // (ws_svr_on_http_read gates on done the same way.)
+            if (cnx->http->done == true)
             {
-                // Handle regular HTTP request via callback
-                if (server->on_http_read)
+                // Check for parsing errors
+                enum llhttp_errno err = llhttp_get_errno(cnx->http->parser);
+
+                // If there was a parsing error, close connection
+                if(err != HPE_PAUSED)
                 {
-                    int rc = server->on_http_read(cnx);
+                    vws.error( VE_RT, "Error: %s (%s)",
+                               llhttp_errno_name(err),
+                               llhttp_get_error_reason(cnx->http->parser) );
 
-                    if (rc == 0)
+                    // Close connection
+                    svr_cnx_close(cnx->server, cnx->cid);
+
+                    return;
+                }
+
+                // Drain HTTP request data from cnx->data buffer
+                vws_buffer_drain(c->base.buffer, n);
+
+                //> Generate HTTP response and send
+
+                vws_kvs* headers = cnx->http->headers;
+
+                // Check if it's an upgrade request
+                cstr upgrade = vws_kvs_get_cstring(headers, "upgrade");
+
+                if (upgrade == NULL)
+                {
+                    // Handle regular HTTP request via callback
+                    if (server->on_http_read)
                     {
-                        // Keep reading
-                        return;
-                    }
+                        int rc = server->on_http_read(cnx);
 
-                    if (rc == 1)
-                    {
-                        // Allocate new message
-                        cnx->http = vws_http_msg_new(HTTP_REQUEST);
-                    }
+                        if (rc == 0)
+                        {
+                            // Keep reading
+                            return;
+                        }
 
-                    if (rc == -1)
+                        if (rc == 1)
+                        {
+                            // Allocate new message
+                            cnx->http = vws_http_msg_new(HTTP_REQUEST);
+
+                            // A pipelining client may have written further
+                            // requests into this same event's buffer. Serve
+                            // any COMPLETE one now: re-enter the parse with
+                            // the fresh parser. A partial tail parses to
+                            // done == false and drains below; an empty
+                            // buffer is done for this event.
+                            if (c->base.buffer->size > 0)
+                            {
+                                continue;
+                            }
+                        }
+
+                        if (rc == -1)
+                        {
+                            // We are not handling HTTP requests
+                            svr_cnx_close(cnx->server, cnx->cid);
+                        }
+                    }
+                    else
                     {
                         // We are not handling HTTP requests
                         svr_cnx_close(cnx->server, cnx->cid);
                     }
+
+                    return;
+                }
+
+                cstr key   = vws_kvs_get_cstring(headers, "sec-websocket-key");
+                cstr proto = vws_kvs_get_cstring(headers, "sec-websocket-protocol");
+
+                if (key == NULL)
+                {
+                    vws.error(VE_RT, "Error: missing sec-websocket-key");
+
+                    // Close connection
+                    svr_cnx_close(cnx->server, cnx->cid);
+
+                    return;
+                }
+
+                vws_buffer* http = vws_buffer_new();
+
+                vws_buffer_printf(http, "HTTP/1.1 101 Switching Protocols\r\n");
+                vws_buffer_printf(http, "Upgrade: websocket\r\n");
+                vws_buffer_printf(http, "Connection: Upgrade\r\n");
+
+                cstr ac = vws_accept_key(key);
+                vws_buffer_printf(http, "Sec-WebSocket-Accept: %s\r\n", ac);
+                vws.free(ac);
+
+                vws_buffer_printf(http, "Sec-WebSocket-Version: 13\r\n");
+                vws_buffer_printf(http, "Sec-WebSocket-Protocol: ");
+
+                if (proto != NULL)
+                {
+                    vws_buffer_printf(http, "%s\r\n", proto);
                 }
                 else
                 {
-                    // We are not handling HTTP requests
-                    svr_cnx_close(cnx->server, cnx->cid);
+                    vws_buffer_printf(http, "vrtql\r\n");
                 }
 
-                return;
-            }
+                vws_buffer_printf(http, "\r\n");
 
-            cstr key   = vws_kvs_get_cstring(headers, "sec-websocket-key");
-            cstr proto = vws_kvs_get_cstring(headers, "sec-websocket-protocol");
+                // Package up response
+                vws_svr_data* reply;
+                reply = vws_svr_data_new(cnx->server, cnx->cid, &http);
 
-            if (key == NULL)
-            {
-                vws.error(VE_RT, "Error: missing sec-websocket-key");
+                // Send directly out as we are in uv_thread()
+                cnx->server->on_data_out(reply, NULL);
 
-                // Close connection
-                svr_cnx_close(cnx->server, cnx->cid);
+                // Cleanup. Buffer data was passed to reply.
+                vws_buffer_free(http);
 
-                return;
-            }
+                //> Change state to WebSocket mode
 
-            vws_buffer* http = vws_buffer_new();
+                // Set the flag that we are in WebSocket mode
+                cnx->upgraded = true;
 
-            vws_buffer_printf(http, "HTTP/1.1 101 Switching Protocols\r\n");
-            vws_buffer_printf(http, "Upgrade: websocket\r\n");
-            vws_buffer_printf(http, "Connection: Upgrade\r\n");
+                // Notify application of the upgrade
+                if (server->on_upgrade != NULL)
+                {
+                    server->on_upgrade(cnx);
+                }
 
-            cstr ac = vws_accept_key(key);
-            vws_buffer_printf(http, "Sec-WebSocket-Accept: %s\r\n", ac);
-            vws.free(ac);
+                // Free HTTP request as we don't need it anymore
+                vws_http_msg_free(cnx->http);
+                cnx->http = NULL;
 
-            vws_buffer_printf(http, "Sec-WebSocket-Version: 13\r\n");
-            vws_buffer_printf(http, "Sec-WebSocket-Protocol: ");
-
-            if (proto != NULL)
-            {
-                vws_buffer_printf(http, "%s\r\n", proto);
+                // Do we have any data in the socket after consuming the HTTP
+                // request? We shouldn't but if so this is WebSocket data.
+                if (c->base.buffer->size == 0)
+                {
+                    // No more data in the socket buffer. Done for now.
+                    return;
+                }
             }
             else
             {
-                vws_buffer_printf(http, "vrtql\r\n");
-            }
+                // No complete HTTP request yet. llhttp has CONSUMED every byte fed
+                // this event (vws_http_msg_parse returns size for an incomplete
+                // message) and holds the parse state, so drain them -- mirroring the
+                // headers-complete drain above -- so the next read event feeds ONLY
+                // new bytes. Leaving them re-fed the already-consumed prefix into
+                // the mid-state parser on the next event: a fatal parse error that
+                // closed any split request with no reply, and made the 414 oversize
+                // reply unreachable (an oversized request line always spans read
+                // events).
+                vws_buffer_drain(c->base.buffer, n);
 
-            vws_buffer_printf(http, "\r\n");
-
-            // Package up response
-            vws_svr_data* reply;
-            reply = vws_svr_data_new(cnx->server, cnx->cid, &http);
-
-            // Send directly out as we are in uv_thread()
-            cnx->server->on_data_out(reply, NULL);
-
-            // Cleanup. Buffer data was passed to reply.
-            vws_buffer_free(http);
-
-            //> Change state to WebSocket mode
-
-            // Set the flag that we are in WebSocket mode
-            cnx->upgraded = true;
-
-            // Notify application of the upgrade
-            if (server->on_upgrade != NULL)
-            {
-                server->on_upgrade(cnx);
-            }
-
-            // Free HTTP request as we don't need it anymore
-            vws_http_msg_free(cnx->http);
-            cnx->http = NULL;
-
-            // Do we have any data in the socket after consuming the HTTP
-            // request? We shouldn't but if so this is WebSocket data.
-            if (c->base.buffer->size == 0)
-            {
-                // No more data in the socket buffer. Done for now.
                 return;
             }
-        }
-        else
-        {
-            // No complete HTTP request yet. llhttp has CONSUMED every byte fed
-            // this event (vws_http_msg_parse returns size for an incomplete
-            // message) and holds the parse state, so drain them -- mirroring the
-            // headers-complete drain above -- so the next read event feeds ONLY
-            // new bytes. Leaving them re-fed the already-consumed prefix into
-            // the mid-state parser on the next event: a fatal parse error that
-            // closed any split request with no reply, and made the 414 oversize
-            // reply unreachable (an oversized request line always spans read
-            // events).
-            vws_buffer_drain(c->base.buffer, n);
 
-            return;
+            // Only the upgrade path falls out of the request arm: WebSocket
+            // bytes buffered behind the 101 are handled below.
+            break;
         }
 
         // If we get here, we have a complete request and we have incoming

@@ -567,6 +567,17 @@ if(BUILD_SERVER)
     static_test_lib static_lib ${OS_LIBS} -lm)
   add_test(NAME test_http_reqcap COMMAND test_http_reqcap)
   add_dependencies(test_http_reqcap static_test_lib static_lib)
+
+  # Pipelined second HTTP request buffered in the SAME read event must be
+  # served in that event (re-parse loop composes with the done-gate: a
+  # partial tail still falls to the drain arm). #includes server.c.
+  add_executable(test_svr_pipeline test_svr_pipeline.c)
+  target_include_directories(test_svr_pipeline PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_pipeline PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_pipeline COMMAND test_svr_pipeline)
+  add_dependencies(test_svr_pipeline static_test_lib static_lib)
 endif()
 
 # client/server test programs
