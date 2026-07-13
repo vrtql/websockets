@@ -123,10 +123,36 @@ bool vws_cid_valid(vws_cid_t* cid)
  * @defgroup AddressPool
  */
 
+// A key packs the slot index (low 32 bits) with the slot's reuse generation
+// (bits 32..62; bit 63 stays clear so vws_cid_valid's key >= 0 contract
+// holds). The slot index alone is NOT an identity: the cyclic first-fit scan
+// reissues a freed index while a consumer (e.g. a deferred connection
+// teardown holding a cid) may still hold the old key, and an index-only key
+// then resolves -- or frees -- the slot's NEW resident. The generation
+// advances on free, so a stale key mismatches and resolves nothing.
+
+#define POOL_GEN_MASK 0x7FFFFFFFu
+
+static int64_t pool_key(uint32_t index, uint32_t gen)
+{
+    return (int64_t)(((uint64_t)(gen & POOL_GEN_MASK) << 32) | index);
+}
+
+static uint32_t pool_key_index(int64_t key)
+{
+    return (uint32_t)(key & 0xFFFFFFFFu);
+}
+
+static uint32_t pool_key_gen(int64_t key)
+{
+    return (uint32_t)((uint64_t)key >> 32) & POOL_GEN_MASK;
+}
+
 address_pool* address_pool_new(int initial_size, int growth_factor)
 {
     address_pool* pool    = (address_pool*)malloc(sizeof(address_pool));
     pool->slots           = (uintptr_t*)calloc(initial_size, sizeof(uintptr_t));
+    pool->generations     = (uint32_t*)calloc(initial_size, sizeof(uint32_t));
     pool->capacity        = initial_size;
     pool->count           = 0;
     pool->last_used_index = 0;
@@ -140,6 +166,7 @@ void address_pool_free(address_pool** pool)
     if (*pool != NULL)
     {
         free((*pool)->slots);
+        free((*pool)->generations);
         free(*pool);
         (*pool) = NULL;
     }
@@ -149,12 +176,16 @@ void address_pool_resize(address_pool *pool)
 {
     int new_capacity     = pool->capacity * pool->growth_factor;
     uintptr_t* new_slots = (uintptr_t *)calloc(new_capacity, sizeof(uintptr_t));
+    uint32_t* new_gens   = (uint32_t *)calloc(new_capacity, sizeof(uint32_t));
     memcpy(new_slots, pool->slots, pool->capacity * sizeof(uintptr_t));
+    memcpy(new_gens, pool->generations, pool->capacity * sizeof(uint32_t));
 
     free(pool->slots);
+    free(pool->generations);
 
-    pool->slots    = new_slots;
-    pool->capacity = new_capacity;
+    pool->slots       = new_slots;
+    pool->generations = new_gens;
+    pool->capacity    = new_capacity;
 }
 
 int64_t address_pool_set(address_pool* pool, uintptr_t address)
@@ -176,7 +207,7 @@ int64_t address_pool_set(address_pool* pool, uintptr_t address)
     uint32_t allocated_index = pool->last_used_index;
     pool->last_used_index    = (pool->last_used_index + 1) % pool->capacity;
 
-    return (int64_t)allocated_index;
+    return pool_key(allocated_index, pool->generations[allocated_index]);
 }
 
 uintptr_t address_pool_get(address_pool* pool, int64_t i)
@@ -186,9 +217,14 @@ uintptr_t address_pool_get(address_pool* pool, int64_t i)
         return 0;
     }
 
-    uint32_t index = (uint32_t)i;
+    uint32_t index = pool_key_index(i);
 
     if (index >= pool->capacity || pool->slots[index] == 0)
+    {
+        return 0;
+    }
+
+    if ((pool->generations[index] & POOL_GEN_MASK) != pool_key_gen(i))
     {
         return 0;
     }
@@ -203,12 +239,26 @@ void address_pool_remove(address_pool* pool, int64_t i)
         return;
     }
 
-    uint32_t index = (uint32_t)i;
+    uint32_t index = pool_key_index(i);
+
+    if (index >= pool->capacity)
+    {
+        return;
+    }
+
+    if ((pool->generations[index] & POOL_GEN_MASK) != pool_key_gen(i))
+    {
+        return;
+    }
 
     if (pool->slots[index] != 0)
     {
         pool->slots[index] = 0;
         pool->count--;
+
+        // The freed slot's next resident gets a new identity; any key issued
+        // before this free now mismatches and resolves nothing.
+        pool->generations[index]++;
     }
 }
 

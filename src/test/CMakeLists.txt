@@ -54,6 +54,7 @@ if(BUILD_SERVER)
     test_inetd_server
     test_msg_server
     test_svr_http_cov
+    test_address_pool_generation
     test_svr_peerclose
     test_svr_failstop
     test_svr_splitbody )

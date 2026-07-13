@@ -123,6 +123,11 @@ typedef struct
     /**< Last used index to optimize search for empty slots */
     uint32_t last_used_index;
 
+    /**< Per-slot reuse generation, packed into a key's bits 32..62. A slot's
+     * generation advances when the slot is freed, so a key issued before the
+     * free can never resolve (or remove) the slot's next resident. */
+    uint32_t* generations;
+
     /**< Factor by which the array size is increased upon realloc */
     uint16_t growth_factor;
 } address_pool;
