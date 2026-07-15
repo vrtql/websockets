@@ -247,12 +247,19 @@ void* vws_malloc(size_t size)
 
 void* vws_malloc_error(size_t size)
 {
-    // No error string since memory allocation has already failed and error
-    // handler uses malloc() for copying error string.
-    vws.error(VE_MEM, NULL);
+    (void)size;
 
-    // Default does not provide any recovery attempt.
-    return NULL;
+    // Fail-fast on OOM [Mike 2026-07-15]: vws.malloc's callers across the library
+    // dereference the result WITHOUT a null-check (the WebSocket frame decoder
+    // vws_deserialize, vws_http_msg_new, url_parse, the vws_buffer growth path,
+    // ...), so returning NULL here turned an allocation failure into a NULL
+    // dereference crash at the call site. Abort deterministically instead. The
+    // message is written with a direct fputs (NOT vws.error, whose default
+    // handler itself malloc's a format buffer that would fail under this same
+    // OOM). A caller that genuinely needs graceful degradation can still install
+    // its own vws.malloc_error callback; the DEFAULT is fail-fast.
+    fputs("vws: fatal: out of memory (allocation failed)\n", stderr);
+    abort();
 }
 
 void vws_free(void* data)
@@ -274,12 +281,13 @@ void* vws_calloc(size_t nmemb, size_t size)
 
 void* vws_calloc_error(size_t nmemb, size_t size)
 {
-    // No error string since memory allocation has already failed and error
-    // handler uses malloc() for copying error string.
-    vws.error(VE_MEM, NULL);
+    (void)nmemb;
+    (void)size;
 
-    // Default does not provide any recovery attempt.
-    return NULL;
+    // Fail-fast on OOM [Mike 2026-07-15] — see vws_malloc_error. Callers deref
+    // vws.calloc's result without a null-check; abort rather than return NULL.
+    fputs("vws: fatal: out of memory (allocation failed)\n", stderr);
+    abort();
 }
 
 void* vws_realloc(void* ptr, size_t size)
@@ -296,12 +304,14 @@ void* vws_realloc(void* ptr, size_t size)
 
 void* vws_realloc_error(void* ptr, size_t size)
 {
-    // No error string since memory allocation has already failed and error
-    // handler uses malloc() for copying error string.
-    vws.error(VE_MEM, NULL);
+    (void)ptr;
+    (void)size;
 
-    // Default does not provide any recovery attempt.
-    return NULL;
+    // Fail-fast on OOM [Mike 2026-07-15] — see vws_malloc_error. vws_buffer_append
+    // (and other callers) deref/write through vws.realloc's result without a
+    // null-check; abort rather than return NULL.
+    fputs("vws: fatal: out of memory (allocation failed)\n", stderr);
+    abort();
 }
 
 void* vws_strdup(cstr ptr)
@@ -318,12 +328,12 @@ void* vws_strdup(cstr ptr)
 
 void* vws_strdup_error(cstr ptr)
 {
-    // No error string since memory allocation has already failed and error
-    // handler uses malloc() for copying error string.
-    vws.error(VE_MEM, NULL);
+    (void)ptr;
 
-    // Default does not provide any recovery attempt.
-    return NULL;
+    // Fail-fast on OOM [Mike 2026-07-15] — see vws_malloc_error. Abort rather
+    // than return NULL (callers of vws.strdup deref the result unchecked).
+    fputs("vws: fatal: out of memory (allocation failed)\n", stderr);
+    abort();
 }
 
 //------------------------------------------------------------------------------
@@ -411,7 +421,10 @@ int vws_error_default_process(int code, cstr message)
             case VE_SYS:
             case VE_RT:
             {
-                vws.trace(VL_INFO, "error %i: %s", message);
+                // [vws V-1] two conversions (%i %s) require two args; the missing
+                // `code` made %s read a nonexistent vararg (UB, crash-capable) --
+                // reached on every traced VE_RT (routine malformed-message error).
+                vws.trace(VL_INFO, "error %i: %s", code, message);
                 break;
             }
 

@@ -609,8 +609,17 @@ void vrtql_msg_set_content_binary(vrtql_msg* msg, cstr value, size_t size)
 
 ssize_t vrtql_msg_send(vws_cnx* c, vrtql_msg* msg)
 {
+    // [vws V-2] serialize returns NULL on an mpack encode error or an
+    // unrecognized msg->format (an embedder-settable field); the old
+    // unconditional binary->data deref crashed the caller. Fail the send.
     vws_buffer* binary = vrtql_msg_serialize(msg);
-    ssize_t bytes      = vws_frame_send_binary(c, binary->data, binary->size);
+
+    if (binary == NULL)
+    {
+        return -1;
+    }
+
+    ssize_t bytes = vws_frame_send_binary(c, binary->data, binary->size);
     vws_buffer_free(binary);
 
     return bytes;

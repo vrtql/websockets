@@ -517,7 +517,12 @@ openssl_reread:
 
     int rc = poll(&fds, 1, c->timeout);
 
-    if (fds.revents & (POLLERR | POLLHUP | POLLNVAL))
+    // [vws V-12] poll() failure (rc < 0, e.g. EINTR) leaves revents UNDEFINED
+    // (POSIX) -- inspecting it read stack garbage that, with a stray POLLERR
+    // bit, abnormal-closed a HEALTHY connection on any interrupting signal.
+    // Only inspect revents when poll actually reported events (rc > 0); the
+    // rc <= 0 cases fall to the rc checks below.
+    if ((rc > 0) && (fds.revents & (POLLERR | POLLHUP | POLLNVAL)))
     {
         vws.error(VE_SOCKET, "Socket error during poll()");
         socket_abnormal_close(c);
@@ -876,7 +881,9 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
 
         int rc = poll(&fds, 1, c->timeout);
 
-        if (fds.revents & (POLLERR | POLLHUP | POLLNVAL))
+        // [vws V-12] see the read path: revents is UNDEFINED on rc < 0 (EINTR),
+        // so only inspect it when poll reported events (rc > 0).
+        if ((rc > 0) && (fds.revents & (POLLERR | POLLHUP | POLLNVAL)))
         {
             vws.error(VE_SOCKET, "Socket error during poll()");
             socket_abnormal_close(c);

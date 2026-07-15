@@ -2007,7 +2007,11 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
 
         vws.error(VE_SYS, "getaddrinfo() failed");
 
-        return -1;
+        // [vws V-8] svr_resolve is bool; `return -1` converts to TRUE, so the
+        // PEER_CONNECT fast-fail arm read a DNS-resolution failure as success
+        // and proceeded to the real dial (which then re-failed on its own
+        // resolution) -- the fast-fail was dead for exactly this case.
+        return false;
     }
 
     for (res = res0; res; res = res->ai_next)
@@ -2558,6 +2562,25 @@ void svr_cnx_free(vws_svr_cnx* cnx)
             vws_http_msg_free(cnx->http);
         }
 
+        // [vws V-7] A connection closed while backpressure-PAUSED still owns its
+        // stashed in-flight item and its reads_paused reservation. The drain/
+        // resume path (svr_client_read pause arm) is never reached for a closing
+        // cnx, so without this cnx->pending LEAKS and server->reads_paused stays
+        // incremented forever -- the drain check then spuriously async-wakes the
+        // reactor on every request for the life of the server. Release the
+        // stashed item (refcounted free) and give back the reservation.
+        if (cnx->read_paused == true)
+        {
+            if (cnx->pending != NULL)
+            {
+                vws_svr_data_free(cnx->pending);
+                cnx->pending = NULL;
+            }
+
+            cnx->read_paused = false;
+            atomic_fetch_sub(&cnx->server->reads_paused, 1);
+        }
+
         // Remove from pool
         address_pool_remove(cnx->server->cpool, cnx->cid.key);
 
@@ -2935,6 +2958,15 @@ vws_svr_data* queue_pop(vws_svr_queue* queue)
     vws_svr_data* data = queue->buffer[queue->head];
     queue->head        = (queue->head + 1) % queue->capacity;
     queue->size--;
+
+    // [vws V-6] Wake a producer blocked on a FULL queue. push() and pop() share
+    // one cond; push waits on (size == capacity) and pop must signal after it
+    // frees a slot, or a pusher that blocked on a full queue is never woken --
+    // the loop keeps draining responses but the workers stay wedged in
+    // queue_push after a flood fills the queue (a permanent lost-wakeup). Right
+    // after a successful pop no CONSUMER can be waiting (consumers wait only on
+    // size == 0), so this single signal reliably targets a waiting producer.
+    uv_cond_signal(&queue->cond);
 
     uv_mutex_unlock(&queue->mutex);
 

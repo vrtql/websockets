@@ -497,6 +497,19 @@ static void on_ready(vws_async* a, short revents)
         return;
     }
 
+    // [vws V-11] POLLHUP means the peer closed. When reads are PAUSED (flow
+    // control cleared read_armed), compute_mask requests no events yet poll()
+    // still reports POLLHUP, so on_ready does nothing and the reactor re-polls
+    // and returns immediately -- 100% CPU spin until reads resume. Disconnect.
+    // When reads ARE armed, fall through so the POLLIN path drains any final
+    // buffered bytes and reads EOF for an orderly close.
+    if ((revents & POLLHUP) &&
+        (atomic_load_explicit(&a->read_armed, memory_order_relaxed) == false))
+    {
+        async_disconnect(a);
+        return;
+    }
+
     // 1. Pending SSL op precedence: retry the SAME op before user callbacks.
     if (a->pending != VWS_SSL_NONE)
     {
