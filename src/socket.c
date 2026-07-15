@@ -515,9 +515,16 @@ openssl_reread:
     fds.fd     = c->sockfd;
     fds.events = poll_events;
 
-    int rc = poll(&fds, 1, c->timeout);
+    // [vws V-12] Retry poll() on EINTR (a delivered signal) instead of treating
+    // the interrupt as a hard failure that tears the connection down.
+    int rc;
+    do
+    {
+        rc = poll(&fds, 1, c->timeout);
+    }
+    while (rc == -1 && errno == EINTR);
 
-    // [vws V-12] poll() failure (rc < 0, e.g. EINTR) leaves revents UNDEFINED
+    // [vws V-12] poll() failure (rc < 0) leaves revents UNDEFINED
     // (POSIX) -- inspecting it read stack garbage that, with a stray POLLERR
     // bit, abnormal-closed a HEALTHY connection on any interrupting signal.
     // Only inspect revents when poll actually reported events (rc > 0); the
@@ -879,9 +886,15 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         fds.fd     = c->sockfd;
         fds.events = poll_events;
 
-        int rc = poll(&fds, 1, c->timeout);
+        // [vws V-12] retry on EINTR (see the read path).
+        int rc;
+        do
+        {
+            rc = poll(&fds, 1, c->timeout);
+        }
+        while (rc == -1 && errno == EINTR);
 
-        // [vws V-12] see the read path: revents is UNDEFINED on rc < 0 (EINTR),
+        // [vws V-12] see the read path: revents is UNDEFINED on rc < 0,
         // so only inspect it when poll reported events (rc > 0).
         if ((rc > 0) && (fds.revents & (POLLERR | POLLHUP | POLLNVAL)))
         {

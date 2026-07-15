@@ -1557,7 +1557,7 @@ bool vws_tcp_svr_peers_online(vws_tcp_svr* server)
                            "peer offline %s state=%lu",
                            server,
                            peer->host,
-                           peer->state );
+                           (unsigned long)peer->state );
             }
 
             return false;
@@ -1635,7 +1635,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     {
         vws.trace( VL_INFO,
                    "vws_tcp_svr_run(%p): Bind %s:%lu",
-                   server, host, port );
+                   server, host, (unsigned long)port );
     }
 
     if (rc)
@@ -1673,7 +1673,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     {
         vws.trace( VL_INFO,
                    "vws_tcp_svr_run(%p): Listen %s:%lu",
-                   server, host, port );
+                   server, host, (unsigned long)port );
     }
 
     //> Start server
@@ -1701,7 +1701,7 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
 
     vws.trace( VL_INFO, "vws_tcp_svr_run(%p): Shutdown connections=%lu",
                server,
-               server->cpool->count );
+               (unsigned long)server->cpool->count );
 
     // Close connections.
     for (uint32_t i = 0; i < server->cpool->capacity; i++)
@@ -1993,7 +1993,7 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
     hints.ai_socktype = SOCK_STREAM;
 
     char port_str[50];
-    sprintf(port_str, "%lu", port);
+    sprintf(port_str, "%lu", (unsigned long)port);
 
     error = getaddrinfo(host, &port_str[0], &hints, &res0);
 
@@ -2030,7 +2030,7 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
             struct sockaddr* addr = (struct sockaddr*)res->ai_addr;
             if (vws_socket_addr_info(addr, &host, &port) == true)
             {
-                vws.trace(VL_INFO, "svr_resolve() connect %s:%lu", host, port);
+                vws.trace(VL_INFO, "svr_resolve() connect %s:%lu", host, (unsigned long)port);
                 free(host);
             }
             else
@@ -2060,7 +2060,7 @@ bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
 
     if (sockfd == VWS_INVALID_SOCKET)
     {
-        vws.error(VE_SYS, "Unable to resolve host %s:%lu", host, port);
+        vws.error(VE_SYS, "Unable to resolve host %s:%lu", host, (unsigned long)port);
         return false;
     }
 
@@ -2120,21 +2120,28 @@ vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
     peer.data  = data;
 
     char key[514];
-    sprintf(key, "%s:%lu", h, p);
+    sprintf(key, "%s:%lu", h, (unsigned long)p);
     vws_kvs_set(s->peers, key, &peer, sizeof(vws_peer));
 
     // Set wakeup timer
     vws_tcp_svr_peer_timer(s);
 
-    return vws_kvs_get(s->peers, key)->data;
+    // [vws V-10] guard the lookup (normally just-set, but a failed set would
+    // make vws_kvs_get return NULL -> crash on ->data).
+    vws_value* entry = vws_kvs_get(s->peers, key);
+    return (entry != NULL) ? entry->data : NULL;
 }
 
 void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p)
 {
     char key[514];
-    sprintf(key, "%s:%lu", h, p);
+    sprintf(key, "%s:%lu", h, (unsigned long)p);
 
-    vws_peer* peer = vws_kvs_get(s->peers, key)->data;
+    // [vws V-10] vws_kvs_get returns NULL for an absent key; the old
+    // unconditional ->data deref crashed. Guard it (unknown key = nothing to
+    // remove).
+    vws_value* entry = vws_kvs_get(s->peers, key);
+    vws_peer*  peer  = (entry != NULL) ? (vws_peer*)entry->data : NULL;
 
     if (peer != NULL)
     {
@@ -2758,6 +2765,13 @@ void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
     {
         vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
         server->on_read(cnx, nread, buf);
+    }
+    else
+    {
+        // [vws V-10] Pool miss (the cnx was removed between the read completing
+        // and this callback): the ptr!=0 path hands buf to on_read, which owns
+        // and frees it; the miss arm returned without freeing buf->base -> leak.
+        vws.free(buf->base);
     }
 }
 
@@ -3521,7 +3535,7 @@ void ws_svr_client_data_in(vws_svr_data* block, void* x)
             vws.error( VL_WARN,
                        "vws_tcp_svr_peer_add(): "
                        "Failed to resolve host %s:%lu",
-                       peer->host, peer->port );
+                       peer->host, (unsigned long)peer->port );
 
             // Set state back to closed
             peer->state = VWS_PEER_CLOSED;
@@ -3567,6 +3581,20 @@ void ws_svr_client_data_out( vws_svr* server,
                              vws_buffer* buffer,
                              unsigned char opcode )
 {
+    // [vws V-2 addendum] Guard a failed serialize. msg_svr_client_msg_out and
+    // msg_svr_client_msg_dispatch pass vrtql_msg_serialize's result straight in,
+    // and it returns NULL on an mpack encode error or an unrecognized
+    // msg->format -- without this the buffer->data read below was a
+    // worker-thread NULL deref. Drop the outbound message instead of crashing
+    // the server (nothing to free: the serialize failure produced no buffer).
+    if (buffer == NULL)
+    {
+        vws.error(VE_WARN,
+                  "ws_svr_client_data_out: NULL buffer (serialize failed); "
+                  "dropping outbound message");
+        return;
+    }
+
     // Create a binary websocket frame containing message
     vws_frame* frame;
     ucstr data  = buffer->data;
@@ -3702,7 +3730,7 @@ void msg_svr_client_ws_msg_in(vws_svr* s, vws_cid_t cid, vws_msg* wsm, void* x)
 {
     // Deserialize message
 
-    vrtql_msg* msg = vrtql_msg_new(HTTP_REQUEST);
+    vrtql_msg* msg = vrtql_msg_new();  // [vws V-10] stray arg removed (takes none)
     ucstr data     = wsm->data->data;
     size_t size    = wsm->data->size;
 

@@ -182,9 +182,13 @@ static void dump_websocket_header(const ws_header* header);
 
 bool cnx_connect(vws_cnx* c)
 {
-    if (c->url->host == NULL)
+    // [F4] url_parse() (in vws_connect) can return NULL, and a partial parse
+    // can leave protocol/host NULL; guard before every deref below -- host at
+    // the check itself, protocol at the strcmp()s, and path/host in
+    // socket_handshake.
+    if (c->url == NULL || c->url->host == NULL || c->url->protocol == NULL)
     {
-        vws.error(VE_MEM, "Invalid or missing host");
+        vws.error(VE_MEM, "Invalid or missing URL (host/protocol)");
         return false;
     }
 
@@ -318,7 +322,9 @@ bool vws_reconnect(vws_cnx* c)
 
     if (c->url != NULL)
     {
-        cnx_connect(c);
+        // [F9] Return the reconnect result; it was discarded, so vws_reconnect
+        // always reported false even on a successful reconnect.
+        return cnx_connect(c);
     }
 
     return false;
@@ -351,7 +357,26 @@ bool socket_handshake(vws_socket* s)
         "\r\n";
 
     char req[MAX_BUFFER_SIZE];
-    snprintf(req, sizeof(req), rt, c->url->path, c->url->host, c->url->href, c->key);
+
+    // [F11] c->key can be NULL if RAND_bytes failed in the ctor, and a partial
+    // URL parse can leave path/href NULL; passing NULL to a %s conversion is
+    // undefined behavior.
+    if (c->key == NULL || c->url->path == NULL || c->url->href == NULL)
+    {
+        vws.error(VE_RT, "handshake: missing key or URL path/href");
+        return false;
+    }
+
+    int req_len = snprintf(req, sizeof(req), rt, c->url->path, c->url->host,
+                           c->url->href, c->key);
+
+    // [F11] Detect truncation: snprintf returns the length it WOULD have
+    // written, so a long URL (~1 KiB) would otherwise send a malformed request.
+    if (req_len < 0 || (size_t)req_len >= sizeof(req))
+    {
+        vws.error(VE_RT, "handshake: request too large (URL too long)");
+        return false;
+    }
 
     ssize_t n;
     size_t total = 0;
@@ -359,7 +384,9 @@ bool socket_handshake(vws_socket* s)
 
     while (true)
     {
-        n = vws_socket_write(s, (ucstr)req, size);
+        // [F10] Write from the current offset; the old form re-sent the whole
+        // buffer each pass, so a partial write duplicated the leading bytes.
+        n = vws_socket_write(s, (ucstr)req + total, size - total);
 
         if (vws_cnx_is_connected(c) == false)
         {
@@ -445,11 +472,24 @@ bool socket_handshake(vws_socket* s)
             size_t size = s->buffer->size;
             ssize_t n   = vws_http_msg_parse(http, data, size);
 
+            // [F5] A parse error (-1) is a handshake failure. Draining
+            // (size_t)(-1) below would clear the ENTIRE buffer, discarding any
+            // frames that arrived after the 101.
+            if (n < 0)
+            {
+                vws_buffer_clear(c->base.buffer);
+                vws_http_msg_free(http);
+                return false;
+            }
+
+            // [F2] llhttp is incremental/stateful: drain the bytes it consumed
+            // THIS pass so the next read feeds only NEW bytes. Re-feeding
+            // already-parsed bytes errors the parser and poisons its state, so
+            // headers_complete may never be reached on a split 101 response.
+            vws_buffer_drain(c->base.buffer, n);
+
             if (http->headers_complete == true)
             {
-                // Drain HTTP request data from socket buffer
-                vws_buffer_drain(c->base.buffer, n);
-
                 break;
             }
         }
@@ -461,18 +501,23 @@ bool socket_handshake(vws_socket* s)
     if (accept_key == NULL)
     {
         vws.error(VE_SYS, "connect failed: no accept key returned");
-
+        // [F3] free the HTTP response on this failure path (was leaked).
+        vws_http_msg_free(http);
         return false;
     }
 
-    if (verify_handshake(c->key, accept_key) == false)
-    {
-        vws.error(VE_RT, "Handshake verification failed");
-        vws.free(accept_key);
-        return false;
-    }
+    // [F3] accept_key is a kvs-OWNED (borrowed) pointer -- never free it (that
+    // frees memory the kvs still references). It also dangles once http (which
+    // owns the kvs) is freed, so capture the verify result BEFORE the free.
+    bool verified = verify_handshake(c->key, accept_key);
 
     vws_http_msg_free(http);
+
+    if (verified == false)
+    {
+        vws.error(VE_RT, "Handshake verification failed");
+        return false;
+    }
 
     return true;
 }
@@ -497,19 +542,24 @@ void vws_disconnect(vws_cnx* c)
 
     vws_buffer* buffer = vws_generate_close_frame();
 
-    for (size_t i = 0; i < buffer->size;)
+    // [F6] vws_generate_close_frame -> vws_serialize returns NULL on a
+    // RAND_bytes failure; guard before dereferencing buffer below.
+    if (buffer != NULL)
     {
-        int n = vws_socket_write(s, buffer->data + i, buffer->size - i);
-
-        if (n < 0)
+        for (size_t i = 0; i < buffer->size;)
         {
-            break;
+            int n = vws_socket_write(s, buffer->data + i, buffer->size - i);
+
+            if (n < 0)
+            {
+                break;
+            }
+
+            i += n;
         }
 
-        i += n;
+        vws_buffer_free(buffer);
     }
-
-    vws_buffer_free(buffer);
 
     vws_socket_disconnect(s);
 }
@@ -566,6 +616,13 @@ ssize_t vws_frame_send(vws_cnx* c, vws_frame* frame)
     }
 
     vws_buffer* binary = vws_serialize(frame);
+
+    // [F6] vws_serialize returns NULL on RAND_bytes failure (and has already
+    // freed the frame); bail rather than dereference binary->data below.
+    if (binary == NULL)
+    {
+        return -1;
+    }
 
     if (vws.tracelevel >= VT_PROTOCOL)
     {
@@ -624,6 +681,16 @@ vws_msg* vws_msg_recv(vws_cnx* c)
 {
     // Default success unless error
     vws.success();
+
+    // [F11] Return an already-complete queued message even if the connection
+    // has since disconnected -- those bytes already arrived and were framed;
+    // dropping them on disconnect loses delivered data.
+    vws_msg* queued = vws_msg_pop(c);
+
+    if (queued != NULL)
+    {
+        return queued;
+    }
 
     if (vws_cnx_is_connected(c) == false)
     {
@@ -912,8 +979,11 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
         // Store the payload offset
         f->offset = 2 + size_bytes + 4;
 
-        // Allocate the frame data
-        f->data = vws.malloc(f->size);
+        // Allocate the frame data. [F11] A zero-length frame must not call
+        // vws.malloc(0): POSIX permits a NULL return, and the V-3 allocator
+        // abort would then crash the process on a peer-sent empty frame
+        // (SunOS/illumos). Skip the alloc; the xor loop below is a no-op.
+        f->data = f->size > 0 ? vws.malloc(f->size) : NULL;
 
         // Create a temp variable for the masking key
         unsigned char mask[4];
@@ -945,11 +1015,20 @@ fs_t vws_deserialize(ucstr data, size_t size, vws_frame* f, size_t* consumed)
         // Store the payload offset
         f->offset = 2 + size_bytes;
 
-        // Allocate the frame data
-        f->data = vws.malloc(f->size);
+        // Allocate the frame data. [F11] skip vws.malloc(0) on a zero-length
+        // frame (see the masked path) so the V-3 allocator abort cannot crash
+        // the process on a peer-sent empty frame.
+        if (f->size > 0)
+        {
+            f->data = vws.malloc(f->size);
 
-        // Copy the payload data
-        memcpy(f->data, data + f->offset, f->size);
+            // Copy the payload data
+            memcpy(f->data, data + f->offset, f->size);
+        }
+        else
+        {
+            f->data = NULL;
+        }
     }
 
     // Update the bytes consumed
@@ -974,14 +1053,14 @@ void process_frame(vws_cnx* c, vws_frame* f)
             // Set closing state
             vws_set_flag(&c->flags, CNX_CLOSING);
 
-            // Build the response frame
-            vws_buffer* buffer = vws_generate_close_frame();
+            // [F7] Route the close reply through vws_frame_send so a SERVER
+            // connection sends it UNMASKED (RFC 6455) -- the generate helpers
+            // always build masked frames. [F6] vws_frame_send is NULL-safe on a
+            // serialize failure (and frees the frame it is given).
+            int16_t code = htons(WS_CLOSE_NORMAL);
+            vws_frame_send(c, vws_frame_new((ucstr)&code, sizeof(code),
+                                            CLOSE_FRAME));
 
-            // Send the response frame
-            vws_socket_write((vws_socket*)c, buffer->data, buffer->size);
-
-            // Clean up
-            vws_buffer_free(buffer);
             vws_frame_free(f);
 
             break;
@@ -1000,10 +1079,17 @@ void process_frame(vws_cnx* c, vws_frame* f)
             {
                 vws_set_flag(&c->flags, CNX_CLOSING);
 
-                vws_buffer* buffer = vws_generate_close_frame_code(WS_CLOSE_TOO_BIG);
-                vws_socket_write((vws_socket*)c, buffer->data, buffer->size);
-                vws_buffer_free(buffer);
+                // [F7] send the 1009 (Too Big) close UNMASKED for a SERVER via
+                // vws_frame_send; [F6] NULL-safe on serialize failure.
+                int16_t code = htons(WS_CLOSE_TOO_BIG);
+                vws_frame_send(c, vws_frame_new((ucstr)&code, sizeof(code),
+                                                CLOSE_FRAME));
 
+                // [F8] The aborted message's already-queued fin=0 partials stay
+                // in c->queue. They are not glued onto a later message because
+                // ingress/wait now stop once CNX_CLOSING is set (below and in
+                // socket_wait_for_frame), so no subsequent completion occurs;
+                // the partials are reclaimed when the connection is torn down.
                 vws_frame_free(f);
                 c->msg_bytes = 0;
 
@@ -1024,14 +1110,11 @@ void process_frame(vws_cnx* c, vws_frame* f)
 
         case PING_FRAME:
         {
-            // Generate the PONG response
-            vws_buffer* buffer = vws_generate_pong_frame(f->data, f->size);
+            // [F7] Route the PONG through vws_frame_send so a SERVER connection
+            // sends it UNMASKED (RFC 6455). [F6] NULL-safe on serialize failure
+            // (and it frees the frame it is given).
+            vws_frame_send(c, vws_frame_new(f->data, f->size, PONG_FRAME));
 
-            // Send the PONG response
-            vws_socket_write((vws_socket*)c, buffer->data, buffer->size);
-
-            // Clean up
-            vws_buffer_free(buffer);
             vws_frame_free(f);
 
             break;
@@ -1123,11 +1206,9 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
     }
 
     ssize_t n;
-    unsigned char buf[1024];
 
     while (true)
     {
-        memset(buf, 0, 1024);
         n = vws_socket_read((vws_socket*)c);
 
         if (n <= 0)
@@ -1136,9 +1217,20 @@ ssize_t socket_wait_for_frame(vws_cnx* c)
             return n;
         }
 
-        if (vws_cnx_ingress(c) > 0)
+        ssize_t ic = vws_cnx_ingress(c);
+
+        if (ic > 0)
         {
             break;
+        }
+
+        // [F1] ingress failed the connection on a malformed frame (-1) -- stop,
+        // do not spin re-reading the same bad bytes. [F8] Likewise stop once
+        // the connection is CLOSING (e.g. a TOO_BIG abort) so we do not wait
+        // for more frames on a dying connection.
+        if (ic < 0 || vws_is_flag(&c->flags, CNX_CLOSING))
+        {
+            return -1;
         }
     }
 
@@ -1154,6 +1246,15 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
     {
         // If there is no more data in socket buffer
         if (c->base.buffer->size == 0)
+        {
+            break;
+        }
+
+        // [F8] Stop ingesting once the connection is CLOSING (a FRAME_ERROR or
+        // TOO_BIG abort set it): processing further frames would let a later
+        // fin=1 completion glue the aborted message's stale queued partials
+        // onto the front of the next message.
+        if (vws_is_flag(&c->flags, CNX_CLOSING))
         {
             break;
         }
@@ -1179,10 +1280,32 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
 
         if (rc == FRAME_ERROR)
         {
+            // [F1] A malformed frame must fail the connection, NOT be retried:
+            // the offending bytes are never drained, and socket_wait_for_frame
+            // treats a 0 return as "keep reading", so it would re-parse the same
+            // bad frame forever while the socket buffer grows unboundedly. Per
+            // RFC 6455 send a 1002 (protocol error) close, flag CLOSING, clear
+            // the buffer, and return -1 so callers distinguish ERROR from the
+            // INCOMPLETE 0 return below.
             vws.error(VE_WARN, "FRAME_ERROR");
             vws_frame_free(frame);
 
-            return 0;
+            vws_set_flag(&c->flags, CNX_CLOSING);
+
+            int16_t code       = htons(WS_CLOSE_PROTOCOL_ERROR);
+            vws_buffer* binary =
+                vws_serialize(vws_frame_new((ucstr)&code, sizeof(code),
+                                            CLOSE_FRAME));
+
+            if (binary != NULL)
+            {
+                vws_socket_write((vws_socket*)c, binary->data, binary->size);
+                vws_buffer_free(binary);
+            }
+
+            vws_buffer_clear(c->base.buffer);
+
+            return -1;
         }
 
         if (rc == FRAME_INCOMPLETE)
@@ -1306,7 +1429,8 @@ void dump_websocket_header(const ws_header* header)
     printf("  fin:      %u\n", header->fin);
     printf("  opcode:   %u\n", header->opcode);
     printf("  mask:     %u (0x%08x)\n", header->mask, header->masking_key);
-    printf("  payload:  %lu bytes\n", header->payload_len);
+    // [F11] payload_len is uint64_t; %lu is wrong on 32-bit -- cast to match.
+    printf("  payload:  %llu bytes\n", (unsigned long long)header->payload_len);
     printf("\n");
 }
 

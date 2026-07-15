@@ -365,6 +365,19 @@ vws_error_value vws_get_error()
 
 int vws_error_default_submit(int code, cstr format, ...)
 {
+    // [vws V-3] Robustness on the error-report path itself. A NULL format makes
+    // vsnprintf UB; a length<0 is an encoding error; and the format buffer's
+    // malloc was UNCHECKED -- so an error reported while already out of memory
+    // would vsnprintf into a NULL buffer and crash. Degrade to a static message
+    // (no allocation) on any of these, so the error path can never itself crash.
+    if (format == NULL)
+    {
+        vws_set_error(code, "error");
+        vws.process_error(code, "error");
+
+        return 0;
+    }
+
     va_list args, args_copy;
     va_start(args, format);
 
@@ -375,8 +388,21 @@ int vws_error_default_submit(int code, cstr format, ...)
 
     va_end(args_copy);  // End args_copy. We're done with it now.
 
-    // Allocate a buffer for the formatted string
-    char* buffer = malloc(length + 1);
+    // Allocate a buffer for the formatted string (plain malloc, NOT vws.malloc:
+    // the error path must not recurse into the allocator's fail-fast abort).
+    char* buffer = (length >= 0) ? malloc(length + 1) : NULL;
+
+    if (buffer == NULL)
+    {
+        va_end(args);
+
+        cstr fallback = (length < 0) ? "error (format failed)"
+                                     : "error (out of memory)";
+        vws_set_error(code, fallback);
+        vws.process_error(code, fallback);
+
+        return 0;
+    }
 
     // Format the string into the buffer
     vsnprintf(buffer, length + 1, format, args);
@@ -667,7 +693,27 @@ void vws_map_remove(struct sc_map_str* map, cstr key)
 
     if (sc_map_found(map) == true)
     {
+        // [vws V-5] Free the stored strdup'd KEY as well as the value. sc_map's
+        // del returns only the value and neither exposes nor frees the key
+        // pointer it holds (the same copy vws_map_clear frees in its foreach),
+        // so a bare del leaked one key copy per remove. Locate the stored key
+        // (same access path as clear), then del, then free both.
+        cstr stored_key = NULL;
+        cstr k; cstr vv;
+        sc_map_foreach(map, k, vv)
+        {
+            if (strcmp(k, key) == 0)
+            {
+                stored_key = k;
+                break;
+            }
+        }
+
         vws.free(v);
+        sc_map_del_str(map, key);
+        vws.free((void*)stored_key);
+
+        return;
     }
 
     sc_map_del_str(map, key);
@@ -938,8 +984,11 @@ unsigned char* vws_base64_decode(const char* data, size_t* size)
     size_t decoded_length = (encoded_length * 3) / 4;  // Rough estimate
     unsigned char* decoded_data = (unsigned char*)vws.malloc(decoded_length);
 
-    // Decode the base64 data
-    *size = BIO_read(base64, decoded_data, encoded_length);
+    // Decode the base64 data. [vws V-5] BIO_read returns int; a negative error
+    // return stored straight into the size_t *size would wrap to SIZE_MAX -- a
+    // huge bogus length the caller then reads/copies against. Clamp <=0 to 0.
+    int n = BIO_read(base64, decoded_data, (int)encoded_length);
+    *size = (n > 0) ? (size_t)n : 0;
 
     BIO_free_all(base64);
 
