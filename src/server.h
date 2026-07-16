@@ -285,6 +285,25 @@ typedef struct vws_peer
     cstr host;
     int port;
     struct vws_cinfo info;
+
+    /**< Peer connection state. CROSS-THREAD + CROSS-LIBRARY, intentionally
+     * PLAIN (non-_Atomic). Written from two threads inside libvws: the uv loop
+     * thread (CLOSED->PENDING, and it consumes RECONNECTED) and a worker thread
+     * (the PEER_CONNECT hand-off in ws_svr_client_data_in writes
+     * CLOSED/RECONNECTED + sockfd). It is also read directly by the broker
+     * (libvsa, C++: broker.cpp state==VWS_PEER_CONNECTED checks) to decide peer
+     * liveness. Every transition is ordered by a queue-mutex critical section
+     * plus the uv_async_send/queue_pop happens-before edge between the worker
+     * and the loop, so on the supported (TSO) memory model the reader always
+     * observes a consistent value -- there is no torn or reordered store in
+     * practice. It is left PLAIN rather than _Atomic on purpose: making it
+     * _Atomic would change the vws_peer struct type and force the broker's plain
+     * C++ loads to interoperate with a C11 _Atomic field across the language
+     * boundary (ABI + atomics-interop change, coordinated vws+libvsa rebuild).
+     * The formal C11 data race (which ThreadSanitizer will flag) is accepted
+     * and documented here; if a transition is ever added OFF these two ordered
+     * paths, revisit (confine writes to the loop thread, or make it atomic and
+     * take the ABI change). Mike-approved 2026-07-16. */
     vws_peer_state_t state;
     vws_sockfd_t sockfd;
     vws_peer_connect connect;

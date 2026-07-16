@@ -120,10 +120,20 @@ url_parse (char* url) {
   const bool is_ssh = url_is_ssh(protocol);
 
   size_t auth_len = 0;
-  if (strstr(tmp_url, "@")) {
+  // [vws U2] '@' delimits userinfo only when it appears in the authority
+  // component -- before the first '/' that starts the path. A bare
+  // strstr(tmp_url, "@") matched '@' anywhere, so a URL like
+  // "ws://host/path?to=a@b.com" misparsed the query's '@' as auth and mangled
+  // host/path. Restrict the search to after "scheme://" (protocol_len, the same
+  // offset get_part uses) and require it before the first path '/'. ssh scp-form
+  // "git@host:path" has no such '/', so slash==NULL keeps it working. Also
+  // NULL-check the get_part result BEFORE strlen -- get_part returns NULL on no
+  // match, and the old code called strlen(data->auth) first (crash).
+  const char* at    = strchr(tmp_url + protocol_len, '@');
+  const char* slash = strchr(tmp_url + protocol_len, '/');
+  if (at != NULL && (slash == NULL || at < slash)) {
     data->auth = get_part(tmp_url, "%[^@]", protocol_len);
-    auth_len = strlen(data->auth);
-    if (data->auth) auth_len++;
+    if (data->auth != NULL) auth_len = strlen(data->auth) + 1;
   }
 
   char *hostname = (is_ssh)
@@ -185,7 +195,13 @@ url_parse (char* url) {
     url_free(data);
     return NULL;
   }
-  strcat(pathname, "");
+  // [vws U1] pathname comes from malloc (uninitialized). The old
+  // strcat(pathname, "") scanned that uninitialized heap for a NUL to append
+  // at -- a wild read, and a 1-byte OOB write when no NUL fell inside the
+  // buffer. It was also pointless (appending ""). Terminate the buffer instead:
+  // this both removes the wild scan and gives a clean empty string when the
+  // sscanf below matches nothing (e.g. a path that begins with '?' or '#').
+  pathname[0] = '\0';
   tmp_path = strdup(path);
   sscanf(tmp_path, "%[^? | ^#]", pathname);
   const size_t pathname_len = strlen(pathname);

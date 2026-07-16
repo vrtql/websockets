@@ -59,6 +59,31 @@ static void feed(vws_cnx* c, const unsigned char* payload, size_t size,
     ws_svr_process_frame(c, f);
 }
 
+// [vws SV2] The breach path now sends its 1009 TOO_BIG close reply through
+// cnx->server->on_data_out (the loop-thread direct-write seam) instead of the
+// blocking responses queue_push it used before. This test drives
+// ws_svr_process_frame with a SYNTHETIC cnx that has no cid in the address pool,
+// so the real on_data_out (svr_client_data_out) would just free the reply on its
+// "connection no longer exists" arm and the reply would be unobservable. Install
+// a capture hook in its place: it takes ownership of the data exactly as the real
+// on_data_out does (copy the bytes we assert on, then free the block).
+static ucstr  captured_data  = NULL;
+static size_t captured_size  = 0;
+static int    captured_count = 0;
+
+static void capture_data_out(vws_svr_data* data, void* x)
+{
+    (void)x;
+    captured_count++;
+    if (captured_data == NULL && data->size > 0)
+    {
+        captured_data = (ucstr)vws.malloc(data->size);
+        memcpy(captured_data, data->data, data->size);
+        captured_size = data->size;
+    }
+    vws_svr_data_free(data);
+}
+
 CTEST(svr_msgflood, cap_enforced)
 {
     alarm(WATCHDOG_SECONDS);
@@ -70,6 +95,12 @@ CTEST(svr_msgflood, cap_enforced)
 
     // Fresh connection defaults to the 64 MiB message cap (proves the default).
     ASSERT_TRUE(c->max_message_size == VWS_MAX_MESSAGE_SIZE);
+
+    // [vws SV2] Observe the breach path's 1009 reply at the on_data_out seam.
+    captured_data  = NULL;
+    captured_size  = 0;
+    captured_count = 0;
+    s->on_data_out = capture_data_out;
 
     // Flood: 65 x 1 MiB continuation frames (fin=0) -> aggregate 65 MiB > 64 MiB.
     // A byte cap, so this is what trips it -- not frame count.
@@ -87,20 +118,21 @@ CTEST(svr_msgflood, cap_enforced)
     ASSERT_EQUAL(0, (int)c->msg_bytes);                // reset on breach
     ASSERT_TRUE((int)sc_queue_size(&c->queue) < 65);   // did NOT retain the flood
 
-    // 1009 CLOSE emitted to the client (landed on the responses queue).
-    ASSERT_TRUE(s->responses.size >= 1);
-    vws_svr_data* resp = queue_pop(&s->responses);
-    ASSERT_TRUE(resp != NULL);
+    // 1009 CLOSE emitted to the client via on_data_out (SV2: direct-write seam,
+    // not the responses queue). The capture hook holds its serialized bytes.
+    ASSERT_TRUE(captured_count >= 1);
+    ASSERT_TRUE(captured_data != NULL);
     vws_frame close_f;
     size_t consumed = 0;
-    fs_t st = vws_deserialize((ucstr)resp->data, resp->size, &close_f, &consumed);
+    fs_t st = vws_deserialize(captured_data, captured_size, &close_f, &consumed);
     ASSERT_EQUAL(FRAME_COMPLETE, st);
     ASSERT_EQUAL(CLOSE_FRAME, close_f.opcode);
     ASSERT_TRUE(close_f.size >= 2);
     int16_t code = (int16_t)ntohs(*(uint16_t*)close_f.data);
     ASSERT_EQUAL(WS_CLOSE_TOO_BIG, code);              // 1009 Message Too Big
     vws.free(close_f.data);
-    vws_svr_data_free(resp);
+    vws.free(captured_data);
+    captured_data = NULL;
 
     // Teardown: drain retained frames + free cnx + server.
     vws_frame* f;

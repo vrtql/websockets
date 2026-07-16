@@ -1783,6 +1783,22 @@ void vws_tcp_svr_stop(vws_tcp_svr* server)
     uv_cond_broadcast(&server->requests.cond);
     uv_mutex_unlock(&server->requests.mutex);
 
+    // [vws SV3] Also wake responses waiters. Flipping responses.state to
+    // VS_HALTING above is invisible to a producer already parked in
+    // queue_push(&responses)'s full-wait (2890) -- that thread only re-checks
+    // state when the cond is signaled. Only queue_pop's V-6 not-full signal
+    // would wake it, but on the stop path uv_thread's halting arm JOINS the
+    // workers before svr_shutdown drains responses, so a worker still blocked on
+    // a full responses queue is never signaled: the join wedges, stop()'s 15s
+    // budget expires in the caller, and the worker is left parked in queue_push
+    // when the queue mutex/cond are destroyed (UAF). Broadcasting responses.cond
+    // here lets that producer observe VS_HALTING and exit through queue_push's
+    // not-running arm (2893). Mirror of the requests broadcast; covers the
+    // failed_start join below too.
+    uv_mutex_lock(&server->responses.mutex);
+    uv_cond_broadcast(&server->responses.cond);
+    uv_mutex_unlock(&server->responses.mutex);
+
     if (failed_start)
     {
         // A failed start (bind/listen error, after run() already spawned the
@@ -3046,6 +3062,16 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
 {
     vws_svr_cnx* cnx = (vws_svr_cnx*)c->data;
 
+    // [vws SV1] Any inbound frame proves the peer is alive. The server-side
+    // heartbeat sweep (vws_tcp_svr_peers_online) reads THIS vws_cnx's
+    // last_active/ping_outstanding, but only the CLIENT handler (websocket.c
+    // process_frame) ever updated them -- so server/PEER links (exactly what the
+    // sweep monitors) never bumped last_active and the PONG arm below never
+    // cleared ping_outstanding. Result on the defaults: idle-PING at 10s, the
+    // peer PONGs, the flag stays set, and 20s later the sweep closes the HEALTHY
+    // link -- every ~30s. Bump last_active here (mirrors websocket.c:1047).
+    c->last_active = vws_now_ms();
+
     switch (f->opcode)
     {
         case CLOSE_FRAME:
@@ -3053,11 +3079,23 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
             // Build the response frame
             vws_buffer* buffer = vws_generate_close_frame();
 
-            // Send back to cliane Send the PONG response
+            // [vws SV2] Write the reply DIRECTLY via on_data_out, not through
+            // vws_tcp_svr_send. ws_svr_process_frame runs on the loop (reactor)
+            // thread -- svr_on_read -> on_read -> vws_cnx_ingress -> c->process --
+            // and vws_tcp_svr_send does a BLOCKING queue_push onto the responses
+            // queue, which this very thread is the sole drainer of. Under a
+            // response flood (queue full) that push waits for a drain that can
+            // only happen after this callback returns: reactor self-deadlock, the
+            // whole server frozen. on_data_out (svr_client_data_out) is the
+            // loop-thread write path -- it uv_writes now, with its own backpressure
+            // cap + direct-close shed -- exactly as the handshake/upgrade path
+            // already sends its 101/414 replies (:3294/:3426). NOTE: this changes
+            // only the send MECHANISM; the close-after-echo SEQUENCING here is
+            // unchanged (still Mike's call). on_data_out consumes the data ref.
             vws_svr_data* response;
 
             response = vws_svr_data_new(cnx->server, cnx->cid, &buffer);
-            vws_tcp_svr_send(response);
+            cnx->server->on_data_out(response, NULL);
 
             // Free buffer
             vws_buffer_free(buffer);
@@ -3095,7 +3133,8 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
                     vws_generate_close_frame_code(WS_CLOSE_TOO_BIG);
                 vws_svr_data* response =
                     vws_svr_data_new(cnx->server, cnx->cid, &buffer);
-                vws_tcp_svr_send(response);
+                // [vws SV2] Loop-thread direct write -- see the CLOSE_FRAME arm.
+                cnx->server->on_data_out(response, NULL);
                 vws_buffer_free(buffer);
 
                 vws_set_flag(&c->flags, CNX_CLOSING);
@@ -3122,10 +3161,10 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
             // Generate the PONG response
             vws_buffer* buffer = vws_generate_pong_frame(f->data, f->size);
 
-            // Send back to cliane Send the PONG response
+            // [vws SV2] Loop-thread direct write -- see the CLOSE_FRAME arm.
             vws_svr_data* response;
             response = vws_svr_data_new(cnx->server, cnx->cid, &buffer);
-            vws_tcp_svr_send(response);
+            cnx->server->on_data_out(response, NULL);
 
             // Free buffer
             vws_buffer_free(buffer);
@@ -3139,6 +3178,13 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
         case PONG_FRAME:
         {
             // No need to send a response
+
+            // [vws SV1] The peer answered our idle-PING: clear the outstanding
+            // flag so the heartbeat sweep's pong-deadline check is satisfied.
+            // Without this the flag stayed set from the sweep's send at
+            // vws_tcp_svr_peers_online and the link was closed on the next pass
+            // even though the PONG arrived. Mirrors websocket.c:1127.
+            c->ping_outstanding = false;
 
             vws_frame_free(f);
 
@@ -3443,7 +3489,37 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
         // WebSocket data to process (c->base.buffer->size > 0)
     }
 
-    if (vws_cnx_ingress(c) > 0)
+    ssize_t rc = vws_cnx_ingress(c);
+
+    // [vws FV1] Act on the ingress ERROR return, not just the >0 (data-ready)
+    // case. F1 (websocket.c) made vws_cnx_ingress return -1 on a fatal frame
+    // error -- oversize declared length, protocol violation -- after flagging
+    // the cnx CNX_CLOSING. On the CLIENT that -1 also unwinds the blocking recv
+    // loop and the caller disconnects; on the SERVER nothing consumed the
+    // signal, because this read callback only handled rc > 0. So a peer that
+    // sent one bad frame left a cnx flagged closing but never torn down: its
+    // socket stays open, every later read re-enters ingress, and the connection
+    // lingers as a zombie. (F1's in-ingress 1002-close send is a no-op on this
+    // path -- a server cnx's base socket is VWS_INVALID_SOCKET, libuv owns the
+    // fd, so vws_socket_write early-returns via is_connected()==false; the real
+    // teardown must go through the server's own close funnel.)
+    //
+    // We are on the loop (uv) thread here -- svr_on_read is a libuv read
+    // callback -- so close DIRECTLY through vws_tcp_svr_uv_close, exactly as the
+    // heartbeat sweep does for a frozen peer (:1353). Do NOT route this through
+    // svr_cnx_close/vws_tcp_svr_send: that posts a CLOSE block onto the
+    // responses queue with a BLOCKING queue_push, and the loop thread is itself
+    // the sole drainer of responses -- a full responses queue would then wedge
+    // the whole server (the reason the sweep and the force-close path close
+    // directly). The funnel is idempotent (uv_is_closing guard), so a re-entrant
+    // read after CNX_CLOSING is a harmless no-op.
+    if (rc < 0 || vws_is_flag(&c->flags, CNX_CLOSING))
+    {
+        vws_tcp_svr_uv_close(cnx->server, (uv_handle_t*)cnx->handle);
+        return;
+    }
+
+    if (rc > 0)
     {
         // Process as many messages as possible
         while (true)
