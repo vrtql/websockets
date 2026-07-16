@@ -561,6 +561,20 @@ if(BUILD_SERVER)
   add_test(NAME test_svr_msgflood COMMAND test_svr_msgflood)
   add_dependencies(test_svr_msgflood static_test_lib static_lib)
 
+  # SV1 regression pin: the server-side frame handler (ws_svr_process_frame) must
+  # bump last_active on any inbound frame and clear ping_outstanding on a PONG,
+  # else the uv_thread heartbeat sweep closes HEALTHY peer links ~every 30s on the
+  # defaults. RED #includes server.c; drives a PONG through ws_svr_process_frame
+  # and asserts the field updates + that the sweep's close predicate (server.c
+  # :1338-1340) then evaluates false, with a non-vacuous control.
+  add_executable(test_svr_heartbeat_pong test_svr_heartbeat_pong.c)
+  target_include_directories(test_svr_heartbeat_pong PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_heartbeat_pong PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_heartbeat_pong COMMAND test_svr_heartbeat_pong)
+  add_dependencies(test_svr_heartbeat_pong static_test_lib static_lib)
+
   # Header field/value pairing across empty values and split callbacks: an
   # empty-valued header must not clobber the next header, and split field names
   # / values must still pair correctly.
