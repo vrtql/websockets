@@ -73,7 +73,13 @@ bool vrtql_rpc_invoke(vrtql_rpc* rpc, vrtql_msg* req)
     // If no response
     if (reply == NULL)
     {
-        // Error already set
+        // [vws R1] Error already set by vrtql_rpc_exec. Free req here too:
+        // vrtql_rpc_invoke takes ownership of req (it frees it on the success
+        // path below), and vrtql_rpc_exec never frees it, so this failure exit
+        // (send failure, retries exhausted, disconnect) must release it -- else
+        // req leaks on every failed call and the caller, which cannot tell
+        // whether ownership transferred, has no safe way to reclaim it.
+        vrtql_msg_free(req);
         return false;
     }
 

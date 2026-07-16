@@ -611,7 +611,26 @@ openssl_reread:
                     // If it wants to read data
                     if (err == SSL_ERROR_WANT_READ)
                     {
-                        // We are done. We have emptied the read buffer.
+                        // [vws S1] If we decrypted at least one byte this call,
+                        // that is a normal data return. But total == 0 means only
+                        // a PARTIAL TLS record has arrived (no application bytes
+                        // yet) -- routine mid-handshake and mid-record. Returning a
+                        // bare 0 was ambiguous: socket_wait_for_frame (websocket.c)
+                        // read it as a clean EOF and returned NULL mid-record on a
+                        // healthy link. Do NOT return 0, and do NOT flag VE_TIMEOUT
+                        // either -- socket_handshake treats VE_TIMEOUT as a FATAL
+                        // handshake failure, so flagging it here breaks every wss
+                        // handshake. Instead poll for the rest of the record and
+                        // retry the read (exactly as the WANT_WRITE arm below does
+                        // for POLLOUT). Only a genuine poll timeout inside
+                        // openssl_reread surfaces VE_TIMEOUT+0, which both callers
+                        // correctly treat as "no data".
+                        if (total == 0)
+                        {
+                            poll_events = POLLIN;
+                            goto openssl_reread;
+                        }
+
                         return total;
                     }
 
@@ -866,6 +885,17 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
     size_t sent     = 0;
     int poll_events = POLLOUT;
     int iterations  = 0;
+
+    // [vws S2] Bound a stalled-peer write. c->timeout bounds each poll(), but in
+    // flush mode (c->flush == true) a rc==0 timeout used to `continue`
+    // unconditionally -- so a peer that never drained its receive window wedged
+    // this writer FOREVER. Track accumulated zero-progress stall time and give up
+    // past a budget, returning what we managed to send with VE_TIMEOUT set. A
+    // successful send resets it, so a merely slow-but-advancing transfer is never
+    // falsely cut off.
+    const int64_t write_stall_budget_ms = 60000;
+    int64_t stall_ms = 0;
+
     while (sent < size)
     {
         // If we attempted at least one poll()/send()
@@ -933,6 +963,21 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         // drops. Anything else is inconsistent state.
         if (rc == 0)
         {
+            // [vws S2] ...but not forever. Charge this timed-out, still-not-
+            // writable poll against the zero-progress stall budget; a peer that
+            // never drains its receive window would otherwise spin here. (timeout
+            // <= 0 means poll blocked rather than timed out, so it can't busy-loop;
+            // charge 1ms to still bound the non-blocking timeout==0 case.)
+            stall_ms += (c->timeout > 0) ? c->timeout : 1;
+
+            if (stall_ms >= write_stall_budget_ms)
+            {
+                vws.error(VE_TIMEOUT,
+                          "vws_socket_write(): peer stalled, no progress "
+                          "within budget");
+                return (ssize_t)sent;
+            }
+
             // Keep going.
             continue;
         }
@@ -1048,6 +1093,10 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
             if (n > 0)
             {
                 sent += n;
+
+                // [vws S2] Forward progress: reset the stall budget so only a
+                // truly stuck peer (zero bytes across the whole budget) trips it.
+                stall_ms = 0;
             }
         }
     }
@@ -1274,6 +1323,12 @@ bool vws_socket_addr_info(const struct sockaddr* addr, cstr* host, int* port)
         *port = atoi(portstr);
     }
 
-    return true;
+    // [vws S3] Return the ACTUAL result. On getnameinfo failure *host stays NULL
+    // and *port stays -1, but the old unconditional `return true` told callers
+    // those out-params were valid -- so vws.trace("%s", host) ran with a NULL
+    // host (undefined; benign on glibc, a crash on some libcs -- illumos-
+    // relevant, and this is called on every server-side connect/trace). Callers
+    // already gate on the bool; give them the truth.
+    return rc == 0;
 }
 

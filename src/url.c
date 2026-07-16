@@ -104,7 +104,14 @@ url_parse (char* url) {
   url_data_t *data = (url_data_t *) calloc(1, sizeof(url_data_t));
   if (!data) return NULL;
 
-  data->href = url;
+  // [vws U5] data->href is set at the END of a successful parse (see the bottom
+  // of this function), NOT here. url_parse previously stored the CALLER's uri
+  // pointer unowned (url_free left it alone), but socket_handshake reads
+  // c->url->href as the Origin header on every (re)connect -- a dangling read
+  // once the caller's uri buffer went out of scope. We now own a copy, but
+  // strdup it LAST so this extra allocation does not shift the malloc sequence
+  // the OOM-injection tests pin to the earlier parse steps. calloc left href
+  // NULL, and url_free tolerates a NULL href on the failure paths below.
   char *tmp_url = strdup(url);
 
   char *protocol = url_get_protocol(tmp_url);
@@ -229,6 +236,16 @@ url_parse (char* url) {
   data->hash = hash;
   free(tmp_path);
   free(tmp_url);
+
+  // [vws U5] Own the href now that the parse has fully succeeded -- done LAST so
+  // this allocation does not perturb the OOM-injection test counts pinned to the
+  // parse steps above. On OOM here, url_free reclaims everything built so far
+  // (href is still NULL, which url_free tolerates).
+  data->href = strdup(url);
+  if (data->href == NULL) {
+    url_free(data);
+    return NULL;
+  }
 
   return data;
 }
@@ -478,6 +495,7 @@ url_data_inspect (const url_data_t* data) {
 void
 url_free (url_data_t *data) {
   if (!data) return;
+  free(data->href);         // [vws U5] href is now owned (strdup'd in url_parse)
   free(data->auth);
   free(data->protocol);
   free(data->hostname);

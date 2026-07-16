@@ -2793,7 +2793,28 @@ void svr_on_read(uv_stream_t* c, ssize_t nread, const uv_buf_t* buf)
 
 void svr_on_write_complete(uv_write_t* req, int status)
 {
-    vws_svr_data_free((vws_svr_data*)req->data);
+    vws_svr_data* data = (vws_svr_data*)req->data;
+
+    // [vws CLOSE-seq] RFC 6455 close-after-flush. When a control reply is flagged
+    // VWS_SVR_STATE_CLOSE_AFTER_WRITE (the CLOSE_FRAME echo), close the connection
+    // now that its bytes have drained to the wire -- NOT at send time, which
+    // would have cancelled this very write. status is ignored on purpose: a
+    // failed/cancelled write means the peer is already gone, so we still want the
+    // handle closed, and vws_tcp_svr_uv_close is idempotent (uv_is_closing guard)
+    // if teardown is already underway. Resolve the handle by cid -- the cnx may
+    // have been shed between the write and this callback, in which case the pool
+    // lookup misses and there is simply nothing to close.
+    if (vws_is_flag(&data->flags, VWS_SVR_STATE_CLOSE_AFTER_WRITE))
+    {
+        uintptr_t ptr = address_pool_get(data->server->cpool, data->cid.key);
+        if (ptr != 0)
+        {
+            vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
+            vws_tcp_svr_uv_close(data->server, (uv_handle_t*)cnx->handle);
+        }
+    }
+
+    vws_svr_data_free(data);
     vws.free(req);
 }
 
@@ -3089,12 +3110,21 @@ void ws_svr_process_frame(vws_cnx* c, vws_frame* f)
             // whole server frozen. on_data_out (svr_client_data_out) is the
             // loop-thread write path -- it uv_writes now, with its own backpressure
             // cap + direct-close shed -- exactly as the handshake/upgrade path
-            // already sends its 101/414 replies (:3294/:3426). NOTE: this changes
-            // only the send MECHANISM; the close-after-echo SEQUENCING here is
-            // unchanged (still Mike's call). on_data_out consumes the data ref.
+            // already sends its 101/414 replies (:3294/:3426). on_data_out
+            // consumes the data ref.
             vws_svr_data* response;
 
             response = vws_svr_data_new(cnx->server, cnx->cid, &buffer);
+
+            // [vws CLOSE-seq] RFC 6455 §5.5.1: answer the peer's Close, THEN
+            // close the connection -- rather than the old behavior of echoing and
+            // leaving the link up until the peer's TCP EOF. Flag the reply so
+            // svr_on_write_complete tears the handle down once this echo flushes
+            // (close-after-flush). We deliberately do NOT set CNX_CLOSING here:
+            // that would make ws_svr_client_read's FV1 arm uv_close immediately on
+            // return from ingress and cancel the not-yet-flushed echo write.
+            // Mike-approved 2026-07-16.
+            vws_set_flag(&response->flags, VWS_SVR_STATE_CLOSE_AFTER_WRITE);
             cnx->server->on_data_out(response, NULL);
 
             // Free buffer

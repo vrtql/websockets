@@ -222,7 +222,16 @@ typedef enum
     VWS_SVR_STATE_HTTP         = (1 << 14),
     VWS_SVR_STATE_PEER_CONNECT = (1 << 15),
     VWS_SVR_STATE_TRUSTED      = (1 << 16),
-    VWS_SVR_STATE_IRQ          = (1 << 17)
+    VWS_SVR_STATE_IRQ          = (1 << 17),
+
+    // [vws CLOSE-seq] Set on a control-reply's vws_svr_data to request an
+    // RFC 6455 close-after-flush: svr_client_data_out writes the frame as
+    // usual, then svr_on_write_complete closes the connection once that write
+    // drains to the wire. Used by the CLOSE_FRAME echo so the peer's Close is
+    // answered AND the connection torn down, without an immediate uv_close
+    // cancelling the echo write. A distinct bit from VWS_SVR_STATE_CLOSE, which
+    // means "close, do not write" on the responses-drain path.
+    VWS_SVR_STATE_CLOSE_AFTER_WRITE = (1 << 18)
 } vws_svr_state_flags_t;
 
 /** Connection ID. This is the index within the address pool that the

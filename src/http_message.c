@@ -274,6 +274,18 @@ int on_body(llhttp_t* p, cstr at, size_t l)
 
 int vws_http_msg_parse(vws_http_msg* req, cstr data, size_t size)
 {
+    // [vws H1] A message that already completed leaves llhttp PAUSED with its
+    // error_pos pointing into the PREVIOUS buffer. Re-executing on a NEW buffer
+    // would fall through to the done-branch below and compute
+    // llhttp_get_error_pos(parser) - data across two unrelated allocations -- a
+    // wild, often negative "consumed" count. A done message must never be
+    // re-parsed (allocate a fresh vws_http_msg instead); refuse it explicitly
+    // rather than return garbage, consistent with the -1 error returns below.
+    if (req->done == true)
+    {
+        return -1;
+    }
+
     enum llhttp_errno rc = llhttp_execute(req->parser, data, size);
 
     if (rc != HPE_OK)

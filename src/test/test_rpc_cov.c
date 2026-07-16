@@ -445,7 +445,11 @@ CTEST(rpc, invoke)
     recv_script(1, RV_SOCKET);
     vrtql_msg* req2 = vrtql_msg_new();
     ASSERT_FALSE(vrtql_rpc_invoke(rpc, req2));
-    vrtql_msg_free(req2);
+    // [vws R1] Do NOT free req2 here. vrtql_rpc_invoke documents taking ownership
+    // of req ("automatically freed. Caller should NOT use this message again")
+    // and now honors that on the FAILURE path too (R1 -- it previously leaked req
+    // on failure). Freeing it here double-frees (crash in vws_kvs_clear). Real
+    // callers (vcs_login/vcs_exec) correctly do not free on failure.
 
     vrtql_rpc_free(rpc);
 }
