@@ -1,3 +1,4 @@
+#include <limits.h>   // [vws MSG-1] INT_MAX for the serialize size guard
 #include <string.h>
 #include "mpack-expect.h"
 #include "mpack-reader.h"
@@ -119,6 +120,17 @@ vws_buffer* vrtql_msg_serialize(vrtql_msg* msg)
 {
     if (msg == NULL)
     {
+        return NULL;
+    }
+
+    // [vws MSG-1] Both encoder arms narrow content->size (size_t) into the
+    // codec's smaller length type (mpack_write_bin int/uint32, yyjson strncpy
+    // int local) -- fine under the 64 MiB message cap, silently wrong above
+    // 2 GiB if the caps ever rise. Refuse here instead of truncating; callers
+    // already handle a NULL serialize result (V-2).
+    if (msg->content->size > (size_t)INT_MAX)
+    {
+        vws.error(VE_RT, "vrtql_msg_serialize: content too large");
         return NULL;
     }
 
@@ -689,7 +701,10 @@ bool msg_parse_map(mpack_reader_t* reader, vws_kvs* map)
 
         if (mpack_tag_type(&tag) != mpack_type_str)
         {
-            printf("ERROR: key must be string\n");
+            // [vws MSG-2] vws.error, not printf: this ran inside server
+            // processes and polluted stdout (and bypassed the installed
+            // error handler / tracing entirely).
+            vws.error(VE_RT, "msg_parse_map: key must be string");
             return false;
         }
 
@@ -714,7 +729,8 @@ bool msg_parse_map(mpack_reader_t* reader, vws_kvs* map)
 
         if (mpack_tag_type(&tag) != mpack_type_str)
         {
-            printf("ERROR: value must be string\n");
+            // [vws MSG-2] vws.error, not printf (see the key arm).
+            vws.error(VE_RT, "msg_parse_map: value must be string");
             vws.free(key);
             return false;
         }
@@ -771,6 +787,14 @@ int32_t msg_parse_content(mpack_reader_t* reader, vws_buffer* buffer)
 
     if (length == 0)
     {
+        // [vws MSG-3] Clear the buffer on the empty-content arm too: the
+        // early return skipped the clear below, retaining the PREVIOUS
+        // message's bytes in the target buffer. Deserialize forces size = 0
+        // afterward so the stale bytes were invisible -- but only by luck of
+        // that caller; make this function leave the documented state (empty
+        // buffer) on every success path.
+        vws_buffer_clear(buffer);
+
         return 0;
     }
 

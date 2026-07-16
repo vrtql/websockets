@@ -134,7 +134,8 @@ CTEST(rpc, tag)
     char* t = vrtql_rpc_tag(7);
     ASSERT_NOT_NULL(t);
     ASSERT_EQUAL(7, (int)strlen(t));
-    free(t);
+    // [vws R4] vws.free pairs vrtql_rpc_tag's vws.malloc (allocator symmetry).
+    vws.free(t);
 
     g_rand_fail = 1;
     char* f = vrtql_rpc_tag(7);   // RAND_bytes fails -> NULL

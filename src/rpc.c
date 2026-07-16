@@ -37,13 +37,17 @@ static bool reconnect(vrtql_rpc* rpc)
 char* vrtql_rpc_tag(uint16_t length)
 {
     char valid_chars[]  = "abcdefghijklmnopqrstuvwxyz0123456789";
-    unsigned char* data = (unsigned char*)malloc(length);
-    unsigned char* tag  = (unsigned char*)malloc(length + 1);  // C-RPC-6: +NUL
+    // [vws R4] vws.malloc (fail-fast + pluggable), not raw unchecked malloc --
+    // an OOM NULL here fed RAND_bytes / the fill loop a NULL buffer.
+    unsigned char* data = (unsigned char*)vws.malloc(length);
+    unsigned char* tag  = (unsigned char*)vws.malloc(length + 1); // C-RPC-6: +NUL
 
     if (RAND_bytes(data, length) != 1)
     {
-        free(data);
-        free(tag);
+        // [vws R4] vws.free pairs the vws.malloc above (pluggable-allocator
+        // symmetry).
+        vws.free(data);
+        vws.free(tag);
 
         return NULL;
     }
@@ -57,7 +61,8 @@ char* vrtql_rpc_tag(uint16_t length)
 
     tag[length] = '\0';   // C-RPC-6: terminate so strlen(tag) (exec:174) is safe
 
-    free(data);
+    // [vws R4] vws.free pairs the vws.malloc above.
+    vws.free(data);
 
     return (char*)tag;
 }
@@ -124,6 +129,17 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
     // uses. was "tag", which no reply carried, so the tag check
     // below always saw NULL.
     cstr tag = vrtql_rpc_tag(7);
+
+    // [vws R2] vrtql_rpc_tag returns NULL on a RAND_bytes failure; the old
+    // unguarded path passed NULL into vrtql_msg_set_routing (strlen(NULL) in
+    // set_cstring) and later strncmp'd it. Fail the exec instead -- the caller
+    // (vrtql_rpc_invoke) already handles a NULL reply and frees the request.
+    if (tag == NULL)
+    {
+        vws.error(VE_RT, "vrtql_rpc_exec: tag generation failed");
+        return NULL;
+    }
+
     vrtql_msg_set_routing(req, "t", tag);
 
     if (vws.tracelevel >= VT_SERVICE)
@@ -165,7 +181,8 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
         }
 
         // Hand error back to caller.
-        free(tag);
+        // [vws R4] vws.free pairs vrtql_rpc_tag's vws.malloc.
+        vws.free((void*)tag);
         return NULL;
     }
 
@@ -190,7 +207,11 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
             // routing entry (a malformed or unrelated peer message); the old
             // code passed NULL straight to strncmp() and crashed. Guard it and
             // route the message to the out-of-band handler.
-            if (t == NULL || strncmp(tag, t, strlen(tag)) != 0)
+            // [vws R3] strcmp, not strncmp(.., strlen(tag)): the prefix
+            // compare accepted any reply tag that merely STARTED with ours.
+            // Tags are fixed-length so a mismatch required a prefix collision
+            // anyway -- exactness for free.
+            if (t == NULL || strcmp(tag, t) != 0)
             {
                 // This is not response message. Send to handler.
                 rpc->out_of_band(rpc, reply);
@@ -227,7 +248,8 @@ vrtql_msg* vrtql_rpc_exec(vrtql_rpc* rpc, vrtql_msg* req)
         }
     }
 
-    free(tag);
+    // [vws R4] vws.free pairs vrtql_rpc_tag's vws.malloc.
+    vws.free((void*)tag);
 
     if ((vws.tracelevel >= VT_SERVICE) && (reply != NULL))
     {
@@ -334,7 +356,9 @@ vrtql_rpc_module* vrtql_rpc_module_new(cstr name)
 
     m = (vrtql_rpc_module*)vws.malloc(sizeof(vrtql_rpc_module));
 
-    m->name = strdup(name);
+    // [vws R4] vws.strdup (fail-fast) -- an unchecked strdup NULL stored a
+    // NULL name that later strcmp/free paths dereferenced.
+    m->name = vws.strdup(name);
     m->data = NULL;
     sc_map_init_sv(&m->calls, 0, 0);
 
@@ -608,7 +632,9 @@ void sys_map_set(vrtql_rpc_map* map, cstr key, void* value)
         }
     }
 
-    sc_map_put_sv(map, strdup(key), value);
+    // [vws R4] vws.strdup (fail-fast) -- a raw strdup NULL stored a NULL map
+    // key that the foreach/strcmp above would crash on next call.
+    sc_map_put_sv(map, vws.strdup(key), value);
 
     if (old != NULL)
     {

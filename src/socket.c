@@ -186,8 +186,13 @@ bool vws_socket_set_timeout(vws_socket* s, int sec)
         return false;
     }
 
-    // Set socket attribute, this will apply to poll().
-    s->timeout = sec * 1000;
+    // Set socket attribute, this will apply to poll(). [vws S5] Normalize the
+    // "no timeout" sentinel: sec == -1 previously became -1000, which poll()
+    // treated as infinite only because ANY negative means infinite -- it worked
+    // by accident and desynced from socket_set_timeout's own -1 -> 0 (blocking)
+    // remap. Store the canonical -1 so every consumer sees the documented poll
+    // sentinel (the write path additionally slices it -- see vws_socket_write).
+    s->timeout = (sec == -1) ? -1 : sec * 1000;
 
     return true;
 }
@@ -235,14 +240,18 @@ bool socket_set_timeout(vws_sockfd_t fd, int sec)
         return false;
     }
 
-    // Convert from sec to ms for Windows
-    DWORD tm = sec * 1000;
-
+    // [vws S6] Remap the -1 sentinel BEFORE computing tm: the old code
+    // computed tm from sec first and then assigned the remap to `sec`, which
+    // was never re-read -- tm stayed (DWORD)(-1000) instead of the intended
+    // maximum. On Windows SO_*TIMEO of 0 means blocking (no timeout), which is
+    // the -1 contract -- use that rather than a fake huge value.
     if (sec == -1)
     {
-        // Maximum value (136.17 years)
-        sec = 4294967295;
+        sec = 0;
     }
+
+    // Convert from sec to ms for Windows
+    DWORD tm = sec * 1000;
 
     // Set the send timeout
     if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (cstr)&tm, sizeof(tm)) < 0)
@@ -679,6 +688,13 @@ openssl_reread:
 
                 return -1;
             }
+
+            // [vws S4] The drain loop exited via the short-read break with
+            // n > 0: return the RUNNING TOTAL appended to the buffer, not the
+            // final chunk's count -- falling through to the tail `return n`
+            // under-reported a multi-chunk drain. (All current callers only
+            // test the sign, so this corrects the contract, not behavior.)
+            return total;
         }
         else
         {
@@ -708,6 +724,18 @@ openssl_reread:
                 {
                     vws.error(VE_TIMEOUT, "recv()");
                     return 0;
+                }
+                else
+                {
+                    // [vws S6] Mirror the POSIX arm: a genuine recv() error
+                    // previously FELL THROUGH here -- returning -1 with no
+                    // error set and the socket left open (half-dead cnx).
+                    vws.error(VE_WARN, "recv() failed: WSA error %d", err);
+
+                    // Close socket
+                    socket_abnormal_close(c);
+
+                    return -1;
                 }
 
                 #else
@@ -896,6 +924,24 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
     const int64_t write_stall_budget_ms = 60000;
     int64_t stall_ms = 0;
 
+    // [vws S5/S2] Bound each WRITE poll to a finite slice. With the timeout
+    // sentinel -1 (no timeout) poll() blocks forever, so the zero-progress
+    // budget above could never advance and a stalled peer still wedged this
+    // writer. Slice the infinite wait into 1s polls: a healthy peer's POLLOUT
+    // wakes the poll immediately (no added latency), and only the genuinely
+    // stalled case accumulates toward the budget. timeout == 0 (non-blocking
+    // probe) and timeout > 0 keep their exact prior poll behavior.
+    int poll_ms;
+
+    if (c->timeout >= 0)
+    {
+        poll_ms = c->timeout;
+    }
+    else
+    {
+        poll_ms = 1000;
+    }
+
     while (sent < size)
     {
         // If we attempted at least one poll()/send()
@@ -917,10 +963,11 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         fds.events = poll_events;
 
         // [vws V-12] retry on EINTR (see the read path).
+        // [vws S5/S2] poll_ms, not c->timeout: the sliced wait (see above).
         int rc;
         do
         {
-            rc = poll(&fds, 1, c->timeout);
+            rc = poll(&fds, 1, poll_ms);
         }
         while (rc == -1 && errno == EINTR);
 
@@ -939,7 +986,8 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         fds.fd     = c->sockfd;
         fds.events = poll_events;
 
-        int rc = WSAPoll(&fds, 1, c->timeout);
+        // [vws S5/S2] poll_ms, not c->timeout: the sliced wait (see above).
+        int rc = WSAPoll(&fds, 1, poll_ms);
 
         if (rc == SOCKET_ERROR)
         {
@@ -965,10 +1013,10 @@ ssize_t vws_socket_write(vws_socket* c, const ucstr data, size_t size)
         {
             // [vws S2] ...but not forever. Charge this timed-out, still-not-
             // writable poll against the zero-progress stall budget; a peer that
-            // never drains its receive window would otherwise spin here. (timeout
-            // <= 0 means poll blocked rather than timed out, so it can't busy-loop;
-            // charge 1ms to still bound the non-blocking timeout==0 case.)
-            stall_ms += (c->timeout > 0) ? c->timeout : 1;
+            // never drains its receive window would otherwise spin here.
+            // [vws S5/S2] Charge the actual sliced wait; the 1ms floor bounds
+            // the non-blocking (poll_ms == 0) probe case.
+            stall_ms += (poll_ms > 0) ? poll_ms : 1;
 
             if (stall_ms >= write_stall_budget_ms)
             {
@@ -1141,6 +1189,12 @@ void vws_socket_close(vws_socket* c)
             vws.error(VE_WARN, "Socket close failed: %s", buf);
         }
         #if defined(__windows__)
+        // [vws S6] WSAStartup/WSACleanup are REF-COUNTED by Winsock: this
+        // per-close WSACleanup pairs against the per-connect WSAStartup, so
+        // the balance holds only while every socket that WSAStartup'd also
+        // reaches this close exactly once. Audit the pairing (and consider a
+        // process-level init) when the Windows arm unparks; until then this
+        // marker documents the fragility flagged in the review ledger.
         WSACleanup();
         #endif
 

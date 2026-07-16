@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <limits.h>   // [vws H3] INT_MAX for the parse-size guard
 #include <stdio.h>
 
 #include "http_message.h"
@@ -77,7 +78,10 @@ ucstr lcase(char* s)
 {
     for(int i = 0; s[i]; i++)
     {
-        s[i] = tolower(s[i]);
+        // [vws H2] tolower's contract takes an int representable as unsigned
+        // char (or EOF); a plain (signed) char with the high bit set -- a raw
+        // header byte -- is UB per ctype. Cast through unsigned char.
+        s[i] = (char)tolower((unsigned char)s[i]);
     }
 
     return (ucstr)s;
@@ -274,6 +278,17 @@ int on_body(llhttp_t* p, cstr at, size_t l)
 
 int vws_http_msg_parse(vws_http_msg* req, cstr data, size_t size)
 {
+    // [vws H3] The return type is int (consumed byte count) but the input
+    // length is size_t: a feed larger than INT_MAX would truncate -- or go
+    // negative -- at the `return size` below and misreport consumption to the
+    // drain logic. No current caller feeds anywhere near that (reads are
+    // socket-buffer sized and request-capped upstream), so refuse outright
+    // rather than mangle: callers already treat -1 as a fatal parse error.
+    if (size > (size_t)INT_MAX)
+    {
+        return -1;
+    }
+
     // [vws H1] A message that already completed leaves llhttp PAUSED with its
     // error_pos pointing into the PREVIOUS buffer. Re-executing on a NEW buffer
     // would fall through to the done-branch below and compute

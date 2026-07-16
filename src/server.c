@@ -1359,7 +1359,20 @@ void uv_thread(uv_async_t* handle)
                               > (uint64_t)server->ping_interval_ms )
                 {
                     // Idle peer: send a proactive PING and arm the deadline.
-                    vws_buffer*   frame = vws_generate_ping_frame();
+                    //
+                    // [vws SV4] Server-to-client frames must be UNMASKED
+                    // (RFC 6455 §5.1). vws_generate_ping_frame builds a
+                    // CLIENT-style masked frame (vws_frame_new masks by
+                    // default), so the sweep's PING went out masked from the
+                    // server side -- the same family F7 fixed for the
+                    // CLOSE/PONG replies. Build the frame here with the mask
+                    // cleared and serialize directly (vws_serialize consumes
+                    // the frame; with no mask there is no RAND_bytes failure
+                    // arm).
+                    vws_frame* ping = vws_frame_new(NULL, 0, PING_FRAME);
+                    ping->mask = 0;
+
+                    vws_buffer*   frame = vws_serialize(ping);
                     vws_svr_data* data  =
                         vws_svr_data_new(server, peer->info.cid, &frame);
 
@@ -1996,7 +2009,15 @@ void vws_tcp_svr_inetd_stop(vws_tcp_svr* server)
     server->state = VS_HALTED;
 }
 
-bool svr_resolve(cstr host, int port, struct sockaddr_storage** s)
+// [vws SV6] The former `struct sockaddr_storage** s` out-param was NEVER
+// written -- callers that appeared to receive the resolved address actually
+// got it later from uv_tcp_getpeername -- so it was a decoy inviting exactly
+// that misreading. Removed (file-internal function, single caller). NOTE: the
+// full-TCP-connect reachability probe below is left AS IS on purpose --
+// removing it is a behavior change (double connect load + TOCTOU window are
+// real but the probe also gates the PEER_CONNECT fast-fail arm); flagged to
+// wf1 for a ruling rather than changed here.
+bool svr_resolve(cstr host, int port)
 {
     vws_sockfd_t sockfd = VWS_INVALID_SOCKET;
 
@@ -2114,7 +2135,10 @@ vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
 
     if (fn == NULL)
     {
-        vws.error( VL_WARN,
+        // [vws SV7] VE_RT, not VL_WARN: the first argument is the ERROR code
+        // (VE_* enum); VL_WARN is a LOG level whose value aliases a different
+        // error class in the VE_ space -- misclassified in handlers/traces.
+        vws.error( VE_RT,
                    "vws_tcp_svr_peer_add(): "
                    "connection function not provided" );
         return NULL;
@@ -2136,7 +2160,9 @@ vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
     peer.data  = data;
 
     char key[514];
-    sprintf(key, "%s:%lu", h, (unsigned long)p);
+    // [vws SV7] snprintf, not sprintf: h is caller-supplied (broker config
+    // today, but the bound is free and a >512-byte host overflowed key[]).
+    snprintf(key, sizeof(key), "%s:%lu", h, (unsigned long)p);
     vws_kvs_set(s->peers, key, &peer, sizeof(vws_peer));
 
     // Set wakeup timer
@@ -2151,7 +2177,9 @@ vws_peer* vws_tcp_svr_peer_add( vws_tcp_svr* s,
 void vws_tcp_svr_peer_remove(vws_tcp_svr* s, cstr h, int p)
 {
     char key[514];
-    sprintf(key, "%s:%lu", h, (unsigned long)p);
+    // [vws SV7] snprintf, not sprintf (see peer_add). Truncation yields the
+    // same key both sides, so add/remove stay consistent.
+    snprintf(key, sizeof(key), "%s:%lu", h, (unsigned long)p);
 
     // [vws V-10] vws_kvs_get returns NULL for an absent key; the old
     // unconditional ->data deref crashed. Guard it (unknown key = nothing to
@@ -2422,7 +2450,8 @@ void svr_client_data_out(vws_svr_data* data, void* x)
     if (data->size == 0)
     {
         vws.trace(VL_INFO, "svr_client_data_out(): no data");
-        vws.error(VL_WARN, "svr_client_data_out(): no data");
+        // [vws SV7] VE_WARN, not VL_WARN: error code, not log level.
+        vws.error(VE_WARN, "svr_client_data_out(): no data");
 
         vws_svr_data_free(data);
 
@@ -3634,11 +3663,13 @@ void ws_svr_client_data_in(vws_svr_data* block, void* x)
         block->size = 0;
         vws_svr_data_free(block);
 
-        // Resolve
-        struct sockaddr_storage* addr = &peer->info.cid.addr;
-        if (svr_resolve(peer->host, peer->port, &addr) == false)
+        // Resolve. [vws SV6] The out-param is gone (it was never written; the
+        // peer's cid.addr is populated by uv_tcp_getpeername at cnx setup).
+        if (svr_resolve(peer->host, peer->port) == false)
         {
-            vws.error( VL_WARN,
+            // [vws SV7] VE_SYS, not VL_WARN: error code, not log level (this
+            // is a resolution/connect failure, the VE_SYS class).
+            vws.error( VE_SYS,
                        "vws_tcp_svr_peer_add(): "
                        "Failed to resolve host %s:%lu",
                        peer->host, (unsigned long)peer->port );

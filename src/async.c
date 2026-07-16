@@ -810,6 +810,20 @@ void vws_socket_want_read(vws_async* a)
     wake_signal(a->loop->wake_wr);
 }
 
+// [vws ASYNC-1, contract note -- no code change] Two documented constraints
+// on this entry point:
+//
+// 1. LOOP-THREAD ONLY. This mutates a->pending (plain, non-atomic) through
+//    apply_result; every in-tree caller is a wh/rh callback dispatched by the
+//    reactor, so the write is loop-confined. A cross-thread caller would race
+//    the reactor's own pending reads/writes.
+//
+// 2. REGISTER A wh IF A WRITE CAN GO PENDING. An inverted SSL WANT_READ parks
+//    pending = VWS_SSL_WRITE, and on_ready's retry arm re-drives the send via
+//    a->wh. With wh == NULL the retry arm has nothing to call: pending stays
+//    set forever and the poll wedges on POLLIN for a write that never
+//    completes. If a wh-less user is ever needed, the retry arm must learn to
+//    complete the op internally.
 size_t vws_socket_async_write(vws_async* a, ucstr data, size_t size)
 {
     if (a == NULL || a->live == false)

@@ -85,6 +85,14 @@ get_part (const char* url, const char *format, int l) {
   free(fmt_url);
   fmt_url = fmt_url_new;
 
+  // [vws U-getpart] strff strdup's its input and can return NULL (OOM);
+  // sscanf(NULL, ...) below was undefined. Bail like the strdup guards above.
+  if (fmt_url == NULL) {
+    free(tmp);
+    free(tmp_url);
+    return NULL;
+  }
+
   sscanf(fmt_url, format, tmp);
 
   if (0 != strcmp(tmp, tmp_url)) {
@@ -210,7 +218,12 @@ url_parse (char* url) {
   // sscanf below matches nothing (e.g. a path that begins with '?' or '#').
   pathname[0] = '\0';
   tmp_path = strdup(path);
-  sscanf(tmp_path, "%[^? | ^#]", pathname);
+  // [vws U4] Scanset is "%[^?#]" -- stop at query or fragment ONLY. The old
+  // "%[^? | ^#]" is a single scanset excluding '?', ' ', '|', '^', '#' (the
+  // pipes/spaces/caret are LITERAL set members, not alternation), so a path
+  // containing a space, '|' or '^' was silently truncated and the derived
+  // search/hash offsets shifted.
+  sscanf(tmp_path, "%[^?#]", pathname);
   const size_t pathname_len = strlen(pathname);
   data->pathname = pathname;
 
@@ -356,8 +369,15 @@ url_get_path (const char* url) {
   char *hostname = url_get_hostname(url);
 
 
-  if (!protocol || !hostname)
+  // [vws U6] Free whatever DID resolve before the early return -- this arm
+  // leaked auth/protocol/hostname. (Helper is unused by vws proper; guarded,
+  // not removed.)
+  if (!protocol || !hostname) {
+    free(auth);
+    free(protocol);
+    free(hostname);
     return NULL;
+  }
 
   const bool is_ssh = url_is_ssh(protocol);
 
@@ -369,8 +389,27 @@ url_get_path (const char* url) {
     ? get_part(url, ":%s", l)
     : get_part(url, "/%s", l);
 
+  // [vws U6] get_part returns NULL on no match (a URL with no path); the old
+  // code ran strlen(NULL). Same cleanup as above.
+  if (!tmp_path) {
+    free(auth);
+    free(protocol);
+    free(hostname);
+    return NULL;
+  }
+
   const char *fmt = (is_ssh)? "%s" : "/%s";
   char *path = (char *) malloc(strlen(tmp_path)+2);
+
+  // [vws U6] raw malloc was unchecked; sprintf into NULL is UB.
+  if (!path) {
+    free(auth);
+    free(protocol);
+    free(hostname);
+    free(tmp_path);
+    return NULL;
+  }
+
   sprintf(path, fmt, tmp_path);
 
   free(auth);
@@ -386,7 +425,15 @@ url_get_search (const char* url) {
   char *path = url_get_path(url);
   char *pathname = url_get_pathname(url);
 
-  if (!path) return NULL;
+  // [vws U6] Guard BOTH results and free the one that succeeded: pathname can
+  // be NULL independently of path (no-match sscanf), and strlen(pathname)
+  // below crashed on it; the old `if (!path) return NULL` also leaked
+  // pathname. (Helper is unused by vws proper; guarded, not removed.)
+  if (!path || !pathname) {
+    free(path);
+    free(pathname);
+    return NULL;
+  }
 
   char *search = NULL;
   sscanf(path + strlen(pathname), "%m[^#]", &search);

@@ -59,6 +59,29 @@ static int vws_error_default_process(int code, cstr message);
 #ifdef __windows__
 // Windows Mutex for thread-safe logging
 HANDLE log_mutex;
+
+// [vws V4] log_mutex was declared but never created anywhere -- a HANDLE has
+// no static initializer -- so WaitForSingleObject(NULL) failed and EVERY
+// Windows trace took the error path. Create it lazily with a race-safe
+// publish: the loser of the interlocked exchange closes its duplicate. Both
+// lock sites (vws_trace_lock and vws_trace's inline lock) resolve the handle
+// through this helper. (Windows arm is parked/untested; fix confined to the
+// #ifdef.)
+static HANDLE log_mutex_get(void)
+{
+    if (log_mutex == NULL)
+    {
+        HANDLE m = CreateMutex(NULL, FALSE, NULL);
+
+        if (InterlockedCompareExchangePointer((PVOID*)&log_mutex, m, NULL)
+            != NULL)
+        {
+            CloseHandle(m);
+        }
+    }
+
+    return log_mutex;
+}
 #else
 // POSIX Mutex for thread-safe logging
 pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -92,7 +115,8 @@ void vws_trace_lock()
     DWORD tid = GetCurrentThreadId();
 
     // Windows implementation using Windows API for thread synchronization
-    if (WaitForSingleObject(log_mutex, INFINITE) != WAIT_OBJECT_0)
+    // [vws V4] resolve through the lazy-init helper.
+    if (WaitForSingleObject(log_mutex_get(), INFINITE) != WAIT_OBJECT_0)
     {
         vws_error_default_submit(VE_SYS, "WaitForSingleObject failed");
         return;
@@ -175,7 +199,8 @@ void vws_trace(vws_log_level_t level, const char* format, ...)
     DWORD tid = GetCurrentThreadId();
 
     // Windows implementation using Windows API for thread synchronization
-    if (WaitForSingleObject(log_mutex, INFINITE) != WAIT_OBJECT_0)
+    // [vws V4] resolve through the lazy-init helper.
+    if (WaitForSingleObject(log_mutex_get(), INFINITE) != WAIT_OBJECT_0)
     {
         vws_error_default_submit(VE_SYS, "WaitForSingleObject failed");
         return;
@@ -593,8 +618,19 @@ void vws_buffer_printf(vws_buffer* buffer, cstr format, ...)
 
     va_end(args_copy);
 
-    // Allocate a buffer for the formatted string
-    char* data = malloc(length + 1);
+    // [vws V2] vsnprintf returns a NEGATIVE length on an encoding error; the
+    // old unchecked path then called malloc(length + 1) == malloc(0) and
+    // appended with a huge (size_t)-1 -- a wild memcpy. Bail on error instead.
+    if (length < 0)
+    {
+        va_end(args);
+        return;
+    }
+
+    // Allocate a buffer for the formatted string. [vws V2] vws.malloc, not raw
+    // malloc: the allocator policy (fail-fast + pluggable handler) applies here
+    // like every other allocation; the raw call also went unchecked.
+    char* data = (char*)vws.malloc((size_t)length + 1);
 
     // Format the string into the buffer
     vsnprintf(data, length + 1, format, args);
@@ -613,11 +649,27 @@ void vws_buffer_append(vws_buffer* buffer, ucstr data, size_t size)
         return;
     }
 
+    // [vws V1] Guard the size sum against size_t wrap BEFORE any growth math:
+    // a wrapped total_size passes the allocated check below and the memcpy
+    // then writes far past the buffer. Unreachable under the current message
+    // caps; fail fast like the allocator policy rather than corrupt.
+    if (size > SIZE_MAX - buffer->size)
+    {
+        fputs("vws: fatal: buffer size overflow in vws_buffer_append\n",
+              stderr);
+        abort();
+    }
+
     size_t total_size = buffer->size + size;
 
     if (total_size > buffer->allocated)
     {
-        buffer->allocated = total_size * 1.5;
+        // [vws V1] Integer 1.5x growth (was `total_size * 1.5` through double:
+        // precision loss above 2^53). Clamp to the exact total on wrap of the
+        // grow term so the allocation is always >= total_size.
+        size_t grown = total_size + (total_size >> 1);
+
+        buffer->allocated = (grown < total_size) ? total_size : grown;
 
         ucstr mem;
         if (buffer->data == NULL)
@@ -683,7 +735,10 @@ void vws_map_set(struct sc_map_str* map, cstr key, cstr value)
         vws_map_remove(map, key);
     }
 
-    sc_map_put_str(map, strdup(key), strdup(value));
+    // [vws V7] vws.strdup, not raw strdup: an unchecked strdup NULL (OOM)
+    // stored a NULL key/value into the map and a later strcmp crashed on it;
+    // vws.strdup carries the fail-fast allocator policy.
+    sc_map_put_str(map, vws.strdup(key), vws.strdup(value));
 }
 
 void vws_map_remove(struct sc_map_str* map, cstr key)
@@ -747,11 +802,21 @@ int vws_kvs_ci_comp(const void* a, const void* b)
 
 vws_kvs* vws_kvs_new(size_t size, bool case_sensitive)
 {
-    vws_kvs* m = (vws_kvs*)malloc(sizeof(vws_kvs));
+    // [vws V3] size == 0 would make the doubling growth in vws_kvs_set stay 0
+    // forever and the first array[0] write overflow a zero-sized allocation;
+    // clamp to a real minimum capacity.
+    if (size == 0)
+    {
+        size = 1;
+    }
+
+    // [vws V3] vws.malloc (fail-fast + pluggable), not raw unchecked malloc --
+    // allocator policy consistency with the rest of the library.
+    vws_kvs* m = (vws_kvs*)vws.malloc(sizeof(vws_kvs));
 
     if (m)
     {
-        m->array = (vws_kvp*)malloc(size * sizeof(vws_kvp));
+        m->array = (vws_kvp*)vws.malloc(size * sizeof(vws_kvp));
         m->used  = 0;
         m->size  = size;
 
@@ -1018,16 +1083,11 @@ void vws_msleep(unsigned int ms)
 
     Sleep(ms);
 
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__bsd__) || defined(__sunos__)
 
-    usleep(ms * 1000);
-
-#elif defined(__bsd__)
-
-    usleep(ms * 1000);
-
-#elif defined(__sunos__)
-
+    // [vws V5] nanosleep on every POSIX platform (formerly the __sunos__ arm
+    // only): usleep(ms * 1000) wrapped the unsigned multiply for ms > ~4.29M,
+    // and POSIX allows usleep to fail outright for arguments >= 1e6.
     struct timespec ts;
     ts.tv_sec = ms / 1000;
     ts.tv_nsec = (ms % 1000) * 1000000;
@@ -1074,11 +1134,21 @@ char* vws_file_path(const char* root, const char* filename)
         return NULL;
     }
 
-    // Attempt to write to the buffer
-    size_t written = snprintf(path, size, "%s/%s", root, filename);
+    // Attempt to write to the buffer. [vws V6] snprintf returns int, and a
+    // NEGATIVE return (encoding error) stored into the old size_t `written`
+    // became huge -- driving the resize below with written + 1 == 0 after
+    // wrap-adjacent math and reallocating garbage. Keep it int and bail on
+    // error before any size math.
+    int written = snprintf(path, size, "%s/%s", root, filename);
+
+    if (written < 0)
+    {
+        vws.free(path);
+        return NULL;
+    }
 
     // Check if the buffer was large enough
-    if (written >= size)
+    if ((size_t)written >= size)
     {
         // Buffer was too small, allocate again with the correct size
         size = written + 1; // +1 for the null terminator
