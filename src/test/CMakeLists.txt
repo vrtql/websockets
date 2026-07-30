@@ -597,6 +597,25 @@ if(BUILD_SERVER)
   add_test(NAME test_http_reqcap COMMAND test_http_reqcap)
   add_dependencies(test_http_reqcap static_test_lib static_lib)
 
+  # fd-adoption seam: vws_tcp_svr_run_adopt (no-listen mode) +
+  # vws_tcp_svr_adopt (any-thread fd hand-off) + the FD_ADOPT drain arms.
+  # #includes server.c (statics + isolated coverage); white-box cells drive
+  # svr_shutdown / queue_push drains directly and assert the carried fd is
+  # CLOSED (EBADF), not merely freed. Self-bounding (watchdog + stop/join).
+  add_executable(test_svr_adopt test_svr_adopt.c)
+  target_include_directories(test_svr_adopt PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_adopt PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm -lpthread)
+  add_test(NAME test_svr_adopt COMMAND test_svr_adopt)
+  # Evidence target: 0 definite/indirect + FILE DESCRIPTORS 0/1/2-only proves
+  # every adopted/drained fd is closed. (The detached watchdog's TLS shows as
+  # "possibly lost" like every watchdog cell in this suite -- not gated.)
+  add_custom_target(test_svr_adopt_leakcheck
+    COMMAND valgrind --leak-check=full --show-reachable=yes --track-fds=yes
+            --suppressions=valgrind.suppress ./test_svr_adopt )
+  add_dependencies(test_svr_adopt static_test_lib static_lib)
+
   # Pipelined second HTTP request buffered in the SAME read event must be
   # served in that event (re-parse loop composes with the done-gate: a
   # partial tail still falls to the drain arm). #includes server.c.

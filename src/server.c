@@ -391,6 +391,32 @@ static void on_uv_walk(uv_handle_t* handle, void* arg);
 static void svr_on_close_discard(uv_handle_t* handle);
 
 /**
+ * @brief Adopts a connected socket descriptor into the server's loop. Runs ON
+ * the loop thread (the FD_ADOPT drain arm in uv_thread): the inetd adoption
+ * pattern -- nonblocking, uv_tcp_init/uv_tcp_open, keepalive, read_start, cnx
+ * registration, on_connect. Failure arms mirror the hardened inetd/peer arms
+ * (uv_close-not-free discipline) and close the fd where no handle owns it yet.
+ *
+ * @param server The server adopting the descriptor.
+ * @param fd The connected socket descriptor.
+ */
+static void svr_adopt_fd(vws_tcp_svr* server, vws_sockfd_t fd);
+
+/**
+ * @brief Discards a vws_svr_data that will never reach its consumer (shutdown
+ * drains and not-running queue arms). An FD_ADOPT block carries a raw socket
+ * descriptor no loop handle owns yet; freeing the block alone would leak the
+ * OPEN descriptor (the heap int is freed, the socket stays open for the life
+ * of the process). Close it first, then release the block through the
+ * refcounted free. All other block types pass through to vws_svr_data_free
+ * unchanged. NOTE: queue_try_push is not routed here on purpose -- it serves
+ * the requests queue only, which FD_ADOPT blocks never ride.
+ *
+ * @param data The block to discard.
+ */
+static void svr_data_dispose(vws_svr_data* data);
+
+/**
  * @brief Callback for new client connection.
  *
  * This function is invoked when a new client successfully connects to the
@@ -1098,6 +1124,95 @@ static void peer_adopt_fail(vws_peer* peer)
     peer->state  = VWS_PEER_CLOSED;
 }
 
+// Portable raw-descriptor close for the fd-adoption arms (the descriptor is
+// not owned by any vws_socket or uv handle at these sites).
+static void svr_close_fd(vws_sockfd_t fd)
+{
+#if defined(__windows__)
+    closesocket(fd);
+#else
+    close(fd);
+#endif
+}
+
+// NOTE: like the peer-reconnect arm above, this is the inetd adoption body
+// (vws_tcp_svr_inetd_run) applied to a descriptor handed off at run time. It
+// runs ON the loop thread (called only from uv_thread's FD_ADOPT arm). NORMAL
+// upgrade semantics, like inetd -- the first read upgrades; nothing is
+// pre-upgraded (contrast the peer arm). Failure arms mirror the hardened
+// inetd/peer arms 1-for-1: uv_close-not-free for a loop-registered handle,
+// and the fd is closed HERE wherever no handle owns it yet.
+static void svr_adopt_fd(vws_tcp_svr* server, vws_sockfd_t fd)
+{
+    // Set socket to non-blocking mode for libuv (identical to the inetd path;
+    // no reliance on accept4/flag inheritance from the acceptor).
+    if (vws_socket_set_nonblocking(fd) == false)
+    {
+        vws.error(VE_RT, "Failed to set socket to nonblocking");
+        svr_close_fd(fd);
+        return;
+    }
+
+    // Adopt socket descriptor into libuv loop
+    uv_tcp_t* c = (uv_tcp_t*)vws.malloc(sizeof(uv_tcp_t));
+
+    if (uv_tcp_init(server->loop, c))
+    {
+        // Handle uv_tcp_init failure. The handle never entered the loop, so a
+        // bare free is correct; the fd has no owner -- close it.
+        vws.error(VE_RT, "Failed to initialize new TCP handle");
+        vws.free(c);
+        svr_close_fd(fd);
+        return;
+    }
+
+    if (uv_tcp_open(c, fd))
+    {
+        // Handle uv_tcp_open failure. The handle is registered in the loop
+        // (uv_tcp_init succeeded), so uv_close it -- a bare free leaves a
+        // dangling node in loop->handle_queue (UAF at teardown's uv_walk). The
+        // fd was NOT taken over by the failed open -- close it here. No cinfo
+        // yet, so data is NULL.
+        vws.error(VE_RT, "Failed to adopt the socket descriptor.");
+        c->data = NULL;
+        uv_close((uv_handle_t*)c, svr_on_close_discard);
+        svr_close_fd(fd);
+        return;
+    }
+
+    // OS-level dead-peer detection on the adopted fd (same as the accept
+    // path).
+    vws_enable_keepalive(server, c);
+
+    // Create socket info structure
+    vws_cinfo* ci = vws.malloc(sizeof(vws_cinfo));
+    ci->cnx       = NULL;
+    ci->server    = server;
+    ci->cid.key   = -1;   // invalid until a cnx is registered (safe close path)
+    c->data       = ci;
+
+    // Start reads on socket
+    if (uv_read_start((uv_stream_t*)c, svr_on_realloc, svr_on_read) != 0)
+    {
+        // Handle + adopted fd are registered; uv_close (not bare free) so the
+        // handle leaves the loop queue cleanly and the fd is closed. The close
+        // cb frees both the handle and its cinfo (carried on ->data).
+        vws.error(VE_RT, "Failed to start reading from client");
+        uv_close((uv_handle_t*)c, svr_on_close_discard);
+        return;
+    }
+
+    //> Add connection to registry and initialize
+
+    vws_svr_cnx* cnx = svr_cnx_new(server, (uv_stream_t*)c);
+    ci->cnx          = cnx;
+    ci->cid          = cnx->cid;
+
+    // Call svr_on_connect() handler to complete initialization. The adopted
+    // connection takes the NORMAL first-read upgrade path on its owning loop.
+    server->on_connect(cnx);
+}
+
 void uv_thread(uv_async_t* handle)
 {
     vws_cinfo* cinfo    = (vws_cinfo*)handle->data;
@@ -1140,7 +1255,10 @@ void uv_thread(uv_async_t* handle)
         {
             if (data != NULL)
             {
-                vws_svr_data_free(data);
+                // Dispose, not free: an FD_ADOPT block dropped here must have
+                // its carried fd closed (svr_data_dispose), else the open
+                // descriptor leaks with the block.
+                svr_data_dispose(data);
             }
 
             return;
@@ -1159,6 +1277,18 @@ void uv_thread(uv_async_t* handle)
             }
 
             vws_svr_data_free(data);
+        }
+        else if (vws_is_flag(&data->flags, VWS_SVR_STATE_FD_ADOPT))
+        {
+            // fd hand-off from vws_tcp_svr_adopt(). The adoption body must run
+            // HERE, on the loop thread -- uv_tcp_init/uv_tcp_open execute on
+            // the handle's own loop thread (the libuv thread-safety contract).
+            // From this point the fd is this arm's responsibility: take it out
+            // of the block, release the block, adopt (svr_adopt_fd closes the
+            // fd itself on any failure arm).
+            vws_sockfd_t fd = *(vws_sockfd_t*)data->data;
+            vws_svr_data_free(data);
+            svr_adopt_fd(server, fd);
         }
         else
         {
@@ -1519,6 +1649,18 @@ void vws_svr_data_free(vws_svr_data* t)
     vws.free(t);
 }
 
+// See the declaration comment: close an FD_ADOPT block's carried fd before
+// releasing the block; pass-through to vws_svr_data_free for everything else.
+static void svr_data_dispose(vws_svr_data* data)
+{
+    if (vws_is_flag(&data->flags, VWS_SVR_STATE_FD_ADOPT) && data->data != NULL)
+    {
+        svr_close_fd(*(vws_sockfd_t*)data->data);
+    }
+
+    vws_svr_data_free(data);
+}
+
 vws_tcp_svr* vws_tcp_svr_new(int num_threads, int backlog, int queue_size)
 {
     vws_tcp_svr* server = vws.malloc(sizeof(vws_tcp_svr));
@@ -1754,6 +1896,146 @@ int vws_tcp_svr_run(vws_tcp_svr* server, cstr host, int port)
     vws_cleanup();
 
     return 0;
+}
+
+// vws_tcp_svr_run minus the listen-socket section, duplicated (~30 lines)
+// rather than factored so run()'s accept path stays byte-identical. Keep the
+// two shutdown tails in step if either changes.
+int vws_tcp_svr_run_adopt(vws_tcp_svr* server)
+{
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace( VL_INFO,
+                   "vws_tcp_svr_run_adopt(%p): Starting worker %i threads",
+                   server,
+                   server->pool_size );
+    }
+
+    for (int i = 0; i < server->pool_size; i++)
+    {
+        uv_thread_create(&server->threads[i], worker_thread, server);
+    }
+
+    // NO listening socket in adopt mode: connections arrive exclusively via
+    // vws_tcp_svr_adopt(). With no I/O handle of its own the loop must be held
+    // alive by the ctor-registered wakeup async handle. Verify rather than
+    // assume: were a future ctor change to unref that handle, uv_run below
+    // would return immediately and the server would be stillborn. VS_FAILED
+    // (not a hang) lets vws_tcp_svr_stop's failed-start arm join the workers.
+    if (uv_loop_alive(server->loop) == 0)
+    {
+        vws.error(VE_RT, "vws_tcp_svr_run_adopt(): loop holds no live handle");
+        server->state = VS_FAILED;
+        return -1;
+    }
+
+    //> Start server
+
+    // Set state to running
+    server->state = VS_RUNNING;
+
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace( VL_INFO,
+                   "vws_tcp_svr_run_adopt(%p): Starting uv_run()",
+                   server );
+    }
+
+    while (vws_tcp_svr_is_running(server))
+    {
+        // Run UV loop. This runs indefinitely, passing network I/O and and out
+        // of system until server is shutdown by vws_tcp_svr_stop() (by external
+        // thread).
+        uv_run(server->loop, UV_RUN_DEFAULT);
+    }
+
+    //> Shutdown server (the run() tail minus the listen-handle close)
+
+    vws.trace( VL_INFO,
+               "vws_tcp_svr_run_adopt(%p): Shutdown connections=%lu",
+               server,
+               (unsigned long)server->cpool->count );
+
+    // Close connections.
+    for (uint32_t i = 0; i < server->cpool->capacity; i++)
+    {
+        uintptr_t ptr = server->cpool->slots[i];
+
+        if (ptr != 0)
+        {
+            // Close connection
+            vws_svr_cnx* cnx = (vws_svr_cnx*)ptr;
+
+            if (vws.tracelevel >= VT_SERVICE)
+            {
+                vws.trace( VL_INFO,
+                           "vws_tcp_svr_run_adopt(%p): closing %p",
+                           server,
+                           cnx->handle );
+            }
+
+            vws_tcp_svr_uv_close(server, (uv_handle_t*)cnx->handle);
+        }
+    }
+
+    if (vws.tracelevel >= VT_SERVICE)
+    {
+        vws.trace( VL_INFO,
+                   "vws_tcp_svr_run_adopt(%p): Shutdown complete",
+                   server );
+    }
+
+    // Set state to halted
+    server->state = VS_HALTED;
+
+    // C-SVR-6: release the network thread's thread-local error state (same as
+    // vws_tcp_svr_run).
+    vws_cleanup();
+
+    return 0;
+}
+
+bool vws_tcp_svr_adopt(vws_tcp_svr* server, vws_sockfd_t fd)
+{
+    if (server == NULL || fd == VWS_INVALID_SOCKET)
+    {
+        return false;
+    }
+
+    // Liveness check: a server that is not RUNNING will never drain the block
+    // (its loop is not running, or is shutting down). Refusing here keeps fd
+    // ownership with the CALLER, which can route the connection to another
+    // server (an acceptor's dead-reactor skip) or close it. If stop() races
+    // past this check, the block parks in the responses queue, where every
+    // discard path closes the fd (svr_data_dispose) -- the descriptor cannot
+    // leak through the window.
+    if (server->state != VS_RUNNING)
+    {
+        return false;
+    }
+
+    // The fd rides by value in an owned heap int -- no new types, no struct
+    // growth.
+    vws_sockfd_t* pfd = (vws_sockfd_t*)vws.malloc(sizeof(vws_sockfd_t));
+    *pfd = fd;
+
+    vws_cid_t cid;
+    vws_cid_clear(&cid);
+
+    vws_svr_data* block;
+    block = vws_svr_data_own(server, cid, (ucstr)pfd, sizeof(vws_sockfd_t));
+
+    vws_set_flag(&block->flags, VWS_SVR_STATE_FD_ADOPT);
+
+    // Any-thread hand-off: the responses queue is mutex-protected (workers
+    // push it concurrently today) and uv_async_send is thread-safe by libuv
+    // contract. The instant queue_push returns, the loop may have consumed and
+    // freed the block -- do not touch it again (the wakeup goes through our
+    // own server argument, not block->server).
+    queue_push(&server->responses, block);
+    uv_async_send(server->wakeup);
+
+    return true;
 }
 
 bool vws_tcp_svr_is_running(vws_tcp_svr* server)
@@ -2693,7 +2975,10 @@ void svr_shutdown(vws_tcp_svr* server)
                 data->data = NULL;
             }
 
-            vws_svr_data_free(data);
+            // Dispose, not free: an FD_ADOPT block still queued at shutdown
+            // carries an fd no handle owns -- the drain must CLOSE it
+            // (svr_data_dispose), not just reclaim the block.
+            svr_data_dispose(data);
         }
         uv_mutex_unlock(&queue->mutex);
     }
@@ -2945,7 +3230,9 @@ void queue_push(vws_svr_queue* queue, vws_svr_data* data)
         // is reference-counted, and on the response path the sender holds a
         // second ref it will release after its post-push read. A raw free here
         // would pull the object out from under that read (UAF) and double-free.
-        vws_svr_data_free(data);
+        // Dispose (not free) so an FD_ADOPT block dropped in the stop()-races-
+        // adopt window has its carried fd closed, not leaked.
+        svr_data_dispose(data);
         return;
     }
 
@@ -2965,9 +3252,9 @@ void queue_push(vws_svr_queue* queue, vws_svr_data* data)
         // queue no longer RUNNING still owns this hand-off's reference. Drop it
         // here -- mirroring the pre-lock not-running path above -- rather than
         // returning without freeing (an ownership leak inconsistent with that
-        // path). vws_svr_data_free, not a raw free, honors the response path's
-        // second ref (refcount).
-        vws_svr_data_free(data);
+        // path). Dispose honors the response path's second ref (refcounted
+        // free) and closes an FD_ADOPT block's carried fd.
+        svr_data_dispose(data);
         return;
     }
 

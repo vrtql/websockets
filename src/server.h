@@ -231,7 +231,17 @@ typedef enum
     // answered AND the connection torn down, without an immediate uv_close
     // cancelling the echo write. A distinct bit from VWS_SVR_STATE_CLOSE, which
     // means "close, do not write" on the responses-drain path.
-    VWS_SVR_STATE_CLOSE_AFTER_WRITE = (1 << 18)
+    VWS_SVR_STATE_CLOSE_AFTER_WRITE = (1 << 18),
+
+    // [vws FD-ADOPT] Set on a vws_svr_data pushed by vws_tcp_svr_adopt(): the
+    // block carries a connected socket descriptor (an owned heap vws_sockfd_t
+    // in data) handed off by an application acceptor thread. uv_thread's
+    // responses drain runs the adoption body (the inetd pattern: nonblocking,
+    // uv_tcp_init/open, read_start, cnx registration) ON the loop thread. Any
+    // drain that discards such a block without adopting must CLOSE the carried
+    // fd -- an open descriptor is not memory, so freeing the block alone leaks
+    // the socket (svr_data_dispose in server.c).
+    VWS_SVR_STATE_FD_ADOPT = (1 << 19)
 } vws_svr_state_flags_t;
 
 /** Connection ID. This is the index within the address pool that the
@@ -818,6 +828,37 @@ int vws_tcp_svr_inetd_run(vws_tcp_svr* server, vws_sockfd_t sockfd);
  * @param server The server to stop.
  */
 void vws_tcp_svr_inetd_stop(vws_tcp_svr* server);
+
+/**
+ * @brief Starts a VRTQL server in fd-adoption mode. Identical to
+ * vws_tcp_svr_run() except that NO listening socket is created: connections
+ * arrive exclusively via vws_tcp_svr_adopt() from an application-owned
+ * acceptor. The loop is kept alive by the server's internal wakeup handle.
+ * Stopped by vws_tcp_svr_stop(), exactly like vws_tcp_svr_run().
+ *
+ * @param server The server to run.
+ * @return 0 if successful, an error code otherwise.
+ */
+int vws_tcp_svr_run_adopt(vws_tcp_svr* server);
+
+/**
+ * @brief Hands a connected socket descriptor to a running server for adoption
+ * into its loop. Callable from ANY thread: the hand-off rides the server's
+ * mutex-protected responses queue and the adoption itself runs on the loop
+ * thread (the libuv thread-safety contract for uv_tcp_init/uv_tcp_open).
+ *
+ * On true the server has taken ownership of the descriptor: it is adopted, or
+ * closed by the failure/drain arms if adoption cannot complete. On false the
+ * server is not running and the CALLER retains ownership of the (still-open)
+ * descriptor -- it can route to another server or close it.
+ *
+ * @param server The target server (running via vws_tcp_svr_run_adopt or
+ *   vws_tcp_svr_run).
+ * @param fd The connected socket descriptor to adopt.
+ * @return true if the descriptor was handed off, false if the server is not
+ *   running.
+ */
+bool vws_tcp_svr_adopt(vws_tcp_svr* server, vws_sockfd_t fd);
 
 /**
  * @brief Check that peers are all online
