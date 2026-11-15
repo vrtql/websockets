@@ -26,6 +26,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
+#include <sys/socket.h>
 #include <sys/wait.h>
 
 //------------------------------------------------------------------------------
@@ -264,6 +265,46 @@ CTEST(ws, process_frame_control)
     process_frame(c, vws_frame_new(NULL, 0, CLOSE_FRAME));
     ASSERT_TRUE(vws_is_flag(&c->flags, CNX_CLOSING));
     process_frame(c, vws_frame_new((ucstr)"pingdata", 8, PING_FRAME));
+    vws_cnx_free(c);
+}
+
+//------------------------------------------------------------------------------
+// FRAME_ERROR record survives the close write (the F1 record's purpose)
+//------------------------------------------------------------------------------
+
+// A malformed frame inside vws_msg_recv() must leave the FRAME_ERROR
+// record IN PLACE when recv returns NULL: the 1002 close goes out through
+// vws_socket_write(), whose leading vws.success() used to wipe the record
+// before the caller could read it — making a bad frame indistinguishable
+// from an ordinary close at the vws_msg_recv() NULL-return contract. Full
+// wire path on a real fd: socketpair end under the cnx, an unmasked
+// header declaring an over-cap 64-bit payload (the C-WS-2 reject).
+CTEST(ws, frame_error_record_survives_close_write)
+{
+    int fds[2];
+    ASSERT_EQUAL(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+
+    vws_cnx* c     = vws_cnx_new();
+    c->base.sockfd = fds[0];
+    vws_socket_set_timeout(&c->base, 1);
+
+    unsigned char hdr[10] = { 0x81, 0x7F,
+                              0xFF, 0xFF, 0xFF, 0xFF,
+                              0xFF, 0xFF, 0xFF, 0xFF };
+    ASSERT_EQUAL((int)sizeof(hdr), (int)write(fds[1], hdr, sizeof(hdr)));
+
+    vws.success();
+    vws_msg* m = vws_msg_recv(c);
+
+    ASSERT_NULL(m);
+    ASSERT_TRUE(vws_is_flag(&c->flags, CNX_CLOSING));
+
+    // The regression pin: the record survives the 1002 close write.
+    ASSERT_EQUAL(VE_WARN, (int)vws.e.code);
+    ASSERT_NOT_NULL(vws.e.text);
+    ASSERT_STR("FRAME_ERROR", vws.e.text);
+
+    close(fds[1]);
     vws_cnx_free(c);
 }
 

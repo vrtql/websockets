@@ -1287,7 +1287,6 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
             // RFC 6455 send a 1002 (protocol error) close, flag CLOSING, clear
             // the buffer, and return -1 so callers distinguish ERROR from the
             // INCOMPLETE 0 return below.
-            vws.error(VE_WARN, "FRAME_ERROR");
             vws_frame_free(frame);
 
             vws_set_flag(&c->flags, CNX_CLOSING);
@@ -1304,6 +1303,13 @@ ssize_t vws_cnx_ingress(vws_cnx* c)
             }
 
             vws_buffer_clear(c->base.buffer);
+
+            // Record the error LAST: vws_socket_write() (the 1002 close
+            // above) begins with vws.success(), which would wipe this
+            // record before the caller ever saw it — the F1 record exists
+            // precisely so a NULL-recv caller can distinguish BAD FRAME
+            // from an ordinary close (vws_msg_recv's documented contract).
+            vws.error(VE_WARN, "FRAME_ERROR");
 
             return -1;
         }
