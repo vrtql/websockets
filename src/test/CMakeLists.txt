@@ -57,7 +57,8 @@ if(BUILD_SERVER)
     test_address_pool_generation
     test_svr_peerclose
     test_svr_failstop
-    test_svr_splitbody )
+    test_svr_splitbody
+    test_svr_adopt_wake )
 endif()
 
 foreach(x ${test_targets})

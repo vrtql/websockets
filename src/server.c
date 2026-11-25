@@ -1355,12 +1355,23 @@ void uv_thread(uv_async_t* handle)
             // for that socket descriptor, customize it for websocket operation
             // and add to connection pool.
 
+            // A failed adoption ends THIS PEER's turn only (continue), at
+            // each of the four arms below. The peer is back in
+            // VWS_PEER_CLOSED and is re-dialed on a later tick. The wake
+            // itself must go on: it has already written the queued
+            // responses above, and the rest of it -- the remaining peers,
+            // the paused-read resume, the loop callback and the peer-tick
+            // tail -- is owed in the same wake. Leaving uv_thread() here
+            // skipped all of that until the next wake, so a client could
+            // hold a response written by this wake while the loop callback
+            // that goes with it had not yet run.
+
             // Set socket to non-blocking mode for libuv
             if (vws_socket_set_nonblocking(peer->sockfd) == false)
             {
                 vws.error(VE_RT, "Failed to set socket to nonblocking");
                 peer_adopt_fail(peer);
-                return;
+                continue;
             }
 
             // Adopt socket descriptor into libuv loop
@@ -1372,7 +1383,7 @@ void uv_thread(uv_async_t* handle)
                 vws.error(VE_RT, "Failed to initialize new TCP handle");
                 vws.free(c);
                 peer_adopt_fail(peer);
-                return;
+                continue;
             }
 
             if (uv_tcp_open(c, peer->sockfd))
@@ -1384,7 +1395,7 @@ void uv_thread(uv_async_t* handle)
                 c->data = NULL;
                 uv_close((uv_handle_t*)c, svr_on_close_discard);
                 peer_adopt_fail(peer);
-                return;
+                continue;
             }
 
             // OS-level dead-peer detection on the
@@ -1410,7 +1421,7 @@ void uv_thread(uv_async_t* handle)
                 // the peer to CLOSED so the dial is re-queued.
                 peer->sockfd = VWS_INVALID_SOCKET;
                 peer->state  = VWS_PEER_CLOSED;
-                return;
+                continue;
             }
 
             if (vws.tracelevel >= VT_THREAD)
