@@ -469,6 +469,78 @@ if(BUILD_SERVER)
             --suppressions=valgrind.suppress ./test_svr_reqleak )
   add_dependencies(test_svr_reqleak static_test_lib static_lib)
 
+  # A request block that never reaches a worker (server stop) must release the
+  # message object it carries: vws_msg* and vws_http_msg* payloads, through
+  # both stop-time release sites (svr_shutdown drain, queue_push on a queue
+  # that is no longer running). #includes server.c; no sockets, no threads.
+  # Running the program plainly checks the functional asserts only. The lost
+  # memory is visible to valgrind alone, so the gate is the memcheck run:
+  #
+  #   make test_svr_stoprelease_memcheck
+  #
+  # runs the program under valgrind with an error exit code and FAILS (make
+  # stops with an error) on any lost block. Before the fix: 14 loss records;
+  # the two control cells lose nothing either way. The *_leakcheck targets
+  # elsewhere in this file print a report and cannot fail; this one can.
+  # The same command is registered with add_test for a CTest-enabled build
+  # (this project has no enable_testing(), so add_test alone is inert).
+  # Without valgrind there is no memcheck target and the add_test entry is
+  # DISABLED ("Not Run"), never a pass; configure prints a warning.
+  add_executable(test_svr_stoprelease test_svr_stoprelease.c)
+  target_include_directories(test_svr_stoprelease PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PREFIX}/include)
+  target_link_libraries(test_svr_stoprelease PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_stoprelease COMMAND test_svr_stoprelease)
+  add_dependencies(test_svr_stoprelease static_test_lib static_lib)
+
+  find_program(VWS_VALGRIND valgrind)
+  if(VWS_VALGRIND)
+    add_custom_target(test_svr_stoprelease_memcheck
+      COMMAND ${VWS_VALGRIND} --quiet --leak-check=full --error-exitcode=9
+              $<TARGET_FILE:test_svr_stoprelease>
+      COMMENT "memcheck gate: stop-time release of queued message blocks")
+    add_dependencies(test_svr_stoprelease_memcheck test_svr_stoprelease)
+    add_test(NAME test_svr_stoprelease_memcheck
+      COMMAND ${VWS_VALGRIND} --quiet --leak-check=full --error-exitcode=9
+              $<TARGET_FILE:test_svr_stoprelease>)
+  else()
+    message(WARNING
+      "valgrind not found: test_svr_stoprelease_memcheck is DISABLED. "
+      "The stop-time release of queued message blocks is NOT checked.")
+    add_test(NAME test_svr_stoprelease_memcheck COMMAND test_svr_stoprelease)
+    set_tests_properties(test_svr_stoprelease_memcheck PROPERTIES DISABLED TRUE)
+  endif()
+
+  # The same release, end to end on loopback (127.0.0.1:8238): a real server
+  # with one worker held by the application, two further client messages seen
+  # resident in the requests queue, then vws_tcp_svr_stop(). Links the library
+  # as built. Gate: make test_svr_stoprelease_e2e_memcheck (fails on any lost
+  # block; before the fix: 2 loss records, one per resident message).
+  add_executable(test_svr_stoprelease_e2e test_svr_stoprelease_e2e.c)
+  target_include_directories(test_svr_stoprelease_e2e PRIVATE
+    ${PREFIX}/include)
+  target_link_libraries(test_svr_stoprelease_e2e PRIVATE
+    static_test_lib static_lib ${OS_LIBS} -lm)
+  add_test(NAME test_svr_stoprelease_e2e COMMAND test_svr_stoprelease_e2e)
+  add_dependencies(test_svr_stoprelease_e2e static_test_lib static_lib)
+
+  if(VWS_VALGRIND)
+    add_custom_target(test_svr_stoprelease_e2e_memcheck
+      COMMAND ${VWS_VALGRIND} --quiet --leak-check=full --error-exitcode=9
+              $<TARGET_FILE:test_svr_stoprelease_e2e>
+      COMMENT "memcheck gate: stop with messages queued, end to end")
+    add_dependencies(test_svr_stoprelease_e2e_memcheck test_svr_stoprelease_e2e)
+    add_test(NAME test_svr_stoprelease_e2e_memcheck
+      COMMAND ${VWS_VALGRIND} --quiet --leak-check=full --error-exitcode=9
+              $<TARGET_FILE:test_svr_stoprelease_e2e>)
+  else()
+    add_test(NAME test_svr_stoprelease_e2e_memcheck
+      COMMAND test_svr_stoprelease_e2e)
+    set_tests_properties(test_svr_stoprelease_e2e_memcheck
+      PROPERTIES DISABLED TRUE)
+  endif()
+
   # borrowed-peer DOUBLE-FREE at the shutdown drain. #includes server.c
   # (statics shadow static_lib's server.o); queues a residual PEER_CONNECT
   # block borrowing the kvs peer and drives svr_shutdown (frees the peer) then

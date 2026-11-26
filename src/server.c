@@ -408,9 +408,15 @@ static void svr_adopt_fd(vws_tcp_svr* server, vws_sockfd_t fd);
  * descriptor no loop handle owns yet; freeing the block alone would leak the
  * OPEN descriptor (the heap int is freed, the socket stays open for the life
  * of the process). Close it first, then release the block through the
- * refcounted free. All other block types pass through to vws_svr_data_free
- * unchanged. NOTE: queue_try_push is not routed here on purpose -- it serves
- * the requests queue only, which FD_ADOPT blocks never ride.
+ * refcounted free. A block whose data is a pointer to a message object
+ * (VWS_SVR_STATE_WS_MSG: vws_msg*, VWS_SVR_STATE_HTTP: vws_http_msg*) has
+ * that object freed with its own function first; a plain free of the pointer
+ * releases the outer struct only and loses everything the message owns. All
+ * other block types (IRQ and PEER_CONNECT included) pass through to
+ * vws_svr_data_free unchanged. NOTE: queue_try_push is not routed here on
+ * purpose -- it serves the requests queue only, which FD_ADOPT blocks never
+ * ride, and both of its call sites (svr_client_read, and the resume of a
+ * paused connection's stashed block) push plain byte blocks.
  *
  * @param data The block to discard.
  */
@@ -1660,13 +1666,35 @@ void vws_svr_data_free(vws_svr_data* t)
     vws.free(t);
 }
 
-// See the declaration comment: close an FD_ADOPT block's carried fd before
-// releasing the block; pass-through to vws_svr_data_free for everything else.
+// See the declaration comment: close an FD_ADOPT block's carried fd and free
+// a carried message object with its own function before releasing the block;
+// pass-through to vws_svr_data_free for everything else.
 static void svr_data_dispose(vws_svr_data* data)
 {
     if (vws_is_flag(&data->flags, VWS_SVR_STATE_FD_ADOPT) && data->data != NULL)
     {
         svr_close_fd(*(vws_sockfd_t*)data->data);
+    }
+
+    // A request block that carries a message object. Such a block is made on
+    // the loop thread and handed to the requests queue with its one reference
+    // (only response blocks ever take a second one, in vws_tcp_svr_send), so
+    // the caller here holds the last reference and the message is ours to
+    // free. Clearing data leaves vws_svr_data_free the block struct alone.
+    if (data->data != NULL)
+    {
+        if (vws_is_flag(&data->flags, VWS_SVR_STATE_HTTP))
+        {
+            vws_http_msg_free((vws_http_msg*)data->data);
+            data->data = NULL;
+            data->size = 0;
+        }
+        else if (vws_is_flag(&data->flags, VWS_SVR_STATE_WS_MSG))
+        {
+            vws_msg_free((vws_msg*)data->data);
+            data->data = NULL;
+            data->size = 0;
+        }
     }
 
     vws_svr_data_free(data);
@@ -3895,6 +3923,11 @@ void ws_svr_client_read(vws_svr_cnx* cnx, ssize_t size, const uv_buf_t* buf)
                                       cnx->cid,
                                       (ucstr)wsm,
                                       sizeof(vws_msg*) );
+
+            // Say what data is, so a block that never reaches a worker is
+            // released with vws_msg_free() (svr_data_dispose).
+            vws_set_flag(&block->flags, VWS_SVR_STATE_WS_MSG);
+
             queue_push(&cnx->server->requests, block);
         }
     }

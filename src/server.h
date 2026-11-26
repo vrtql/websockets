@@ -241,7 +241,17 @@ typedef enum
     // drain that discards such a block without adopting must CLOSE the carried
     // fd -- an open descriptor is not memory, so freeing the block alone leaks
     // the socket (svr_data_dispose in server.c).
-    VWS_SVR_STATE_FD_ADOPT = (1 << 19)
+    VWS_SVR_STATE_FD_ADOPT = (1 << 19),
+
+    // Set on a requests-queue vws_svr_data whose data is a vws_msg* (a complete
+    // WebSocket message popped by the loop thread, on its way to a worker).
+    // The normal consumer takes the message and clears data before it frees
+    // the block. A block that never reaches a worker (server stop) is
+    // released by svr_data_dispose in server.c, which needs this bit to free
+    // the message with vws_msg_free() and not with a plain free of the struct,
+    // which loses the message's buffer. VWS_SVR_STATE_HTTP says the same for a
+    // vws_http_msg* payload.
+    VWS_SVR_STATE_WS_MSG = (1 << 20)
 } vws_svr_state_flags_t;
 
 /** Connection ID. This is the index within the address pool that the
